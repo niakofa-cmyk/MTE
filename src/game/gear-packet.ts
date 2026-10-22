@@ -81,21 +81,37 @@ export function serializeGearPacket(data: UnpackedPlayerGearData): ArrayBuffer {
   return buffer;
 }
 
-export function deserializeGearPacket(buffer: ArrayBuffer): UnpackedPlayerGearData {
-  if (buffer.byteLength !== GEAR_PACKET_BYTES) throw new Error("gear packet must be 18 bytes");
-  const view = new DataView(buffer);
+function gearView(input: ArrayBuffer | ArrayBufferView) {
+  const view = input instanceof ArrayBuffer ? new DataView(input) : new DataView(input.buffer, input.byteOffset, input.byteLength);
+  if (view.byteLength !== GEAR_PACKET_BYTES) throw new Error("gear packet must be 18 bytes");
+  if (view.byteOffset < 0 || view.byteOffset + view.byteLength > view.buffer.byteLength) throw new Error("gear packet exceeds buffer");
+  return view;
+}
+
+function readU32(view: DataView, offset: number) {
+  if (offset < 0 || offset + 4 > view.byteLength) throw new Error("gear packet read out of range");
+  return view.getUint32(offset, true);
+}
+
+function readU16(view: DataView, offset: number) {
+  if (offset < 0 || offset + 2 > view.byteLength) throw new Error("gear packet read out of range");
+  return view.getUint16(offset, true);
+}
+
+export function deserializeGearPacket(input: ArrayBuffer | ArrayBufferView): UnpackedPlayerGearData {
+  const view = gearView(input);
   const equippedModIds: number[] = [];
   for (let i = 0; i < 3; i++) {
-    const modId = view.getUint16(8 + i * 2, true);
+    const modId = readU16(view, 8 + i * 2);
     if (modId !== 0) equippedModIds.push(modId);
   }
   return {
-    playerId: view.getUint32(0, true),
-    characterId: view.getUint16(4, true),
-    primaryWeaponId: view.getUint16(6, true),
+    playerId: readU32(view, 0),
+    characterId: readU16(view, 4),
+    primaryWeaponId: readU16(view, 6),
     equippedModIds,
-    runtimeRecoilFactor: view.getUint16(14, true) / 100,
-    runtimeDamageValue: view.getUint16(16, true),
+    runtimeRecoilFactor: readU16(view, 14) / 100,
+    runtimeDamageValue: readU16(view, 16),
   };
 }
 

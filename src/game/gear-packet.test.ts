@@ -77,8 +77,27 @@ describe("gear packet", () => {
     assert.equal(gear.runtimeRecoilFactor, 0.01);
   });
 
-  it("rejects a short buffer", () => {
+  it("rejects a short buffer and a view that runs off the end", () => {
     assert.throws(() => deserializeGearPacket(new ArrayBuffer(8)), /18 bytes/);
+    const fat = new Uint8Array(30);
+    assert.throws(() => deserializeGearPacket(fat.subarray(20)), /18 bytes/);
+  });
+
+  it("reads an 18-byte window and ignores bytes outside it", () => {
+    const packet = new Uint8Array(serializeGearPacket({
+      playerId: 9,
+      characterId: 101,
+      primaryWeaponId: 501,
+      equippedModIds: [1001],
+      runtimeRecoilFactor: 1,
+      runtimeDamageValue: 40,
+    }));
+    const carrier = new Uint8Array(40);
+    carrier.fill(255);
+    carrier.set(packet, 12);
+    const gear = deserializeGearPacket(carrier.subarray(12, 30));
+    assert.equal(gear.playerId, 9);
+    assert.deepEqual(gear.equippedModIds, [1001]);
   });
 
   it("clamps a blown damage word", () => {

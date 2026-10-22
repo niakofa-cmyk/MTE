@@ -564,7 +564,8 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
   const readoutKey = useRef("");
   const [stick, setStick] = useState<{ x: number; y: number; nx: number; ny: number } | null>(null);
   const [wheel, setWheel] = useState<string | null>(null);
-  const [tune, setTune] = useState({ flick: 15, shove: 75, look: 1.7, disc: 1, cone: 8, magnet: 0.25, drag: 0.6 });
+  const [tune, setTune] = useState({ flick: 15, shove: 75, look: 1.7, disc: 1, discRight: 24, discTop: 55, cone: 8, magnet: 0.25, drag: 0.6 });
+  const [layoutOpen, setLayoutOpen] = useState(false);
   const [readout, setReadout] = useState<{ prompt: string; action: "interact" | "ability" | null; weapons: { name: string; active: boolean }[] }>({
     prompt: "",
     action: null,
@@ -581,6 +582,8 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
         shove: saved.shove ?? prev.shove,
         look: saved.look ?? prev.look,
         disc: saved.disc ?? prev.disc,
+        discRight: saved.discRight ?? prev.discRight,
+        discTop: saved.discTop ?? prev.discTop,
         cone: saved.cone ?? prev.cone,
         magnet: saved.magnet ?? prev.magnet,
         drag: saved.drag ?? prev.drag,
@@ -686,12 +689,15 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
   const actionLabel = readout.prompt.replace(/^HOLD E\s+/, "").replace(/^[EQ]\s+/, "");
 
   return (
-    <div className="touch-only touch-hud-overlay" style={{ ["--touch-disc-scale" as string]: String(tune.disc) }}>
+    <div className="touch-only touch-hud-overlay">
       <div className="touch-zone-interactive zone-left-movement" onPointerDown={start("MOVEMENT")} onPointerMove={drag} onPointerUp={finish("MOVEMENT")} onPointerCancel={finish("MOVEMENT")} />
       <div className="touch-zone-interactive zone-right-combat" onPointerDown={start("LOOK_COMBAT")} onPointerMove={drag} onPointerUp={finish("LOOK_COMBAT")} onPointerCancel={finish("LOOK_COMBAT")} />
-      <div className="gold-disc-utility" onPointerDown={start("UTILITY")} onPointerMove={drag} onPointerUp={finish("UTILITY")} onPointerCancel={finish("UTILITY")}>
-        <span className="gold-disc-center-node" />
-        <span className="pointer-events-none absolute inset-0 grid place-items-center font-display text-xs tracking-widest text-bg">{wheel ?? "Q"}</span>
+      <div className="gold-disc-slot" style={{ right: tune.discRight, top: `${tune.discTop}%`, transform: `translateY(-50%) scale(${tune.disc})` }}>
+        {layoutOpen ? <div className="gold-disc-bounding-box" /> : null}
+        <div className="gold-disc-utility is-placed" onPointerDown={start("UTILITY")} onPointerMove={drag} onPointerUp={finish("UTILITY")} onPointerCancel={finish("UTILITY")}>
+          <span className="gold-disc-center-node" />
+          <span className="pointer-events-none absolute inset-0 grid place-items-center font-display text-xs tracking-widest text-bg">{wheel ?? "Q"}</span>
+        </div>
       </div>
       <button type="button" className="touch-fire" onPointerDown={start("FIRE")} onPointerUp={finish("FIRE")} onPointerCancel={finish("FIRE")}>
         FIRE
@@ -733,43 +739,40 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
           <div className="dynamic-virtual-thumb" style={{ marginLeft: stick.nx * 22, marginTop: -stick.ny * 22 }} />
         </div>
       ) : null}
-      <details className="touch-tune" onPointerDown={(event) => event.stopPropagation()}>
-        <summary>TUNE</summary>
-        <label>
-          Flick
-          <input type="range" min={8} max={80} value={tune.flick} onChange={(event) => setField("flick", Number(event.target.value))} />
-          <span>{tune.flick}</span>
-        </label>
-        <label>
-          Sprint
-          <input type="range" min={40} max={120} value={tune.shove} onChange={(event) => setField("shove", Number(event.target.value))} />
-          <span>{tune.shove}</span>
-        </label>
-        <label>
-          Look
-          <input type="range" min={0.6} max={2.8} step={0.1} value={tune.look} onChange={(event) => setField("look", Number(event.target.value))} />
-          <span>{tune.look.toFixed(1)}</span>
-        </label>
-        <label>
-          Disc
-          <input type="range" min={0.7} max={1.4} step={0.1} value={tune.disc} onChange={(event) => setField("disc", Number(event.target.value))} />
-          <span>{tune.disc.toFixed(1)}</span>
-        </label>
-        <label>
-          Cone
-          <input type="range" min={3} max={14} value={tune.cone} onChange={(event) => setField("cone", Number(event.target.value))} />
-          <span>{tune.cone}</span>
-        </label>
-        <label>
-          Magnet
-          <input type="range" min={0} max={0.6} step={0.05} value={tune.magnet} onChange={(event) => setField("magnet", Number(event.target.value))} />
-          <span>{tune.magnet.toFixed(2)}</span>
-        </label>
-        <label>
-          Drag
-          <input type="range" min={0.3} max={1} step={0.05} value={tune.drag} onChange={(event) => setField("drag", Number(event.target.value))} />
-          <span>{tune.drag.toFixed(2)}</span>
-        </label>
+      <details className="configurator-panel-container" onToggle={(event) => setLayoutOpen(event.currentTarget.open)} onPointerDown={(event) => event.stopPropagation()}>
+        <summary className="configurator-title">
+          Touch layout
+          <span>{layoutOpen ? "Close" : "Edit"}</span>
+        </summary>
+        {(
+          [
+            ["Flick", "flick", 8, 80, 1],
+            ["Sprint", "shove", 40, 120, 1],
+            ["Look", "look", 0.6, 2.8, 0.1],
+            ["Disc", "disc", 0.7, 1.4, 0.1],
+            ["Disc X", "discRight", 8, 120, 1],
+            ["Disc Y", "discTop", 20, 80, 1],
+            ["Cone", "cone", 3, 14, 1],
+            ["Magnet", "magnet", 0, 0.6, 0.05],
+            ["Drag", "drag", 0.3, 1, 0.05],
+          ] as const
+        ).map(([label, key, min, max, step]) => (
+          <label key={key} className="configurator-row">
+            <span className="configurator-label-group">
+              <span>{label}</span>
+              <span>{typeof tune[key] === "number" && !Number.isInteger(tune[key]) ? tune[key].toFixed(2) : tune[key]}</span>
+            </span>
+            <input
+              className="configurator-slider"
+              type="range"
+              min={min}
+              max={max}
+              step={step}
+              value={tune[key]}
+              onChange={(event) => setField(key, Number(event.target.value))}
+            />
+          </label>
+        ))}
       </details>
     </div>
   );

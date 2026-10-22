@@ -57,4 +57,35 @@ describe("aim assist", () => {
     });
     assert.equal(far.locked, false);
   });
+
+  it("scales a 10px look delta to 6 when the target is on the sightline", () => {
+    const assisted = applyAimAssist({
+      origin: { x: 0, y: 0, z: 0 },
+      yaw: 0,
+      pitch: 0,
+      lookX: 10,
+      lookY: 0,
+      targets: [{ x: 0, y: 1.2, z: -20 }],
+      dt: 1 / 60,
+    });
+    assert.equal(assisted.locked, true);
+    assert.equal(assisted.lookX, 6);
+  });
+
+  it("passes the raw look delta when the target is outside the cone", () => {
+    const assisted = applyAimAssist({
+      origin: { x: 0, y: 0, z: 0 },
+      yaw: 0,
+      pitch: 0,
+      lookX: 10,
+      lookY: 5,
+      targets: [{ x: 40, y: 0, z: -5 }],
+      dt: 1 / 60,
+    });
+    assert.equal(assisted.locked, false);
+    assert.equal(assisted.lookX, 10);
+    assert.equal(assisted.lookY, 5);
+    assert.equal(assisted.yawPull, 0);
+    assert.equal(assisted.pitchPull, 0);
+  });
 });
