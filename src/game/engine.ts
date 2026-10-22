@@ -12,6 +12,7 @@ import { ATTACHMENT_BY_ID, compileWeapon, rollLoot, sectorLabel, sectorTier, wea
 import { generateContainerDropArray, resolveExtractionDrop } from "@/game/extraction-loot";
 import { loadMars, modsForDrop, registryForLabel, solarCoilEmits, weaponIdForRegistry, COIL_EMISSION, type ExtractedPiece } from "@/game/mars-stash";
 import { applyAimAssist, AIM_ASSIST } from "@/game/aim-assist";
+import { stepEnemyMind, type Mind } from "@/game/enemy-ai";
 import { acceptDropTicket, readAttachment, sealedModIds } from "@/game/weapon-mod";
 import { MOD_CODE, deserializeGearPacket, modCodes, packHeldGear } from "@/game/gear-packet";
 import {
@@ -59,6 +60,10 @@ type Actor = {
   corpse: number;
   blind: number;
   lift: number;
+  mind: Mind;
+  mindAge: number;
+  knownX: number;
+  knownZ: number;
   group: THREE.Group;
   bodyMat: THREE.MeshStandardMaterial;
   visorMat: THREE.MeshStandardMaterial;
@@ -790,6 +795,10 @@ export class MissionEngine {
         corpse: 0,
         blind: 0,
         lift: 0,
+        mind: "patrol",
+        mindAge: 0,
+        knownX: 0,
+        knownZ: 0,
         group: fig.group,
         bodyMat: fig.bodyMat,
         visorMat: fig.visorMat,
@@ -2648,29 +2657,45 @@ export class MissionEngine {
           tz = target.z;
         }
       } else {
-        if (actor.blind > 0) {
-          actor.aggro = 0;
-        } else {
-          const seen = this.playerVisible(actor, noise);
-          if (seen) actor.aggro = 2.8;
-          else actor.aggro = Math.max(0, actor.aggro - dt);
-        }
-        const victim = actor.aggro > 0 && actor.blind <= 0 ? this.nearestThreat(actor) : null;
-        if (victim) {
-          target = victim;
-          const d = Math.hypot(victim.x - actor.x, victim.z - actor.z);
-          const dx = victim.x - actor.x;
-          const dz = victim.z - actor.z;
-          if (d > 16) {
-            tx = victim.x;
-            tz = victim.z;
-          } else if (d < 7) {
-            tx = actor.x - dx;
-            tz = actor.z - dz;
-          } else {
-            tx = actor.x - dz;
-            tz = actor.z + dx;
+        const seen = actor.blind <= 0 && this.playerVisible(actor, noise);
+        const heard = actor.blind <= 0 && Math.hypot(this.x - actor.x, this.z - actor.z) < noise * 0.7;
+        const mind = stepEnemyMind({
+          state: actor.mind,
+          seen,
+          heard,
+          dt,
+          age: actor.mindAge,
+          lastX: actor.knownX,
+          lastZ: actor.knownZ,
+          actorX: this.x,
+          actorZ: this.z,
+        });
+        actor.mind = mind.state;
+        actor.mindAge = mind.age;
+        actor.knownX = mind.lastX;
+        actor.knownZ = mind.lastZ;
+        actor.aggro = mind.shoot ? 2.8 : mind.investigate ? 1.2 : Math.max(0, actor.aggro - dt);
+        if (mind.shoot) {
+          const victim = this.nearestThreat(actor);
+          if (victim) {
+            target = victim;
+            const d = Math.hypot(victim.x - actor.x, victim.z - actor.z);
+            const dx = victim.x - actor.x;
+            const dz = victim.z - actor.z;
+            if (d > 16) {
+              tx = victim.x;
+              tz = victim.z;
+            } else if (d < 7) {
+              tx = actor.x - dx;
+              tz = actor.z - dz;
+            } else {
+              tx = actor.x - dz;
+              tz = actor.z + dx;
+            }
           }
+        } else if (mind.investigate) {
+          tx = actor.knownX;
+          tz = actor.knownZ;
         } else {
           tx = actor.x + Math.sin(this.time * 0.4 + actor.x) * 6;
           tz = actor.z + Math.cos(this.time * 0.35 + actor.z) * 6;
