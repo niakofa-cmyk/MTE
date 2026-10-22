@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Mission To Earth">
+  <rect width="32" height="32" rx="7" fill="#07090d"/>
+  <path fill="#2ee0c8" d="M3.5 17a12.5 12.5 0 0 1 25 0z"/>
+  <path fill="#d4a24a" d="M16 5.2 20.4 17H11.6z"/>
+  <path fill="#07090d" d="M15.05 6.6h1.9V17h-1.9z"/>
+  <circle cx="16" cy="19.3" r="1.85" fill="#e8e4d8"/>
+  <path fill="#c43b3b" d="M13.3 21.3h5.4L16 28.2z"/>
+</svg>
