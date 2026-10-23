@@ -1,6 +1,6 @@
-# [Project name]
+# Mission To Earth
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Mission To Earth is a single-player 3D extraction shooter set in Nod, with tactical combat, rescue objectives, equipment progression, and local saves.
 
 ## Run & Operate
 
@@ -22,7 +22,12 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- Game UI and mission flow: `artifacts/mission-to-earth/src/game/Mission.tsx`
+- 3D game loop and combat systems: `artifacts/mission-to-earth/src/game/engine.ts`
+- City layout and world data: `artifacts/mission-to-earth/src/game/world.ts`
+- Full game-design reference: `artifacts/mission-to-earth/docs/mission-design-master-prompt.md`
+
+Use the saved design prompt as staged guidance. Keep changes playable and testable; do not describe future open-world or campaign goals as implemented features.
 
 ## Architecture decisions
 
@@ -30,7 +35,7 @@ _Populate as you build — non-obvious choices a reader couldn't infer from the 
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Players choose an operator, prepare equipment, enter a 3D mission, rescue two bloodlines, and extract. Personal records and equipment progression are stored locally in the browser.
 
 ## User preferences
 
@@ -43,3 +48,4 @@ _Populate as you build — sharp edges, "always run X before Y" rules._
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- Read `artifacts/mission-to-earth/docs/mission-design-master-prompt.md` before making substantial game-design or gameplay changes

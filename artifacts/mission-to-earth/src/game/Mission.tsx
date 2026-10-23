@@ -4,6 +4,15 @@ import { BLOODLINES, DOSSIER, OPERATORS, OPERATOR_BY_ID, type OpId, type WeaponI
 import { MissionEngine, type MissionEvent } from "@/game/engine";
 import { ATTACHMENT_BY_ID, type AttachSlot } from "@/game/loot";
 import {
+  DEFAULT_LOOK_SENSITIVITY,
+  LOOK_SENSITIVITY_STORAGE_KEY,
+  MAX_LOOK_SENSITIVITY,
+  MIN_LOOK_SENSITIVITY,
+  LOOK_SENSITIVITY_STEP,
+  normalizeLookSensitivity,
+  parseLookSensitivity,
+} from "@/game/settings";
+import {
   commitExtraction,
   ensureCredits,
   labelForRegistry,
@@ -16,7 +25,7 @@ import {
 } from "@/game/mars-stash";
 import { applyTouchCommand, TouchControllerLayer, type TouchCommand, type TouchZone } from "@/game/touch-controller";
 
-type Screen = "menu" | "dossier" | "armory" | "play" | "pause" | "dead" | "win";
+type Screen = "menu" | "dossier" | "armory" | "settings" | "play" | "pause" | "dead" | "win";
 type RecordBook = { extractions: number; best: number; kills: number; scrap: number };
 
 const RECORD_KEY = "mte-record-v1";
@@ -53,6 +62,13 @@ export function Mission() {
   const [record, setRecord] = useState<RecordBook | null>(null);
   const [mars, setMars] = useState<MarsProfile | null>(null);
   const [graphicsUnavailable, setGraphicsUnavailable] = useState(false);
+  const [lookSensitivity, setLookSensitivity] = useState(() => {
+    try {
+      return parseLookSensitivity(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
+    } catch {
+      return DEFAULT_LOOK_SENSITIVITY;
+    }
+  });
   const chosen = OPERATOR_BY_ID[op];
 
   useEffect(() => {
@@ -97,6 +113,7 @@ export function Mission() {
           if (event.type === "error") setScreen("menu");
         },
       });
+      engine.setLookSensitivity(lookSensitivity);
     } catch (error) {
       setGraphicsUnavailable(true);
       console.warn("Mission To Earth needs WebGL to render the game.", error);
@@ -127,17 +144,29 @@ export function Mission() {
         live={playing}
         onEngage={() => engineRef.current?.capture()}
       />
-      {screen === "menu" || screen === "dossier" || screen === "armory" ? (
+      {screen === "menu" || screen === "dossier" || screen === "armory" || screen === "settings" ? (
         <Menu
           op={op}
           setOp={setOp}
-          panel={screen === "dossier" ? "dossier" : screen === "armory" ? "armory" : "ops"}
+          panel={screen === "dossier" ? "dossier" : screen === "armory" ? "armory" : screen === "settings" ? "settings" : "ops"}
           record={record}
           mars={mars}
+          lookSensitivity={lookSensitivity}
           canStart={!graphicsUnavailable}
           onDossier={() => setScreen("dossier")}
           onArmory={() => setScreen("armory")}
+          onSettings={() => setScreen("settings")}
           onBack={() => setScreen("menu")}
+          onLookSensitivityChange={(value) => {
+            const next = normalizeLookSensitivity(value);
+            setLookSensitivity(next);
+            engineRef.current?.setLookSensitivity(next);
+            try {
+              localStorage.setItem(LOOK_SENSITIVITY_STORAGE_KEY, String(next));
+            } catch {
+              // The setting still applies for this session when storage is unavailable.
+            }
+          }}
           onMars={(next) => {
             saveMars(next);
             setMars(next);
@@ -216,22 +245,28 @@ function Menu({
   panel,
   record,
   mars,
+  lookSensitivity,
   canStart,
   onDossier,
   onArmory,
+  onSettings,
   onBack,
+  onLookSensitivityChange,
   onMars,
   onStart,
 }: {
   op: OpId;
   setOp: (id: OpId) => void;
-  panel: "ops" | "dossier" | "armory";
+  panel: "ops" | "dossier" | "armory" | "settings";
   record: RecordBook | null;
   mars: MarsProfile | null;
+  lookSensitivity: number;
   canStart: boolean;
   onDossier: () => void;
   onArmory: () => void;
+  onSettings: () => void;
   onBack: () => void;
+  onLookSensitivityChange: (value: number) => void;
   onMars: (next: MarsProfile) => void;
   onStart: () => void;
 }) {
@@ -270,6 +305,8 @@ function Menu({
           </div>
         ) : panel === "armory" ? (
           <Armory opWeapon={OPERATOR_BY_ID[op].weapon} profile={mars} onMars={onMars} />
+        ) : panel === "settings" ? (
+          <SettingsPanel sensitivity={lookSensitivity} onSensitivityChange={onLookSensitivityChange} />
         ) : (
           <>
           <div className="flex gap-3 overflow-x-auto pb-2">
@@ -341,10 +378,53 @@ function Menu({
               Armory
             </button>
           )}
+          {panel === "settings" ? null : (
+            <button type="button" className="border border-line px-5 py-3 font-display text-lg tracking-widest text-cyan" onClick={onSettings}>
+              Settings
+            </button>
+          )}
           <p className="text-sm text-muted">Click the city to seize the mouse. Esc pauses.</p>
         </div>
       </div>
     </div>
+  );
+}
+
+function SettingsPanel({
+  sensitivity,
+  onSensitivityChange,
+}: {
+  sensitivity: number;
+  onSensitivityChange: (value: number) => void;
+}) {
+  return (
+    <section className="w-full max-w-2xl border border-line bg-surface p-5">
+      <p className="font-display text-xs tracking-widest text-gold">Operator controls</p>
+      <h2 className="mt-1 font-display text-3xl text-fg">Look sensitivity</h2>
+      <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
+        Tune how quickly the view turns while aiming and moving. This setting is saved on this device.
+      </p>
+      <label htmlFor="look-sensitivity" className="mt-6 flex items-center justify-between gap-4 font-display text-sm tracking-widest text-cyan">
+        <span>Camera response</span>
+        <span>{Math.round(sensitivity * 100)}%</span>
+      </label>
+      <input
+        id="look-sensitivity"
+        aria-label="Look sensitivity"
+        aria-valuetext={`${Math.round(sensitivity * 100)} percent`}
+        className="mt-3 w-full accent-cyan"
+        type="range"
+        min={MIN_LOOK_SENSITIVITY}
+        max={MAX_LOOK_SENSITIVITY}
+        step={LOOK_SENSITIVITY_STEP}
+        value={sensitivity}
+        onChange={(event) => onSensitivityChange(Number(event.target.value))}
+      />
+      <div className="flex justify-between text-xs text-muted">
+        <span>Slow</span>
+        <span>Fast</span>
+      </div>
+    </section>
   );
 }
 

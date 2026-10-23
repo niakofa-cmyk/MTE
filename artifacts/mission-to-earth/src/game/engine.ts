@@ -15,6 +15,7 @@ import { applyAimAssist, AIM_ASSIST } from "@/game/aim-assist";
 import { stepEnemyMind, type Mind } from "@/game/enemy-ai";
 import { acceptDropTicket, readAttachment, sealedModIds } from "@/game/weapon-mod";
 import { MOD_CODE, deserializeGearPacket, modCodes, packHeldGear } from "@/game/gear-packet";
+import { normalizeLookSensitivity } from "@/game/settings";
 import {
   RADIUS,
   buildWorld,
@@ -1453,6 +1454,10 @@ export class MissionEngine {
     if (index < 0 || index >= this.slots.length || this.slot === index) return;
     this.slot = index;
     this.reloadT = 0;
+  }
+
+  setLookSensitivity(scale: number) {
+    this.sens = 0.00215 * normalizeLookSensitivity(scale);
   }
 
   touchReadout() {
