@@ -62,6 +62,8 @@ import {
   type WorldData,
 } from "@/game/world";
 import { applyCoverDamage, separateAabbOverlap } from "@/game/world-physics";
+import { createCityAsh } from "@/game/city-ash";
+import { NodPostProcessing } from "@/game/cinematic-postprocessing";
 import {
   SERVER_INPUT_FLAGS,
   type MatchInput,
@@ -409,6 +411,8 @@ function paintGunKit(group: THREE.Group, modIds: number[]) {
 export class MissionEngine {
   private host: HTMLElement;
   private hooks: { onEvent: (e: MissionEvent) => void };
+  private postProcessing: NodPostProcessing;
+  private cityAsh: THREE.Points;
   private serverGameplayHandlers: ServerGameplayHandlers | null = null;
   private serverGameplayActive = false;
   private pendingServerInteractions = new Set<string>();
@@ -647,7 +651,7 @@ export class MissionEngine {
     this.solids = [...this.world.buildings, ...this.world.covers];
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.touch ? 1.2 : 1.5));
     this.renderer.setSize(host.clientWidth || 1, host.clientHeight || 1, false);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -659,8 +663,16 @@ export class MissionEngine {
     this.renderer.domElement.style.height = "100%";
     this.renderer.domElement.style.display = "block";
     host.appendChild(this.renderer.domElement);
+    this.postProcessing = new NodPostProcessing(
+      this.renderer,
+      this.scene,
+      this.camera,
+      this.viewScene,
+      this.viewCam,
+      this.touch,
+    );
 
-    this.scene.fog = new THREE.FogExp2(0x2a3138, 0.0052);
+    this.scene.fog = new THREE.FogExp2(0x26323a, 0.0052);
     this.skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
@@ -670,13 +682,32 @@ export class MissionEngine {
         hor: { value: new THREE.Color("#6a5344") },
         bot: { value: new THREE.Color("#1c1814") },
         flash: { value: 0 },
+        uTime: { value: 0 },
       },
       vertexShader: `varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-      fragmentShader: `varying vec3 vP; uniform vec3 top, hor, bot; uniform float flash;
+      fragmentShader: `varying vec3 vP; uniform vec3 top, hor, bot; uniform float flash, uTime;
+        float hash21(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        }
+        float valueNoise(vec2 p) {
+          vec2 cell = floor(p);
+          vec2 local = fract(p);
+          local = local * local * (3.0 - 2.0 * local);
+          float a = hash21(cell);
+          float b = hash21(cell + vec2(1.0, 0.0));
+          float c = hash21(cell + vec2(0.0, 1.0));
+          float d = hash21(cell + vec2(1.0, 1.0));
+          return mix(mix(a, b, local.x), mix(c, d, local.x), local.y);
+        }
         void main(){
           float h = normalize(vP).y;
           vec3 col = mix(hor, top, smoothstep(0.02, 0.55, h));
           col = mix(bot, col, smoothstep(-0.25, 0.08, h));
+          float cloud = valueNoise(vP.xz * 0.018 + vec2(uTime * 0.008, -uTime * 0.005));
+          float streak = 0.5 + 0.5 * sin(vP.x * 0.014 + vP.z * 0.026 + uTime * 0.04);
+          float horizon = 1.0 - smoothstep(0.025, 0.42, abs(h + 0.01));
+          float haze = mix(cloud, streak, 0.28) * horizon * 0.19;
+          col = mix(col, vec3(0.16, 0.28, 0.31), haze);
           col = mix(col, vec3(0.85, 0.9, 1.0), flash);
           gl_FragColor = vec4(col, 1.0);
         }`,
@@ -699,6 +730,8 @@ export class MissionEngine {
     this.scene.add(this.sun.target);
 
     createCity(this.scene, this.world);
+    this.cityAsh = createCityAsh(this.touch ? 64 : 128);
+    this.scene.add(this.cityAsh);
     const lamps: Array<[number, number, number, number]> = [
       [80, 6, -62, 0xe24b4b],
       [-80, 6, 62, 0xd4a24a],
@@ -1063,6 +1096,9 @@ export class MissionEngine {
     window.removeEventListener("blur", this.onBlur);
     window.removeEventListener("resize", this.onResize);
     if (window.__controlsTest) window.__controlsTest = undefined;
+    this.postProcessing.dispose();
+    this.cityAsh.geometry.dispose();
+    (this.cityAsh.material as THREE.Material).dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
     void this.audio.ctx?.close();
@@ -4334,12 +4370,10 @@ export class MissionEngine {
   }
 
   private render() {
-    this.renderer.clear(true, true, true);
-    this.renderer.render(this.scene, this.camera);
-    if (this.mode !== "attract") {
-      this.renderer.clearDepth();
-      this.renderer.render(this.viewScene, this.viewCam);
-    }
+    this.skyMat.uniforms.uTime!.value = this.time;
+    (this.cityAsh.material as THREE.ShaderMaterial).uniforms.uTime!.value = this.time;
+    this.postProcessing.setViewModelEnabled(this.mode !== "attract");
+    this.postProcessing.render();
     this.drawMap();
   }
 
@@ -4349,6 +4383,7 @@ export class MissionEngine {
     this.viewW = w;
     this.viewH = h;
     this.renderer.setSize(w, h, false);
+    this.postProcessing.setSize(w, h);
     this.camera.aspect = w / Math.max(1, h);
     this.camera.updateProjectionMatrix();
   }
