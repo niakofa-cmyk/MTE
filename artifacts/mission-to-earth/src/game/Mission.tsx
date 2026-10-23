@@ -23,28 +23,11 @@ import {
   type MarsProfile,
   type ModField,
 } from "@/game/mars-stash";
+import { loadRecord, recordExtraction, saveRecord, type RecordBook } from "@/game/progress-record";
 import { applyTouchCommand, TouchControllerLayer, type TouchCommand, type TouchZone } from "@/game/touch-controller";
 
 type Screen = "menu" | "dossier" | "armory" | "settings" | "play" | "pause" | "dead" | "win";
-type RecordBook = { extractions: number; best: number; kills: number; scrap: number };
-
-const RECORD_KEY = "mte-record-v1";
-
-function loadRecord(): RecordBook {
-  try {
-    const raw = localStorage.getItem(RECORD_KEY);
-    if (!raw) return { extractions: 0, best: 0, kills: 0, scrap: 0 };
-    const parsed = JSON.parse(raw) as Partial<RecordBook>;
-    return {
-      extractions: parsed.extractions || 0,
-      best: parsed.best || 0,
-      kills: parsed.kills || 0,
-      scrap: parsed.scrap || 0,
-    };
-  } catch {
-    return { extractions: 0, best: 0, kills: 0, scrap: 0 };
-  }
-}
+const LOCAL_SAVE_WARNING = "Progress is still available in this session, but this browser could not save it locally.";
 
 function clock(seconds: number) {
   const s = Math.max(0, Math.floor(seconds));
@@ -61,6 +44,7 @@ export function Mission() {
   const [stats, setStats] = useState<{ time: number; kills: number; op: OpId; scrap: number; filed: string[] } | null>(null);
   const [record, setRecord] = useState<RecordBook | null>(null);
   const [mars, setMars] = useState<MarsProfile | null>(null);
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [graphicsUnavailable, setGraphicsUnavailable] = useState(false);
   const [lookSensitivity, setLookSensitivity] = useState(() => {
     try {
@@ -72,9 +56,13 @@ export function Mission() {
   const chosen = OPERATOR_BY_ID[op];
 
   useEffect(() => {
-    setRecord(loadRecord());
-    const seeded = ensureCredits(loadMars(), loadRecord().scrap);
-    if (seeded.martianCredits !== loadMars().martianCredits) saveMars(seeded);
+    const loadedRecord = loadRecord();
+    setRecord(loadedRecord);
+    const loadedMars = loadMars();
+    const seeded = ensureCredits(loadedMars, loadedRecord.scrap);
+    if (seeded.martianCredits !== loadedMars.martianCredits && !saveMars(seeded)) {
+      setSaveWarning(LOCAL_SAVE_WARNING);
+    }
     setMars(seeded);
     const host = hostRef.current;
     const root = rootRef.current;
@@ -96,19 +84,12 @@ export function Mission() {
             });
             setScreen("win");
             const nextMars = commitExtraction(loadMars(), event.scrap, event.manifest);
-            saveMars(nextMars);
+            const marsSaved = saveMars(nextMars);
             setMars(nextMars);
-            setRecord((prev) => {
-              const base = prev ?? loadRecord();
-              const next = {
-                extractions: base.extractions + 1,
-                best: base.best === 0 ? event.time : Math.min(base.best, event.time),
-                kills: base.kills + event.kills,
-                scrap: base.scrap + event.scrap,
-              };
-              localStorage.setItem(RECORD_KEY, JSON.stringify(next));
-              return next;
-            });
+            const nextRecord = recordExtraction(loadRecord(), event);
+            const recordSaved = saveRecord(nextRecord);
+            setRecord(nextRecord);
+            setSaveWarning(marsSaved && recordSaved ? null : LOCAL_SAVE_WARNING);
           }
           if (event.type === "error") setScreen("menu");
         },
@@ -144,6 +125,11 @@ export function Mission() {
         live={playing}
         onEngage={() => engineRef.current?.capture()}
       />
+      {saveWarning ? (
+        <p role="alert" className="fixed bottom-4 left-4 z-50 max-w-sm border border-danger/60 bg-surface px-4 py-3 text-sm text-fg shadow-xl">
+          {saveWarning}
+        </p>
+      ) : null}
       {screen === "menu" || screen === "dossier" || screen === "armory" || screen === "settings" ? (
         <Menu
           op={op}
@@ -168,7 +154,7 @@ export function Mission() {
             }
           }}
           onMars={(next) => {
-            saveMars(next);
+            setSaveWarning(saveMars(next) ? null : LOCAL_SAVE_WARNING);
             setMars(next);
           }}
           onStart={() => {
@@ -449,7 +435,7 @@ function Armory({
     <div className="border border-line bg-surface p-5">
       <p className="font-display text-xs tracking-widest text-gold">Mars bench · {bench.martianCredits} credits</p>
       <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
-        What leaves the pad is filed here. Pick a preset before the drop. A mod only seats if this operator's gun can hold it.
+        What leaves the pad is filed here. Pick a preset before the drop. A mod only seats if this operator's gun can hold it. Progress is saved in this browser only; it is not cloud-synced or server-verified.
       </p>
       <div className="mt-4 flex gap-2">
         {([1, 2, 3] as const).map((slot) => (

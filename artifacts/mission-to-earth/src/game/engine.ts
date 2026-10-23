@@ -4131,6 +4131,11 @@ export class MissionEngine {
   }
 
   private sectorName() {
+    const landmark = this.world.landmarks
+      .map((place) => ({ place, distance: Math.hypot(place.x - this.x, place.z - this.z) }))
+      .filter(({ place, distance }) => distance <= place.radius)
+      .sort((a, b) => a.distance - b.distance)[0]?.place;
+    if (landmark) return landmark.label;
     return sectorLabel(this.x, this.z);
   }
 
@@ -4162,6 +4167,7 @@ export class MissionEngine {
     };
     ctx.fillStyle = "#1b2129";
     for (const box of this.world.buildings) {
+      if (box.tag === "tree") continue;
       const corners: Array<[number, number]> = [
         [box.minX, box.minZ],
         [box.maxX, box.minZ],
@@ -4176,6 +4182,44 @@ export class MissionEngine {
       });
       ctx.closePath();
       ctx.fill();
+    }
+    ctx.lineCap = "round";
+    for (const route of this.world.routes) {
+      if (!route.points.some((point) => Math.hypot(point.x - px, point.z - pz) < 90)) continue;
+      ctx.beginPath();
+      route.points.forEach((point, index) => {
+        const [sx, sy] = proj(point.x, point.z);
+        if (index === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      });
+      ctx.strokeStyle = route.surface === "trail" ? "rgba(179,190,129,0.8)" : "rgba(125,145,154,0.72)";
+      ctx.lineWidth = route.surface === "trail" ? 1.2 : 1.7;
+      ctx.setLineDash(route.surface === "trail" ? [2, 2] : []);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.textAlign = "left";
+    ctx.font = "7px monospace";
+    for (const place of this.world.landmarks) {
+      const distance = Math.hypot(place.x - px, place.z - pz);
+      if (distance > 82) continue;
+      const [sx, sy] = proj(place.x, place.z);
+      const color =
+        place.kind === "compound" || place.kind === "checkpoint"
+          ? "#e24b4b"
+          : place.kind === "rescue" || place.kind === "facility"
+            ? "#d4a24a"
+            : place.kind === "forest"
+              ? "#b3be81"
+              : "#2ee0c8";
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      if (distance < 38) {
+        ctx.fillStyle = color;
+        ctx.fillText(place.label, sx + 5, sy - 4);
+      }
     }
     ctx.strokeStyle = this.outside > 0 ? "#e24b4b" : "#d4a24a";
     ctx.lineWidth = 1.5;

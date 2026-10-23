@@ -1,4 +1,11 @@
-const KEY = "mte-mars-v1";
+import { readLocalItem, writeLocalItem } from "./local-storage.ts";
+
+const KEY = "mte-mars-v2";
+const BACKUP_KEY = "mte-mars-v2-backup";
+const LEGACY_KEY = "mte-mars-v1";
+const SAVE_VERSION = 2;
+const MAX_CREDITS = 999_999_999;
+const MAX_STACK = 999_999;
 
 export type StashItem = {
   stashItemUuid: string;
@@ -62,6 +69,117 @@ const RULES: Record<string, { name: string; slot: "BARREL" | "RECEIVER" | "OPTIC
 };
 
 export const COIL_EMISSION = 1.8;
+const WEAPON_IDS = new Set(["smg", "rifle", "shotgun", "lmg", "rail", "pistol", "needles", "slug"]);
+const ITEM_IDS = new Set([...Object.keys(NAMES), ...Object.keys(RULES)]);
+
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function safeInteger(value: unknown, fallback: number, min: number, max: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+function safeMod(value: unknown, slot: Rule["slot"]) {
+  if (typeof value !== "string") return null;
+  return RULES[value]?.slot === slot ? value : null;
+}
+
+type Rule = (typeof RULES)[string];
+
+function newStashItemId() {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  } catch {
+    // Use a local fallback in browser contexts without Web Crypto.
+  }
+  return `stash-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function cleanStash(value: unknown): StashItem[] {
+  if (!Array.isArray(value)) return [];
+  const stacks = new Map<string, StashItem>();
+  for (const raw of value.slice(0, 1000)) {
+    if (!isRecord(raw) || typeof raw.itemRegistryId !== "string" || !ITEM_IDS.has(raw.itemRegistryId)) continue;
+    const itemRegistryId = raw.itemRegistryId;
+    const quantity = safeInteger(raw.quantity, 1, 1, MAX_STACK);
+    const existing = stacks.get(itemRegistryId);
+    if (existing) {
+      existing.quantity = Math.min(MAX_STACK, existing.quantity + quantity);
+      continue;
+    }
+    const uuid = typeof raw.stashItemUuid === "string" && raw.stashItemUuid.length <= 96
+      ? raw.stashItemUuid
+      : newStashItemId();
+    stacks.set(itemRegistryId, {
+      stashItemUuid: uuid || newStashItemId(),
+      itemRegistryId,
+      quantity,
+      currentDurability: safeInteger(raw.currentDurability, 100, 0, 100),
+      extractedFromSectorId: safeInteger(raw.extractedFromSectorId, 1, 1, 4),
+      tradeLocked: raw.tradeLocked === true,
+    });
+  }
+  return [...stacks.values()];
+}
+
+function cleanLoadouts(value: unknown): LoadoutPreset[] {
+  const base = [blankPreset(1), blankPreset(2), blankPreset(3)];
+  if (!Array.isArray(value)) return base;
+  return base.map((preset) => {
+    const raw = value.find((item) => isRecord(item) && item.slotIndex === preset.slotIndex);
+    if (!isRecord(raw)) return preset;
+    const weaponId = typeof raw.baseWeaponId === "string" && WEAPON_IDS.has(raw.baseWeaponId) ? raw.baseWeaponId : "";
+    return {
+      slotIndex: preset.slotIndex,
+      baseWeaponId: weaponId,
+      barrelModId: safeMod(raw.barrelModId, "BARREL"),
+      receiverModId: safeMod(raw.receiverModId, "RECEIVER"),
+      opticModId: safeMod(raw.opticModId, "OPTIC"),
+      magazineModId: safeMod(raw.magazineModId, "MAGAZINE"),
+    };
+  });
+}
+
+function cleanMarsProfile(value: unknown): MarsProfile | null {
+  if (!isRecord(value)) return null;
+  const blueprints = Array.isArray(value.unlockedBlueprints)
+    ? [...new Set(value.unlockedBlueprints.filter((id): id is string => typeof id === "string" && Object.hasOwn(RULES, id)))].slice(0, 100)
+    : [];
+  return {
+    martianCredits: safeInteger(value.martianCredits, 0, 0, MAX_CREDITS),
+    unlockedBlueprints: blueprints,
+    stash: cleanStash(value.stash),
+    activeSlot: value.activeSlot === 2 || value.activeSlot === 3 ? value.activeSlot : 1,
+    loadouts: cleanLoadouts(value.loadouts),
+  };
+}
+
+export function parseMarsProfile(raw: string | null): MarsProfile | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return null;
+    if ("schemaVersion" in parsed) {
+      if (parsed.schemaVersion !== SAVE_VERSION) return null;
+      return cleanMarsProfile(parsed.profile);
+    }
+    // The v1 save stored MarsProfile directly without an envelope.
+    return cleanMarsProfile(parsed);
+  } catch {
+    return null;
+  }
+}
+
+export function serializeMarsProfile(profile: MarsProfile) {
+  return JSON.stringify({
+    schemaVersion: SAVE_VERSION,
+    profile: cleanMarsProfile(profile) ?? emptyMars(),
+  });
+}
 
 export function solarCoilEmits(r: number, g: number, b: number) {
   return r > 0.8 && g > 0.4 && b < 0.2;
@@ -103,29 +221,21 @@ export function emptyMars(): MarsProfile {
 }
 
 export function loadMars(): MarsProfile {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return emptyMars();
-    const parsed = JSON.parse(raw) as Partial<MarsProfile>;
-    const base = emptyMars();
-    const loadouts = base.loadouts.map((preset) => {
-      const found = parsed.loadouts?.find((row) => row.slotIndex === preset.slotIndex);
-      return found ? { ...preset, ...found, slotIndex: preset.slotIndex } : preset;
-    });
-    return {
-      martianCredits: parsed.martianCredits || 0,
-      unlockedBlueprints: Array.isArray(parsed.unlockedBlueprints) ? parsed.unlockedBlueprints.filter((id) => typeof id === "string") : [],
-      stash: Array.isArray(parsed.stash) ? parsed.stash : [],
-      activeSlot: parsed.activeSlot === 2 || parsed.activeSlot === 3 ? parsed.activeSlot : 1,
-      loadouts,
-    };
-  } catch {
-    return emptyMars();
-  }
+  return (
+    parseMarsProfile(readLocalItem(KEY)) ??
+    parseMarsProfile(readLocalItem(BACKUP_KEY)) ??
+    parseMarsProfile(readLocalItem(LEGACY_KEY)) ??
+    emptyMars()
+  );
 }
 
 export function saveMars(profile: MarsProfile) {
-  localStorage.setItem(KEY, JSON.stringify(profile));
+  const serialized = serializeMarsProfile(profile);
+  const prior = readLocalItem(KEY);
+  if (prior && parseMarsProfile(prior)) writeLocalItem(BACKUP_KEY, prior);
+  if (!writeLocalItem(KEY, serialized)) return false;
+  writeLocalItem(BACKUP_KEY, serialized);
+  return true;
 }
 
 export function ensureCredits(profile: MarsProfile, recordScrap: number) {
@@ -136,10 +246,11 @@ export function ensureCredits(profile: MarsProfile, recordScrap: number) {
 }
 
 export function commitExtraction(profile: MarsProfile, credits: number, pieces: ExtractedPiece[]): MarsProfile {
-  const stash = profile.stash.map((row) => ({ ...row }));
-  const blueprints = new Set(profile.unlockedBlueprints);
+  const cleanProfile = cleanMarsProfile(profile) ?? emptyMars();
+  const stash = cleanProfile.stash.map((row) => ({ ...row }));
+  const blueprints = new Set(cleanProfile.unlockedBlueprints);
   for (const piece of pieces) {
-    if (!piece.itemRegistryId) continue;
+    if (!piece?.itemRegistryId || !ITEM_IDS.has(piece.itemRegistryId)) continue;
     if (piece.itemRegistryId.startsWith("att_")) blueprints.add(piece.itemRegistryId);
     const existing = stash.find((row) => row.itemRegistryId === piece.itemRegistryId);
     if (existing) {
@@ -151,17 +262,17 @@ export function commitExtraction(profile: MarsProfile, credits: number, pieces: 
         itemRegistryId: piece.itemRegistryId,
         quantity: 1,
         currentDurability: 100,
-        extractedFromSectorId: piece.sectorTier,
+        extractedFromSectorId: safeInteger(piece.sectorTier, 1, 1, 4),
         tradeLocked: false,
       });
     }
   }
-  return {
-    ...profile,
-    martianCredits: profile.martianCredits + Math.max(0, Math.floor(credits)),
+  return cleanMarsProfile({
+    ...cleanProfile,
+    martianCredits: cleanProfile.martianCredits + safeInteger(credits, 0, 0, MAX_CREDITS),
     unlockedBlueprints: [...blueprints],
     stash,
-  };
+  }) ?? emptyMars();
 }
 
 export function setActiveSlot(profile: MarsProfile, slot: 1 | 2 | 3): MarsProfile {
@@ -169,10 +280,11 @@ export function setActiveSlot(profile: MarsProfile, slot: 1 | 2 | 3): MarsProfil
 }
 
 export function setPresetMod(profile: MarsProfile, field: ModField, id: string | null, weaponId: string): MarsProfile {
+  const cleanProfile = cleanMarsProfile(profile) ?? emptyMars();
   return {
-    ...profile,
-    loadouts: profile.loadouts.map((row) =>
-      row.slotIndex === profile.activeSlot ? { ...row, baseWeaponId: weaponId, [field]: id } : row,
+    ...cleanProfile,
+    loadouts: cleanProfile.loadouts.map((row) =>
+      row.slotIndex === cleanProfile.activeSlot ? { ...row, baseWeaponId: weaponId, [field]: id } : row,
     ),
   };
 }

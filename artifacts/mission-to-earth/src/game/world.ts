@@ -2,6 +2,16 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { WeaponId } from "@/game/content";
 import { rollLoot } from "@/game/loot";
+import {
+  FOREST_TREES,
+  REGION_LANDMARKS,
+  REGION_LIMIT,
+  REGION_ROUTES,
+  isForestCell,
+  type ForestTree,
+  type RegionLandmark,
+  type RegionRoute,
+} from "@/game/region-layout";
 
 export type Glow = "cyan" | "gold" | "red";
 
@@ -57,6 +67,9 @@ export type WorldData = {
   guards: { x: number; z: number }[];
   beacon: { x: number; z: number };
   extract: { x: number; z: number };
+  landmarks: RegionLandmark[];
+  routes: RegionRoute[];
+  trees: ForestTree[];
   limit: number;
 };
 
@@ -229,6 +242,7 @@ export function buildWorld(): WorldData {
   for (let gx = -3; gx <= 3; gx++) {
     for (let gz = -3; gz <= 3; gz++) {
       if ((gx === 2 && gz === -2) || (gx === -2 && gz === 2) || (gx === 0 && gz === 0)) continue;
+      if (isForestCell(gx)) continue;
       const cx = gx * CELL;
       const cz = gz * CELL;
       const central = Math.abs(gx) <= 1 && Math.abs(gz) <= 1;
@@ -248,6 +262,23 @@ export function buildWorld(): WorldData {
   }
 
   buildings.push(makeBox(-0.45, 0.45, -0.45, 0.45, 26, "cyan", false, "mast"));
+  buildings.push(
+    makeBox(-34, -29, -25, -19, 3.4, "gold", false, "settlement_kiosk"),
+    makeBox(-11, -6, -25, -19, 3.4, "cyan", false, "settlement_kiosk"),
+    makeBox(34, 38, 97, 103, 10, "red", false, "checkpoint_tower"),
+  );
+  buildings.push(...FOREST_TREES.map((tree) =>
+    makeBox(
+      tree.x - 0.3 * tree.scale,
+      tree.x + 0.3 * tree.scale,
+      tree.z - 0.3 * tree.scale,
+      tree.z + 0.3 * tree.scale,
+      2.2 * tree.scale,
+      "gold",
+      false,
+      "tree",
+    ),
+  ));
 
   const nodes: { x: number; z: number }[] = [];
   for (let ix = -3; ix <= 4; ix++) {
@@ -269,8 +300,11 @@ export function buildWorld(): WorldData {
 
   for (const n of nodes) {
     if (Math.abs(n.x) < 10 && Math.abs(n.z) < 10) continue;
+    if (Math.hypot(n.x - 20, n.z - 100) < 22) continue;
     if ((Math.abs(n.x / 10) + Math.abs(n.z / 10)) % 2 < 1) placeCover(n.x + 3.2, n.z, true);
   }
+  placeCover(14, 100, true);
+  placeCover(26, 100, true);
   placeCover(8, 6, true);
   placeCover(-7, -5, false);
   placeCover(6, -8, true);
@@ -347,6 +381,8 @@ export function buildWorld(): WorldData {
     { x: -64, z: 62 },
     { x: -90, z: 70 },
     { x: -72, z: 40 },
+    { x: 20, z: 92 },
+    { x: 20, z: 108 },
   ].filter((g) => !overlapsAny(g.x, g.z, 0.6, buildings));
 
   return {
@@ -359,7 +395,10 @@ export function buildWorld(): WorldData {
     guards,
     beacon: { x: 0, z: 0 },
     extract: { x: 0, z: -138 },
-    limit: 152,
+    landmarks: [...REGION_LANDMARKS],
+    routes: [...REGION_ROUTES],
+    trees: [...FOREST_TREES],
+    limit: REGION_LIMIT,
   };
 }
 
@@ -404,7 +443,7 @@ function pushWindows(b: Box, into: THREE.BufferGeometry[]) {
   }
 }
 
-export function paintGround() {
+export function paintGround(world: WorldData) {
   const canvas = document.createElement("canvas");
   canvas.width = 1024;
   canvas.height = 1024;
@@ -417,6 +456,7 @@ export function paintGround() {
   const CELL = 40;
   for (let gx = -3; gx <= 3; gx++) {
     for (let gz = -3; gz <= 3; gz++) {
+      if (isForestCell(gx)) continue;
       const x0 = map(gx * CELL - 12.5);
       const z0 = map(gz * CELL - 12.5);
       const x1 = map(gx * CELL + 12.5);
@@ -424,6 +464,8 @@ export function paintGround() {
       g.fillRect(x0, z0, x1 - x0, z1 - z0);
     }
   }
+  g.fillStyle = "#303d35";
+  g.fillRect(map(-152), map(-160), map(-100) - map(-152), map(160) - map(-160));
   g.strokeStyle = "#3d4a5c";
   g.lineWidth = 2;
   g.setLineDash([10, 14]);
@@ -438,16 +480,72 @@ export function paintGround() {
     g.lineTo(1024, p);
     g.stroke();
   }
+  g.setLineDash([]);
+  g.lineCap = "round";
+  for (const route of world.routes) {
+    g.beginPath();
+    route.points.forEach((point, index) => {
+      const x = map(point.x);
+      const z = map(point.z);
+      if (index === 0) g.moveTo(x, z);
+      else g.lineTo(x, z);
+    });
+    g.strokeStyle = route.surface === "trail" ? "#58634c" : "#38434b";
+    g.lineWidth = route.surface === "trail" ? 16 : 22;
+    g.stroke();
+    g.beginPath();
+    route.points.forEach((point, index) => {
+      const x = map(point.x);
+      const z = map(point.z);
+      if (index === 0) g.moveTo(x, z);
+      else g.lineTo(x, z);
+    });
+    g.strokeStyle = route.surface === "trail" ? "#9a9a6b" : "#7b8280";
+    g.lineWidth = 2;
+    g.setLineDash([8, 12]);
+    g.stroke();
+    g.setLineDash([]);
+  }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
   return tex;
 }
 
+function addForest(scene: THREE.Scene, trees: ForestTree[]) {
+  if (!trees.length) return;
+  const bark = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.18, 0.27, 2.2, 5),
+    new THREE.MeshStandardMaterial({ color: 0x514238, roughness: 1 }),
+    trees.length,
+  );
+  const canopy = new THREE.InstancedMesh(
+    new THREE.ConeGeometry(1.7, 4.4, 6),
+    new THREE.MeshStandardMaterial({ color: 0x354839, roughness: 1 }),
+    trees.length,
+  );
+  const transform = new THREE.Object3D();
+  trees.forEach((tree, index) => {
+    transform.position.set(tree.x, 1.1 * tree.scale, tree.z);
+    transform.scale.setScalar(tree.scale);
+    transform.updateMatrix();
+    bark.setMatrixAt(index, transform.matrix);
+    transform.position.set(tree.x, 3.25 * tree.scale, tree.z);
+    transform.updateMatrix();
+    canopy.setMatrixAt(index, transform.matrix);
+  });
+  bark.instanceMatrix.needsUpdate = true;
+  canopy.instanceMatrix.needsUpdate = true;
+  bark.castShadow = false;
+  canopy.castShadow = false;
+  scene.add(bark, canopy);
+}
+
 export function createCity(scene: THREE.Scene, world: WorldData) {
   const buckets: Record<Glow, THREE.BufferGeometry[]> = { cyan: [], gold: [], red: [] };
   const solids: THREE.BufferGeometry[] = [];
   for (const b of world.buildings) {
+    if (b.tag === "tree") continue;
     const w = b.maxX - b.minX;
     const d = b.maxZ - b.minZ;
     const geo = new THREE.BoxGeometry(w, b.h, d);
@@ -479,11 +577,12 @@ export function createCity(scene: THREE.Scene, world: WorldData) {
 
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(340, 340),
-    new THREE.MeshStandardMaterial({ map: paintGround(), roughness: 1, metalness: 0 }),
+    new THREE.MeshStandardMaterial({ map: paintGround(world), roughness: 1, metalness: 0 }),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
+  addForest(scene, world.trees);
 
   const coverMat = new THREE.MeshStandardMaterial({ color: 0x4a525c, roughness: 0.62, metalness: 0.28 });
   for (const c of world.covers) {
