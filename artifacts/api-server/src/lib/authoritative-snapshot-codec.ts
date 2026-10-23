@@ -6,9 +6,9 @@ import type {
 } from "./authoritative-match.ts";
 
 const MAGIC = [0x4d, 0x54, 0x45] as const; // "MTE"
-const VERSION = 1;
+const VERSION = 2;
 const HEADER_BYTES = 39;
-const PLAYER_FIXED_BYTES = 34;
+const PLAYER_FIXED_BYTES = 42;
 const MAX_PACKET_BYTES = 64 * 1024;
 const MAX_PLAYER_COUNT = 1_024;
 const MAX_PLAYER_ID_BYTES = 128;
@@ -157,12 +157,20 @@ export function serializeWorldSnapshot(
       ["velocity.x", player.velocity.x],
       ["velocity.y", player.velocity.y],
       ["velocity.z", player.velocity.z],
+      ["yaw", player.yaw],
+      ["pitch", player.pitch],
       ["health", player.health],
     ] as const) {
       assertFloat32(value, label);
     }
     if (player.health < 0 || player.health > 100) {
       throw new RangeError("Player health must be between 0 and 100.");
+    }
+    if (player.yaw < -180 || player.yaw >= 180) {
+      throw new RangeError("Player yaw must be in the range [-180, 180).");
+    }
+    if (player.pitch < -89 || player.pitch > 89) {
+      throw new RangeError("Player pitch must be between -89 and 89 degrees.");
     }
     if (
       ACTION_TO_CODE[player.rightHandState] === undefined ||
@@ -217,6 +225,8 @@ export function serializeWorldSnapshot(
       player.velocity.y,
       player.velocity.z,
       player.health,
+      player.yaw,
+      player.pitch,
     ]) {
       view.setFloat32(offset, value, true);
       offset += 4;
@@ -344,6 +354,16 @@ export function deserializeWorldSnapshot(
     if (health < 0 || health > 100) {
       throw new Error("Snapshot packet has invalid player health.");
     }
+    const yaw = readFloat32(view, offset, "player yaw");
+    offset += 4;
+    if (yaw < -180 || yaw >= 180) {
+      throw new Error("Snapshot packet has invalid player yaw.");
+    }
+    const pitch = readFloat32(view, offset, "player pitch");
+    offset += 4;
+    if (pitch < -89 || pitch > 89) {
+      throw new Error("Snapshot packet has invalid player pitch.");
+    }
 
     const packedState = view.getUint8(offset);
     offset += 1;
@@ -362,6 +382,8 @@ export function deserializeWorldSnapshot(
       position,
       velocity,
       health,
+      yaw,
+      pitch,
       rightHandState: rightAction,
       leftHandState: leftAction,
       isFocusAiming: (packedState & (1 << 4)) !== 0,

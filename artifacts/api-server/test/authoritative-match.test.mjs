@@ -95,6 +95,36 @@ test("server geometry rejects embedded spawns and blocks movement through cover"
   );
 });
 
+test("loads trusted level footprints before registration and rejects late loads", () => {
+  const match = new AuthoritativeMatch(
+    createConfig({ maxDeltaSeconds: 0.05, worldHalfExtent: 100 }),
+  );
+  const loaded = match.loadLevelGeometryAsset(
+    JSON.stringify([
+      {
+        id: 7,
+        type: "prison_wall",
+        posX: 12,
+        posY: 1,
+        posZ: 8,
+        sizeX: 4,
+        sizeY: 2,
+        sizeZ: 2,
+      },
+    ]),
+  );
+  assert.equal(loaded, 1);
+  assert.throws(
+    () => match.registerPlayer("embedded", { x: 12, y: 0, z: 8 }),
+    /intersects static world geometry/,
+  );
+  match.registerPlayer("clear", { x: 0, y: 0, z: 0 });
+  assert.throws(
+    () => match.loadLevelGeometryAsset("[]"),
+    /load before players/,
+  );
+});
+
 test("valid sequenced input moves server state and keeps hand actions independent", () => {
   const match = createMatch({ maxDeltaSeconds: 0.25 });
   const flags =
@@ -119,6 +149,37 @@ test("valid sequenced input moves server state and keeps hand actions independen
   assert.equal(player.leftHandState, "RELOADING");
   assert.equal(player.isFocusAiming, true);
   assert.equal(player.lastProcessedSequence, 1);
+});
+
+test("server bounds rotation speed and publishes server-owned yaw and pitch", () => {
+  const match = createMatch({
+    maxDeltaSeconds: 0.05,
+    maxLookDegreesPerSecond: 900,
+  });
+  match.submitInput(
+    "server-player-1",
+    packet(1, 0, { forward: 0, strafe: 0 }, { yaw: 170, pitch: 80 }),
+    1_000,
+  );
+
+  let player = match.tick(0.05, 1_050).players[0];
+  assert.equal(player.yaw, 45);
+  assert.equal(player.pitch, 45);
+  player = match.tick(0.05, 1_100).players[0];
+  assert.equal(player.yaw, 90);
+  assert.equal(player.pitch, 80);
+  player = match.tick(0.05, 1_150).players[0];
+  assert.equal(player.yaw, 135);
+
+  match.tick(0.05, 1_200);
+  match.submitInput(
+    "server-player-1",
+    packet(2, 0, { forward: 0, strafe: 0 }, { yaw: -170, pitch: 80 }),
+    1_201,
+  );
+  player = match.tick(0.05, 1_250).players[0];
+  assert.equal(player.yaw, -170);
+  assert.equal(player.pitch, 80);
 });
 
 test("rejects duplicate, old, malformed, and out-of-range input", () => {

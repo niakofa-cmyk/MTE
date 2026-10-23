@@ -12,6 +12,7 @@ import {
   StaticWorldCollisionMap,
   type StaticAabb,
 } from "./static-world-collision-map.ts";
+import { loadLevelGeometryAsset } from "./level-asset-loader.ts";
 
 export const ClientInputFlags = {
   FIRE_RIGHT: 1 << 0,
@@ -76,6 +77,7 @@ export interface MatchConfig {
   inputTimeoutMs: number;
   maxDeltaSeconds: number;
   moveSpeed: number;
+  maxLookDegreesPerSecond: number;
   focusSpeedMultiplier: number;
   spatialCellSize: number;
   worldHalfExtent: number;
@@ -94,6 +96,7 @@ export const DEFAULT_MATCH_CONFIG: MatchConfig = {
   inputTimeoutMs: 250,
   maxDeltaSeconds: 0.05,
   moveSpeed: 5,
+  maxLookDegreesPerSecond: 900,
   focusSpeedMultiplier: 0.72,
   spatialCellSize: 128,
   worldHalfExtent: 2_200,
@@ -113,6 +116,8 @@ export interface PlayerStateSnapshot {
   lastProcessedSequence: number;
   position: Position3;
   velocity: Position3;
+  yaw: number;
+  pitch: number;
   rightHandState: HandAction;
   leftHandState: HandAction;
   isFocusAiming: boolean;
@@ -150,6 +155,8 @@ interface InternalPlayer {
   playerId: string;
   position: Position3;
   velocity: Position3;
+  yaw: number;
+  pitch: number;
   health: number;
   lastAcceptedSequence: number;
   lastProcessedSequence: number;
@@ -181,6 +188,10 @@ function hasExactKeys(
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function normalizeDegrees(degrees: number): number {
+  return ((degrees + 180) % 360 + 360) % 360 - 180;
 }
 
 function parseClientInput(value: unknown): ClientInputPacket | null {
@@ -254,6 +265,7 @@ function validateConfig(config: MatchConfig): void {
     ["inputTimeoutMs", config.inputTimeoutMs],
     ["maxDeltaSeconds", config.maxDeltaSeconds],
     ["moveSpeed", config.moveSpeed],
+    ["maxLookDegreesPerSecond", config.maxLookDegreesPerSecond],
     ["spatialCellSize", config.spatialCellSize],
     ["worldHalfExtent", config.worldHalfExtent],
     ["preDropSeconds", config.preDropSeconds],
@@ -374,6 +386,8 @@ export class AuthoritativeMatch {
       playerId,
       position: { ...serverSelectedSpawn },
       velocity: { x: 0, y: 0, z: 0 },
+      yaw: 0,
+      pitch: 0,
       health: 100,
       lastAcceptedSequence: 0,
       lastProcessedSequence: 0,
@@ -406,6 +420,17 @@ export class AuthoritativeMatch {
       throw new Error("Static collision geometry must load before players.");
     }
     this.collisionMap.addStaticBounds(bounds);
+  }
+
+  /**
+   * Load validated trusted level footprints before players join the match.
+   * The transport/bootstrap layer is responsible for supplying the asset.
+   */
+  loadLevelGeometryAsset(jsonStream: string): number {
+    if (this.players.size > 0) {
+      throw new Error("Static collision geometry must load before players.");
+    }
+    return loadLevelGeometryAsset(jsonStream, this.collisionMap);
   }
 
   traceWorldOcclusion(
@@ -586,6 +611,8 @@ export class AuthoritativeMatch {
         lastProcessedSequence: player.lastProcessedSequence,
         position: { ...player.position },
         velocity: { ...player.velocity },
+        yaw: player.yaw,
+        pitch: player.pitch,
         rightHandState: player.rightHandState,
         leftHandState: player.leftHandState,
         isFocusAiming: player.isFocusAiming,
@@ -611,7 +638,17 @@ export class AuthoritativeMatch {
     const normalization = magnitude > 1 ? 1 / magnitude : 1;
     const forward = rawForward * normalization;
     const strafe = rawStrafe * normalization;
-    const yawRadians = (input.yaw * Math.PI) / 180;
+    const maxRotation = this.config.maxLookDegreesPerSecond * deltaSeconds;
+    const yawDelta = normalizeDegrees(input.yaw - player.yaw);
+    const boundedYawDelta = Math.max(-maxRotation, Math.min(maxRotation, yawDelta));
+    const pitchDelta = input.pitch - player.pitch;
+    const boundedPitchDelta = Math.max(
+      -maxRotation,
+      Math.min(maxRotation, pitchDelta),
+    );
+    player.yaw = normalizeDegrees(player.yaw + boundedYawDelta);
+    player.pitch = Math.max(-89, Math.min(89, player.pitch + boundedPitchDelta));
+    const yawRadians = (player.yaw * Math.PI) / 180;
     const moveX = strafe * Math.cos(yawRadians) + forward * Math.sin(yawRadians);
     const moveZ = -strafe * Math.sin(yawRadians) + forward * Math.cos(yawRadians);
     const speed =

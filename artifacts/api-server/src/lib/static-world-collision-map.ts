@@ -50,9 +50,26 @@ export class StaticWorldCollisionMap {
    * Values are copied and frozen so callers cannot mutate collision state.
    */
   addStaticBounds(bounds: StaticAabb): void {
-    if (this.colliders.length >= this.maxColliders) {
+    this.addStaticBoundsBatch([bounds]);
+  }
+
+  /**
+   * Validate the complete batch before mutating the map, so a malformed level
+   * asset cannot leave a partially loaded collision world.
+   */
+  addStaticBoundsBatch(boundsBatch: readonly StaticAabb[]): void {
+    if (!Array.isArray(boundsBatch)) {
+      throw new Error("Static collision bounds must be an array.");
+    }
+    if (this.colliders.length + boundsBatch.length > this.maxColliders) {
       throw new Error("Static collision map capacity has been reached.");
     }
+
+    const validated = boundsBatch.map((bounds) => this.copyAndValidateBounds(bounds));
+    this.colliders.push(...validated);
+  }
+
+  private copyAndValidateBounds(bounds: StaticAabb): StaticAabb {
     if (!bounds || !bounds.min || !bounds.max) {
       throw new Error("AABB requires min and max coordinates.");
     }
@@ -81,12 +98,10 @@ export class StaticWorldCollisionMap {
       throw new Error("AABB must have positive volume inside world bounds.");
     }
 
-    this.colliders.push(
-      Object.freeze({
-        min: Object.freeze({ ...min }),
-        max: Object.freeze({ ...max }),
-      }),
-    );
+    return Object.freeze({
+      min: Object.freeze({ ...min }),
+      max: Object.freeze({ ...max }),
+    });
   }
 
   isPositionClear(

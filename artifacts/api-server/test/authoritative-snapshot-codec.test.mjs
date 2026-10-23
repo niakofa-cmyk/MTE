@@ -15,6 +15,8 @@ function sampleSnapshot() {
         lastProcessedSequence: 4_294_967_000,
         position: { x: 10.25, y: 1.5, z: -2.75 },
         velocity: { x: 0.5, y: 0, z: -1.25 },
+        yaw: -45,
+        pitch: 20,
         rightHandState: "FIRING",
         leftHandState: "RELOADING",
         isFocusAiming: true,
@@ -25,6 +27,8 @@ function sampleSnapshot() {
         lastProcessedSequence: 4,
         position: { x: -20, y: 0, z: 30 },
         velocity: { x: 0, y: 0, z: 5 },
+        yaw: 179.5,
+        pitch: -89,
         rightHandState: "IDLE",
         leftHandState: "FIRING",
         isFocusAiming: false,
@@ -51,7 +55,7 @@ test("round-trips compact snapshots including UTF-8 IDs and dual-hand states", (
     new TextDecoder().decode(bytes.subarray(0, 3)),
     "MTE",
   );
-  assert.equal(bytes[3], 1);
+  assert.equal(bytes[3], 2);
 });
 
 test("each encoding owns its bytes instead of sharing a mutable static buffer", () => {
@@ -82,6 +86,14 @@ test("rejects oversized, duplicate-ID, and unrepresentable snapshot fields", () 
   const invalidHealth = sampleSnapshot();
   invalidHealth.players[0].health = 101;
   assert.throws(() => serializeWorldSnapshot(invalidHealth), /health/);
+
+  const invalidYaw = sampleSnapshot();
+  invalidYaw.players[0].yaw = 180;
+  assert.throws(() => serializeWorldSnapshot(invalidYaw), /yaw/);
+
+  const invalidPitch = sampleSnapshot();
+  invalidPitch.players[0].pitch = 90;
+  assert.throws(() => serializeWorldSnapshot(invalidPitch), /pitch/);
 });
 
 test("rejects invalid headers, truncation, trailing data, and reserved bits", () => {
@@ -106,7 +118,7 @@ test("rejects invalid headers, truncation, trailing data, and reserved bits", ()
 
   const reservedBit = encoded.slice();
   const firstStateOffset =
-    39 + 1 + new TextEncoder().encode("player-01").length + 4 + 12 + 12 + 4;
+    39 + 1 + new TextEncoder().encode("player-01").length + 4 + 12 + 12 + 4 + 8;
   reservedBit[firstStateOffset] |= 0x80;
   assert.throws(
     () => deserializeWorldSnapshot(reservedBit),
