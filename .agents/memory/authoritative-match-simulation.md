@@ -18,3 +18,9 @@ Loot spawn and objective registries are generated from the same deterministic No
 **Why:** The attached proposals identify the right server-authority direction but their examples trust client identity/time, use unbounded or unsafe structures, and omit the transport and gameplay authority needed for production. The optional client proves server-owned loot claims without turning local solo progression into an account economy.
 
 **How to apply:** Keep network/session ownership separate from the pure match simulator. The HTTP wrapper uses ephemeral bearer identity and bounded in-memory sessions; preserve those limits and do not treat them as persistent accounts. Keep server claims independent of local extraction rewards. Before broad online use, add durable identity only if required, deployment abuse controls, authoritative combat/objectives, load profiling, and multi-client verification.
+
+The server now also has standalone weapon-stat validation and ability-timer primitives. They are not yet connected to match registration, input processing, or hit resolution; do not treat them as live combat authority.
+
+**Why:** The current REST match owns movement and loot, but it has no server-owned loadout catalog, player ability selection, or combat target resolver.
+
+**How to apply:** Wire these primitives only after those server-owned inputs and effects exist. Keep client-supplied stat values out of loadout and ability requests.
