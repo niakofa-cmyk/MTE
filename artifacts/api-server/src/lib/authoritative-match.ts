@@ -7,6 +7,8 @@
  * matchmaking, weapon raycasts, or client prediction.
  */
 
+import { SpatialHashGrid } from "./spatial-hash-grid.ts";
+
 export const ClientInputFlags = {
   FIRE_RIGHT: 1 << 0,
   FIRE_LEFT: 1 << 1,
@@ -70,6 +72,7 @@ export interface MatchConfig {
   maxDeltaSeconds: number;
   moveSpeed: number;
   focusSpeedMultiplier: number;
+  spatialCellSize: number;
   worldHalfExtent: number;
   preDropSeconds: number;
   initialZoneRadius: number;
@@ -87,6 +90,7 @@ export const DEFAULT_MATCH_CONFIG: MatchConfig = {
   maxDeltaSeconds: 0.05,
   moveSpeed: 5,
   focusSpeedMultiplier: 0.72,
+  spatialCellSize: 128,
   worldHalfExtent: 2_200,
   preDropSeconds: 10,
   initialZoneRadius: 2_000,
@@ -244,6 +248,7 @@ function validateConfig(config: MatchConfig): void {
     ["inputTimeoutMs", config.inputTimeoutMs],
     ["maxDeltaSeconds", config.maxDeltaSeconds],
     ["moveSpeed", config.moveSpeed],
+    ["spatialCellSize", config.spatialCellSize],
     ["worldHalfExtent", config.worldHalfExtent],
     ["preDropSeconds", config.preDropSeconds],
     ["initialZoneRadius", config.initialZoneRadius],
@@ -305,6 +310,8 @@ function copyInput(packet: ClientInputPacket): ClientInputPacket {
 export class AuthoritativeMatch {
   private readonly config: MatchConfig;
   private readonly players = new Map<string, InternalPlayer>();
+  private readonly spatialGrid: SpatialHashGrid<InternalPlayer>;
+  private readonly spatialQueryScratch: InternalPlayer[] = [];
   private phase: MatchPhase = "PRE_DROP";
   private phaseRemainingSeconds: number;
   private currentRadius: number;
@@ -320,6 +327,7 @@ export class AuthoritativeMatch {
       safeZoneCenter: { ...config.safeZoneCenter },
       safeZoneRings: config.safeZoneRings.map((ring) => ({ ...ring })),
     };
+    this.spatialGrid = new SpatialHashGrid(this.config.spatialCellSize);
     this.phaseRemainingSeconds = config.preDropSeconds;
     this.currentRadius = config.initialZoneRadius;
     this.targetRadius = config.initialZoneRadius;
@@ -349,7 +357,7 @@ export class AuthoritativeMatch {
       throw new Error("Spawn position must be finite and inside world bounds.");
     }
 
-    this.players.set(playerId, {
+    const player: InternalPlayer = {
       playerId,
       position: { ...serverSelectedSpawn },
       velocity: { x: 0, y: 0, z: 0 },
@@ -364,11 +372,41 @@ export class AuthoritativeMatch {
       rightHandState: "IDLE",
       leftHandState: "IDLE",
       isFocusAiming: false,
-    });
+    };
+    this.players.set(playerId, player);
+    this.spatialGrid.insert(player);
   }
 
   unregisterPlayer(playerId: string): boolean {
+    const player = this.players.get(playerId);
+    if (!player) return false;
+    this.spatialGrid.remove(player);
     return this.players.delete(playerId);
+  }
+
+  /**
+   * Query nearby registered players for future interest-management and
+   * collision broadphase work. `out` may be reused to avoid a result-array
+   * allocation. The query still performs exact radius filtering.
+   */
+  findNearbyPlayerIds(
+    x: number,
+    z: number,
+    radius: number,
+    out: string[] = [],
+  ): number {
+    const count = this.spatialGrid.queryRadius(
+      x,
+      z,
+      radius,
+      this.spatialQueryScratch,
+    );
+    out.length = 0;
+    for (let index = 0; index < count; index += 1) {
+      out[index] = this.spatialQueryScratch[index]!.playerId;
+    }
+    out.length = count;
+    return count;
   }
 
   /**
@@ -562,6 +600,7 @@ export class AuthoritativeMatch {
         player.position.z + player.velocity.z * deltaSeconds,
       ),
     };
+    this.spatialGrid.update(player);
 
     const flags = input.inputFlags;
     player.rightHandState =

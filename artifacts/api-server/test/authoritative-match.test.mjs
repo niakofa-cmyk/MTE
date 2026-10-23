@@ -196,3 +196,32 @@ test("returns detached JSON-friendly snapshots and can end the match", () => {
   match.finishMatch();
   assert.equal(match.getSnapshot().zoneState.phase, "MATCH_OVER");
 });
+
+test("spatial lookup is exact, updates after movement, and removes disconnected players", () => {
+  const match = createMatch({
+    maxDeltaSeconds: 0.25,
+    spatialCellSize: 10,
+    worldHalfExtent: 1_000,
+  });
+  match.registerPlayer("crossing", { x: 9.9, y: 0, z: 0 });
+
+  const nearby = ["stale"];
+  assert.equal(match.findNearbyPlayerIds(10.4, 0, 0.1, nearby), 0);
+  assert.deepEqual(nearby, []);
+
+  assert.deepEqual(
+    match.submitInput(
+      "crossing",
+      packet(1, 0, { forward: 0, strafe: 1 }),
+      1_000,
+    ),
+    { accepted: true },
+  );
+  match.tick(0.1, 1_016);
+  assert.equal(match.findNearbyPlayerIds(10.4, 0, 0.1, nearby), 1);
+  assert.deepEqual(nearby, ["crossing"]);
+
+  assert.equal(match.unregisterPlayer("crossing"), true);
+  assert.equal(match.findNearbyPlayerIds(10.4, 0, 1, nearby), 0);
+  assert.deepEqual(nearby, []);
+});
