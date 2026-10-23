@@ -18,6 +18,8 @@ Mission To Earth is an Earth-side science-fiction extraction story. The playable
 3. **Present — Operation Shakuna:** the player enters Nod, frees both captives, raises the Accord beacon, and reaches the recovery pad before the lockdown closes.
 4. **After the extraction:** the beacon gives Nod's resistance a chance to coordinate. Future missions can build on that local outcome without requiring a larger map.
 
+Recovering Eon Dusk's blueprints can expose a planned invasion of Mars. Treat this as a later campaign threat revealed by the player's extraction, while keeping the current playable setting and mission centered on Earth and Nod.
+
 Mars may exist in the wider setting as an off-world destination, but it is not the player's home base, the source of the current mission, or the identity of the playable loop.
 
 ## Canonical place and mission names

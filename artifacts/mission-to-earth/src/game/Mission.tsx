@@ -3,6 +3,7 @@ import { Crosshair, Radio, Shield, Volume2, VolumeX } from "lucide-react";
 import { BLOODLINES, DOSSIER, OPERATORS, OPERATOR_BY_ID, type OpId, type WeaponId } from "@/game/content";
 import { MissionEngine, type MissionEvent } from "@/game/engine";
 import { ATTACHMENT_BY_ID, type AttachSlot } from "@/game/loot";
+import { extractionEpilogue } from "@/game/mission-epilogue";
 import {
   DEFAULT_LOOK_SENSITIVITY,
   LOOK_SENSITIVITY_STORAGE_KEY,
@@ -41,7 +42,7 @@ export function Mission() {
   const [screen, setScreen] = useState<Screen>("menu");
   const [op, setOp] = useState<OpId>("jaya");
   const [muted, setMuted] = useState(false);
-  const [stats, setStats] = useState<{ time: number; kills: number; op: OpId; scrap: number; filed: string[] } | null>(null);
+  const [stats, setStats] = useState<{ time: number; kills: number; op: OpId; scrap: number; filed: string[]; hasEonDuskPlans: boolean } | null>(null);
   const [record, setRecord] = useState<RecordBook | null>(null);
   const [mars, setMars] = useState<MarsProfile | null>(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
@@ -81,6 +82,7 @@ export function Mission() {
               op: event.op,
               scrap: event.scrap,
               filed: event.manifest.map((piece) => labelForRegistry(piece.itemRegistryId)),
+              hasEonDuskPlans: event.manifest.some((piece) => piece.itemRegistryId === "intel_eon_dusk_schematic"),
             });
             setScreen("win");
             const nextMars = commitExtraction(loadMars(), event.scrap, event.manifest);
@@ -205,7 +207,7 @@ export function Mission() {
         <Overlay
           kicker="Operation Shakuna"
           title="Going home"
-          body={`${OPERATOR_BY_ID[stats.op].name} got Ananda and Nefret off the pad in ${clock(stats.time)}. ${stats.kills} Eon Dusk security officers went quiet. ${stats.scrap > 0 ? `Hauled ${stats.scrap} scrap off the pad.` : "The pad took no scrap this run."} ${stats.filed.length ? `The Nod field log records ${stats.filed.join(", ")}.` : ""} The resistance holds in Nod. The Accord has the signal.`}
+          body={`${OPERATOR_BY_ID[stats.op].name} got Ananda and Nefret off the pad in ${clock(stats.time)}. ${stats.kills} Eon Dusk security officers went quiet. ${stats.scrap > 0 ? `Hauled ${stats.scrap} scrap off the pad.` : "The pad took no scrap this run."} ${stats.filed.length ? `The Nod field log records ${stats.filed.join(", ")}.` : ""} ${extractionEpilogue(stats.hasEonDuskPlans)}`}
         >
           <p className="font-display text-sm tracking-widest text-gold">
             {record
