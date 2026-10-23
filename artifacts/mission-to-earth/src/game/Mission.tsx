@@ -27,6 +27,10 @@ import {
 } from "@/game/mars-stash";
 import { loadRecord, recordExtraction, saveRecord, type RecordBook } from "@/game/progress-record";
 import { applyTouchCommand, TouchControllerLayer, type TouchCommand, type TouchZone } from "@/game/touch-controller";
+import {
+  ServerMatchClient,
+  type ServerInventoryItem,
+} from "@/game/server-match-client";
 
 type Screen = "menu" | "dossier" | "armory" | "settings" | "play" | "pause" | "dead" | "win";
 const LOCAL_SAVE_WARNING = "Progress is still available in this session, but this browser could not save it locally.";
@@ -47,6 +51,10 @@ export function Mission() {
   const [record, setRecord] = useState<RecordBook | null>(null);
   const [mars, setMars] = useState<MarsProfile | null>(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
+  const [serverClient, setServerClient] = useState<ServerMatchClient | null>(null);
+  const [serverInventory, setServerInventory] = useState<ServerInventoryItem[]>([]);
+  const [serverStatus, setServerStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle");
+  const [serverMessage, setServerMessage] = useState<string | null>(null);
   const [graphicsUnavailable, setGraphicsUnavailable] = useState(false);
   const [lookSensitivity, setLookSensitivity] = useState(() => {
     try {
@@ -114,6 +122,83 @@ export function Mission() {
     engineRef.current?.setLookSensitivity(lookSensitivity);
   }, [lookSensitivity]);
 
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || !serverClient || screen !== "play") return;
+
+    serverClient.setInputErrorHandler((error) => {
+      setServerMessage(`Input sync: ${error.message}`);
+    });
+    const inputTimer = window.setInterval(() => {
+      const current = engineRef.current;
+      if (current) serverClient.submitInput(current.matchInput());
+    }, 50);
+    const snapshotTimer = window.setInterval(() => {
+      void serverClient.getSnapshot()
+        .then((snapshot) => {
+          const player = snapshot.players.find((entry) => entry.playerId === serverClient.playerId);
+          if (player) engineRef.current?.applyServerPosition(player);
+        })
+        .catch((error: unknown) => {
+          setServerMessage(error instanceof Error ? error.message : "Match position sync failed.");
+        });
+    }, 200);
+    const gameplayTimer = window.setInterval(() => {
+      void serverClient.getGameplayState()
+        .then((state) => {
+          setServerInventory(state.inventory);
+          engineRef.current?.applyServerGameplayState(state);
+        })
+        .catch((error: unknown) => {
+          setServerMessage(error instanceof Error ? error.message : "Match inventory sync failed.");
+        });
+    }, 1500);
+
+    return () => {
+      window.clearInterval(inputTimer);
+      window.clearInterval(snapshotTimer);
+      window.clearInterval(gameplayTimer);
+      serverClient.setInputErrorHandler(null);
+    };
+  }, [screen, serverClient]);
+
+  const startServerRun = async () => {
+    if (graphicsUnavailable || serverStatus === "connecting") return;
+    setServerStatus("connecting");
+    setServerMessage(null);
+    try {
+      const connected = await ServerMatchClient.connect();
+      const engine = engineRef.current;
+      if (!engine) throw new Error("The game is not ready to start.");
+      engine.start(op, connected.player.position);
+      engine.enableServerGameplay(connected.gameplay, {
+        claimLoot: async (lootId) => {
+          const result = await connected.client.claimLoot(lootId);
+          setServerInventory(result.inventory);
+          setServerMessage(null);
+          return result;
+        },
+        openTerminal: async (terminalId) => {
+          const state = await connected.client.openTerminal(terminalId);
+          setServerInventory(state.inventory);
+          setServerMessage(null);
+          return state;
+        },
+        inventoryChanged: setServerInventory,
+      });
+      connected.client.setInputErrorHandler((error) => {
+        setServerMessage(`Input sync: ${error.message}`);
+      });
+      setServerClient(connected.client);
+      setServerInventory(connected.gameplay.inventory);
+      setServerStatus("connected");
+      engine.capture();
+    } catch (error) {
+      setServerStatus("error");
+      setServerMessage(error instanceof Error ? error.message : "Could not connect to the match server.");
+    }
+  };
+
   const playing = screen === "play" || screen === "pause" || screen === "dead" || screen === "win";
 
   return (
@@ -147,6 +232,8 @@ export function Mission() {
           lookSensitivity={lookSensitivity}
           graphicsUnavailable={graphicsUnavailable}
           canStart={!graphicsUnavailable}
+          serverStatus={serverStatus}
+          serverMessage={serverStatus === "error" ? serverMessage : null}
           onDossier={() => setScreen("dossier")}
           onArmory={() => setScreen("armory")}
           onSettings={() => setScreen("settings")}
@@ -165,10 +252,38 @@ export function Mission() {
             setMars(next);
           }}
           onStart={() => {
+            engineRef.current?.disableServerGameplay();
+            setServerClient(null);
+            setServerInventory([]);
+            setServerStatus("idle");
+            setServerMessage(null);
             engineRef.current?.start(op);
             engineRef.current?.capture();
           }}
+          onStartServer={() => void startServerRun()}
         />
+      ) : null}
+      {serverClient && screen !== "menu" && screen !== "dossier" && screen !== "armory" && screen !== "settings" ? (
+        <aside
+          aria-live="polite"
+          aria-label="Server match inventory"
+          className="fixed right-4 top-4 z-40 max-h-[38vh] w-64 overflow-y-auto border border-cyan/50 bg-bg/90 p-3 text-fg shadow-xl backdrop-blur"
+        >
+          <p className="font-display text-xs tracking-widest text-cyan">SERVER CACHE · {serverInventory.length}</p>
+          {serverInventory.length ? (
+            <ul className="mt-2 space-y-1 text-xs">
+              {serverInventory.slice(-6).reverse().map((item) => (
+                <li key={item.lootId} className="flex justify-between gap-3 border-t border-line/60 pt-1.5">
+                  <span className="truncate">{item.label}</span>
+                  <span className="shrink-0 text-gold">{item.scrap ? `+${item.scrap}` : item.kind.toUpperCase()}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-xs text-muted">No claimed items in this match yet.</p>
+          )}
+          {serverMessage ? <p role="status" className="mt-2 text-xs text-gold">{serverMessage}</p> : null}
+        </aside>
       ) : null}
       {screen === "pause" ? (
         <Overlay
@@ -241,6 +356,8 @@ function Menu({
   lookSensitivity,
   graphicsUnavailable,
   canStart,
+  serverStatus,
+  serverMessage,
   onDossier,
   onArmory,
   onSettings,
@@ -248,6 +365,7 @@ function Menu({
   onLookSensitivityChange,
   onMars,
   onStart,
+  onStartServer,
 }: {
   op: OpId;
   setOp: (id: OpId) => void;
@@ -257,6 +375,8 @@ function Menu({
   lookSensitivity: number;
   graphicsUnavailable: boolean;
   canStart: boolean;
+  serverStatus: "idle" | "connecting" | "connected" | "error";
+  serverMessage: string | null;
   onDossier: () => void;
   onArmory: () => void;
   onSettings: () => void;
@@ -264,6 +384,7 @@ function Menu({
   onLookSensitivityChange: (value: number) => void;
   onMars: (next: MarsProfile) => void;
   onStart: () => void;
+  onStartServer: () => void;
 }) {
   return (
     <div className={`absolute inset-0 overflow-y-auto ${graphicsUnavailable ? "bg-bg/65" : "bg-bg/80"}`}>
@@ -359,6 +480,22 @@ function Menu({
           >
             Start
           </button>
+          {panel === "ops" ? (
+            <button
+              type="button"
+              disabled={!canStart || serverStatus === "connecting"}
+              className="border border-gold px-5 py-3 font-display text-lg tracking-widest text-gold disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={onStartServer}
+            >
+              {serverStatus === "connecting" ? "Connecting…" : "Server Loot Run"}
+            </button>
+          ) : null}
+          {serverMessage ? <p role="alert" className="basis-full text-sm text-gold">{serverMessage}</p> : null}
+          {panel === "ops" ? (
+            <p className="basis-full text-xs text-muted">
+              Server Loot Run uses temporary match inventory. Solo saves stay separate.
+            </p>
+          ) : null}
           {panel === "ops" ? (
             <button type="button" className="border border-line px-5 py-3 font-display text-lg tracking-widest text-fg" onClick={onDossier}>
               Dossier

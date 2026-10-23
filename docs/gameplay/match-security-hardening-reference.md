@@ -46,8 +46,18 @@ records therefore remain blocked on a server gate-destruction event, and later
 objectives remain locked by prerequisites. No client objective completion
 fields are accepted.
 
+The solo game now has an optional **Server Loot Run** that reads the validated
+world-state registry, opens terminals and claims pickups through the match API,
+and displays the returned match inventory. Movement input is sent over bounded
+REST requests and the client periodically reconciles its position from the
+server snapshot. The server-selected start is aligned to the current Nod region,
+not the generic outer battle-royale spawn ring. Same-tab reloads restore the
+temporary match through `sessionStorage`; closing/expiring the server session
+still loses its inventory.
+
 This is staged session security, not a claim of production certification. The
-bearer sessions are ephemeral, the match API is not connected to the solo
-browser client, and weapon hit detection, durable inventory, objective
-completion, and persistent accounts remain outside the current authoritative
-simulation.
+solo mission's combat, rescue/beacon/extraction progression, and extracted
+profile rewards remain client-side; the server ledger is not durable inventory
+or an account system. Prediction, authoritative weapon hit detection, durable
+inventory, objective completion, and persistent accounts remain outside the
+current authoritative simulation.

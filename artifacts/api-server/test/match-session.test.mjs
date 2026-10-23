@@ -88,6 +88,19 @@ test("match session routes load the map, assign server identity, and authorize a
     assert.match(joined.playerId, /^[0-9a-f-]{36}$/i);
     assert.match(joined.accessToken, /^[A-Za-z0-9_-]{43}$/);
     assert.equal(joined.snapshot.players[0].playerId, joined.playerId);
+    assert.deepEqual(joined.snapshot.players[0].position, { x: 0, y: 0, z: 86 });
+    const secondJoinResponse = await fetch(
+      `${baseUrl}/matches/${created.matchId}/players`,
+      { method: "POST" },
+    );
+    assert.equal(secondJoinResponse.status, 201);
+    const secondJoin = await secondJoinResponse.json();
+    const secondSpawn = secondJoin.snapshot.players.find(
+      (player) => player.playerId === secondJoin.playerId,
+    ).position;
+    assert.ok(Math.hypot(secondSpawn.x, secondSpawn.z - 86) > 12);
+    assert.ok(Math.abs(secondSpawn.x) <= 152);
+    assert.ok(Math.abs(secondSpawn.z) <= 152);
 
     const missingGameplayAuth = await fetch(
       `${baseUrl}/matches/${created.matchId}/world-state`,

@@ -454,22 +454,22 @@ function digestAccessToken(accessToken: string): string {
 
 function makeSpawnCandidates(): Array<{ x: number; y: number; z: number }> {
   const candidates: Array<{ x: number; y: number; z: number }> = [];
-  const center = DEFAULT_MATCH_CONFIG.safeZoneCenter;
   const angleOffset =
     (randomBytes(4).readUInt32BE(0) / 0x1_0000_0000) * Math.PI * 2;
-  const outerRadius = Math.max(
-    0,
-    DEFAULT_MATCH_CONFIG.initialZoneRadius - 80,
-  );
+  // Mission To Earth's current generated Nod region is about 300 units wide.
+  // Keep server-selected players on that actual map instead of the generic
+  // battle-royale safe-zone ring, which would strand them far from all loot.
+  candidates.push({ x: 0, y: 0, z: 86 });
+  const outerRadius = 62;
 
-  for (let radius = outerRadius; radius >= 0; radius -= 180) {
-    const pointCount = Math.max(12, Math.ceil((Math.PI * 2 * radius) / 180));
+  for (let radius = 14; radius <= outerRadius; radius += 14) {
+    const pointCount = Math.max(8, Math.ceil((Math.PI * 2 * radius) / 14));
     for (let point = 0; point < pointCount; point += 1) {
       const angle = angleOffset + (point / pointCount) * Math.PI * 2;
       candidates.push({
-        x: Number((center.x + Math.cos(angle) * radius).toFixed(2)),
+        x: Number((Math.cos(angle) * radius).toFixed(2)),
         y: 0,
-        z: Number((center.z + Math.sin(angle) * radius).toFixed(2)),
+        z: Number((86 + Math.sin(angle) * radius).toFixed(2)),
       });
     }
   }

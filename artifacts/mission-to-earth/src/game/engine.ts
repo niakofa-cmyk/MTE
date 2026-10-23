@@ -62,6 +62,13 @@ import {
   type WorldData,
 } from "@/game/world";
 import { applyCoverDamage, separateAabbOverlap } from "@/game/world-physics";
+import {
+  SERVER_INPUT_FLAGS,
+  type MatchInput,
+  type ServerGameplayState,
+  type ServerInventoryItem,
+  type ServerPlayerSnapshot,
+} from "@/game/server-match-client";
 
 export type MissionEvent =
   | { type: "mode"; mode: "play" | "menu" }
@@ -126,6 +133,16 @@ type Loot = LootSpec & {
   alive: boolean;
   extra: boolean;
   spin: number;
+  serverId?: string;
+};
+
+type ServerGameplayHandlers = {
+  claimLoot: (lootId: string) => Promise<{
+    item: ServerInventoryItem;
+    inventory: ServerInventoryItem[];
+  }>;
+  openTerminal: (terminalId: string) => Promise<ServerGameplayState>;
+  inventoryChanged: (inventory: ServerInventoryItem[]) => void;
 };
 
 type Floater = { x: number; y: number; z: number; text: string; life: number; color: string };
@@ -392,6 +409,10 @@ function paintGunKit(group: THREE.Group, modIds: number[]) {
 export class MissionEngine {
   private host: HTMLElement;
   private hooks: { onEvent: (e: MissionEvent) => void };
+  private serverGameplayHandlers: ServerGameplayHandlers | null = null;
+  private serverGameplayActive = false;
+  private pendingServerInteractions = new Set<string>();
+  private serverGameplayGeneration = 0;
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(78, 1, 0.08, 480);
@@ -407,7 +428,7 @@ export class MissionEngine {
   private audio = new AudioBus();
   private pool: Actor[] = [];
   private loots: Loot[] = [];
-  private terminals: { x: number; z: number; mesh: THREE.Group; open: boolean }[] = [];
+  private terminals: { id: string; x: number; z: number; mesh: THREE.Group; open: boolean }[] = [];
   private vips: {
     mesh: THREE.Group;
     x: number;
@@ -885,7 +906,7 @@ export class MissionEngine {
     }
 
     for (const spec of this.world.loots) this.makeLoot(spec, false);
-    for (const spec of this.world.terminals) {
+    for (const [index, spec] of this.world.terminals.entries()) {
       const mesh = new THREE.Group();
       const body = new THREE.Mesh(
         new THREE.BoxGeometry(0.72, 1.15, 0.42),
@@ -900,7 +921,13 @@ export class MissionEngine {
       mesh.add(body, screen);
       mesh.position.set(spec.x, 0, spec.z);
       this.scene.add(mesh);
-      this.terminals.push({ x: spec.x, z: spec.z, mesh, open: false });
+      this.terminals.push({
+        id: `terminal-${String(index + 1).padStart(2, "0")}`,
+        x: spec.x,
+        z: spec.z,
+        mesh,
+        open: false,
+      });
     }
 
     this.viewScene.add(this.viewRig);
@@ -1101,7 +1128,7 @@ export class MissionEngine {
     this.hooks.onEvent({ type: "mode", mode: "play" });
   }
 
-  start(op: OpId) {
+  start(op: OpId, serverSpawn?: ServerPlayerSnapshot["position"]) {
     this.audio.ensure();
     this.op = op;
     this.hostOp = op;
@@ -1111,14 +1138,14 @@ export class MissionEngine {
     this.raT = 0;
     this.paused = false;
     this.resetMission();
-    this.mode = "drop";
-    this.landed = false;
+    this.mode = serverSpawn ? "ground" : "drop";
+    this.landed = Boolean(serverSpawn);
     this.dropAge = 0;
-    this.x = 0;
-    this.y = 120;
-    this.z = 86;
+    this.x = serverSpawn?.x ?? 0;
+    this.y = serverSpawn?.y ?? 120;
+    this.z = serverSpawn?.z ?? 86;
     this.vx = 0;
-    this.vy = -11;
+    this.vy = serverSpawn ? 0 : -11;
     this.vz = 0;
     this.yaw = 0;
     this.pitch = -0.42;
@@ -1149,6 +1176,131 @@ export class MissionEngine {
     this.spawnInitial();
     this.sealLoadout();
     this.hooks.onEvent({ type: "mode", mode: "play" });
+  }
+
+  enableServerGameplay(
+    state: ServerGameplayState,
+    handlers: ServerGameplayHandlers,
+  ) {
+    this.serverGameplayGeneration += 1;
+    this.serverGameplayActive = true;
+    this.serverGameplayHandlers = handlers;
+    this.pendingServerInteractions.clear();
+    this.applyServerGameplayState(state);
+  }
+
+  disableServerGameplay() {
+    this.serverGameplayGeneration += 1;
+    const restoreLocalLoot = this.serverGameplayActive;
+    this.serverGameplayActive = false;
+    this.serverGameplayHandlers = null;
+    this.pendingServerInteractions.clear();
+    if (!restoreLocalLoot) return;
+
+    for (const loot of this.loots) this.disposeLoot(loot);
+    this.loots = [];
+    for (const spec of this.world.loots) this.makeLoot(spec, false);
+    for (const terminal of this.terminals) {
+      terminal.open = false;
+      terminal.mesh.visible = true;
+    }
+  }
+
+  applyServerGameplayState(state: ServerGameplayState) {
+    if (!this.serverGameplayActive) return;
+
+    const existingByServerId = new Map<string, Loot>();
+    for (const loot of this.loots) {
+      if (loot.serverId) existingByServerId.set(loot.serverId, loot);
+      else this.disposeLoot(loot);
+    }
+    const nextLoots: Loot[] = [];
+    for (const spawn of state.lootSpawns) {
+      if (!spawn.available) continue;
+      const existing = existingByServerId.get(spawn.id);
+      if (existing) {
+        existingByServerId.delete(spawn.id);
+        nextLoots.push(existing);
+        continue;
+      }
+      const suffix = Number(spawn.id.slice("map-loot-".length));
+      this.makeLoot(
+        {
+          kind: spawn.kind,
+          label: spawn.label,
+          x: spawn.x,
+          z: spawn.z,
+          scrap: spawn.scrap,
+          ...(spawn.weaponId ? { weaponId: spawn.weaponId as WeaponId } : {}),
+          ...(spawn.modId ? { modId: spawn.modId } : {}),
+        },
+        suffix > this.world.loots.length,
+        spawn.id,
+      );
+      const created = this.loots.pop();
+      if (created) nextLoots.push(created);
+    }
+    for (const loot of existingByServerId.values()) this.disposeLoot(loot);
+    this.loots = nextLoots;
+    const serverTerminals = new Map(state.terminals.map((terminal) => [terminal.id, terminal]));
+    for (const terminal of this.terminals) {
+      const record = serverTerminals.get(terminal.id);
+      if (!record) continue;
+      terminal.open = record.state === "opened";
+      terminal.mesh.visible = !terminal.open;
+    }
+    this.serverGameplayHandlers?.inventoryChanged(state.inventory);
+  }
+
+  private disposeLoot(loot: Loot) {
+    loot.mesh.removeFromParent();
+    loot.mesh.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.geometry.dispose();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const material of materials) material.dispose();
+    });
+  }
+
+  applyServerPosition(player: ServerPlayerSnapshot) {
+    if (!this.serverGameplayActive || (this.mode !== "ground" && this.mode !== "drop")) return;
+    if (Math.hypot(player.position.x - this.x, player.position.z - this.z) < 1.1) return;
+    this.x = player.position.x;
+    this.z = player.position.z;
+  }
+
+  matchInput(): MatchInput {
+    const forward = clamp(
+      (this.held("KeyW") ? 1 : 0) - (this.held("KeyS") ? 1 : 0) + this.virtual.ay + this.gamepad.moveY,
+      -1,
+      1,
+    );
+    const strafe = clamp(
+      (this.held("KeyD") ? 1 : 0) - (this.held("KeyA") ? 1 : 0) + this.virtual.ax + this.gamepad.moveX,
+      -1,
+      1,
+    );
+    let inputFlags = 0;
+    if (this.fireHeld || this.virtual.fire || this.gamepad.fireRight) {
+      inputFlags |= SERVER_INPUT_FLAGS.FIRE_RIGHT;
+    }
+    if (this.fireLeftHeld || this.virtual.fireLeft || this.gamepad.fireLeft) {
+      inputFlags |= SERVER_INPUT_FLAGS.FIRE_LEFT;
+    }
+    if (this.held("KeyR") || this.virtual.reload) {
+      inputFlags |= SERVER_INPUT_FLAGS.RELOAD_RIGHT;
+    }
+    if (this.aiming || this.focusToggle || this.virtual.aim || this.gamepad.focus) {
+      inputFlags |= SERVER_INPUT_FLAGS.FOCUS_AIM;
+    }
+    const clientYaw = (this.yaw * 180) / Math.PI;
+    const matchYaw = ((clientYaw % 360 + 360) % 360) - 180;
+    return {
+      inputFlags,
+      pitch: (this.pitch * 180) / Math.PI,
+      yaw: matchYaw,
+      movementVector: { forward, strafe: -strafe },
+    };
   }
 
   private resetMission() {
@@ -1413,7 +1565,7 @@ export class MissionEngine {
     }
   }
 
-  private makeLoot(spec: LootSpec, extra: boolean) {
+  private makeLoot(spec: LootSpec, extra: boolean, serverId?: string) {
     const group = new THREE.Group();
     const color =
       spec.kind === "intel"
@@ -1438,7 +1590,14 @@ export class MissionEngine {
     group.add(box, pole);
     group.position.set(spec.x, 0, spec.z);
     this.scene.add(group);
-    this.loots.push({ ...spec, mesh: group, alive: true, extra, spin: Math.random() * 6 });
+    this.loots.push({
+      ...spec,
+      mesh: group,
+      alive: true,
+      extra,
+      spin: Math.random() * 6,
+      ...(serverId ? { serverId } : {}),
+    });
   }
 
   private loop = (stamp: number) => {
@@ -3558,7 +3717,35 @@ export class MissionEngine {
     }
   }
 
-  private openTerminal(term: { x: number; z: number; mesh: THREE.Group; open: boolean }) {
+  private openTerminal(term: { id: string; x: number; z: number; mesh: THREE.Group; open: boolean }) {
+    const handlers = this.serverGameplayHandlers;
+    if (this.serverGameplayActive) {
+      if (!handlers || this.pendingServerInteractions.has(term.id)) return;
+      const generation = this.serverGameplayGeneration;
+      this.pendingServerInteractions.add(term.id);
+      this.toastMsg = "REQUESTING SERVER CACHE…";
+      this.toastT = 2.2;
+      void handlers.openTerminal(term.id)
+        .then((state) => {
+          if (generation !== this.serverGameplayGeneration || !this.serverGameplayActive) return;
+          this.applyServerGameplayState(state);
+          this.audio.breach();
+          this.toastMsg = "SERVER CACHE OPEN · CLAIM DROPS TO ADD THEM";
+          this.toastT = 2.6;
+        })
+        .catch((error: unknown) => {
+          if (generation !== this.serverGameplayGeneration || !this.serverGameplayActive) return;
+          this.toastMsg = error instanceof Error ? error.message : "Terminal request failed.";
+          this.toastT = 3;
+        })
+        .finally(() => {
+          if (generation === this.serverGameplayGeneration) {
+            this.pendingServerInteractions.delete(term.id);
+          }
+        });
+      return;
+    }
+
     term.open = true;
     term.mesh.visible = false;
     const uprising =
@@ -3593,6 +3780,48 @@ export class MissionEngine {
   }
 
   private takeLoot(loot: Loot) {
+    if (this.serverGameplayActive) {
+      const handlers = this.serverGameplayHandlers;
+      if (!loot.serverId || !handlers) {
+        this.toastMsg = "Server loot is not synchronized. Keep the item and try again.";
+        this.toastT = 2.6;
+        return;
+      }
+      if (this.pendingServerInteractions.has(loot.serverId)) return;
+      const generation = this.serverGameplayGeneration;
+      this.pendingServerInteractions.add(loot.serverId);
+      this.toastMsg = "VERIFYING SERVER CLAIM…";
+      this.toastT = 2.2;
+      void handlers.claimLoot(loot.serverId)
+        .then((result) => {
+          if (generation !== this.serverGameplayGeneration || !this.serverGameplayActive) return;
+          handlers.inventoryChanged(result.inventory);
+          this.applyLoot({
+            ...loot,
+            kind: result.item.kind,
+            label: result.item.label,
+            scrap: result.item.scrap,
+            ...(result.item.weaponId ? { weaponId: result.item.weaponId as WeaponId } : { weaponId: undefined }),
+            ...(result.item.modId ? { modId: result.item.modId } : { modId: undefined }),
+          });
+        })
+        .catch((error: unknown) => {
+          if (generation !== this.serverGameplayGeneration || !this.serverGameplayActive) return;
+          this.toastMsg = error instanceof Error ? error.message : "Loot claim failed.";
+          this.toastT = 3;
+        })
+        .finally(() => {
+          if (generation === this.serverGameplayGeneration) {
+            this.pendingServerInteractions.delete(loot.serverId!);
+          }
+        });
+      return;
+    }
+
+    this.applyLoot(loot);
+  }
+
+  private applyLoot(loot: Loot) {
     if (loot.kind === "mod" && loot.modId) {
       const attachment = ATTACHMENT_BY_ID[loot.modId];
       const slot = this.slots[this.slot];

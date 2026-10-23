@@ -119,5 +119,5 @@ test("boots an authoritative match from the generated Nod geometry file", async 
       }),
     /intersects static world geometry/,
   );
-  match.registerPlayer("clear-spawn", { x: 1_000, y: 0, z: 1_000 });
+  match.registerPlayer("clear-spawn", { x: 0, y: 0, z: 86 });
 });
