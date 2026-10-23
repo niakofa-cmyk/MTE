@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Mission To Earth"
+description = "A third-person extraction shooter game where players drop into Nod, rescue bloodlines, collect loot, and escape the zone."
+version = "1.0.0"
+id = "artifacts/mission-to-earth"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24152
+
+[services.development]
+run = "pnpm --filter @workspace/mission-to-earth run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mission-to-earth", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/mission-to-earth/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24152"
+BASE_PATH = "/"

@@ -1,0 +1,188 @@
+.touch-hud-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  touch-action: none;
+  --touch-disc-scale: 1;
+}
+
+.touch-zone-interactive {
+  position: absolute;
+  pointer-events: auto;
+  box-sizing: border-box;
+  touch-action: none;
+}
+
+.zone-left-movement {
+  left: 0;
+  top: 0;
+  width: 50vw;
+  height: 100vh;
+  border-right: 1px dashed color-mix(in srgb, var(--color-gold) 12%, transparent);
+}
+
+.zone-right-combat {
+  right: 0;
+  top: 0;
+  width: 50vw;
+  height: 100vh;
+}
+
+.dynamic-virtual-stick {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  border: 2px solid color-mix(in srgb, var(--color-fg) 25%, transparent);
+  background: color-mix(in srgb, var(--color-fg) 4%, transparent);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.dynamic-virtual-thumb {
+  position: absolute;
+  top: 25px;
+  left: 25px;
+  width: 30px;
+  height: 30px;
+  background: color-mix(in srgb, var(--color-gold) 75%, transparent);
+  box-shadow: 0 0 8px var(--color-gold);
+  border-radius: 50%;
+}
+
+.gold-disc-utility {
+  position: absolute;
+  right: 24px;
+  top: 55%;
+  transform: translateY(-50%) scale(var(--touch-disc-scale));
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-gold) 22%, transparent) 0%, transparent 70%);
+  border: 2px solid var(--color-gold);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--color-gold) 35%, transparent);
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  touch-action: none;
+}
+
+.gold-disc-center-node {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-gold);
+  box-shadow: 0 0 8px var(--color-gold);
+}
+
+.touch-fire {
+  position: absolute;
+  right: 16px;
+  bottom: 176px;
+  z-index: 22;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  pointer-events: auto;
+  touch-action: none;
+  border: 2px solid var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 18%, transparent);
+  color: var(--color-fg);
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: 0.16em;
+  font-size: 13px;
+}
+
+.touch-action {
+  position: absolute;
+  left: 16px;
+  right: 116px;
+  bottom: 176px;
+  z-index: 22;
+  min-height: 64px;
+  pointer-events: auto;
+  touch-action: none;
+  border: 1px solid var(--color-gold);
+  background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+  color: var(--color-gold);
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: 0.12em;
+  font-size: 16px;
+  padding: 8px 12px;
+}
+
+.touch-weapons {
+  position: absolute;
+  right: 16px;
+  bottom: 268px;
+  z-index: 22;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 124px;
+  pointer-events: auto;
+}
+
+.touch-weapons button {
+  min-height: 36px;
+  border: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-bg) 80%, transparent);
+  color: var(--color-muted);
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.touch-weapons button.is-live {
+  border-color: var(--color-gold);
+  color: var(--color-fg);
+}
+
+.touch-tune {
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  bottom: auto;
+  z-index: 30;
+  width: min(92vw, 280px);
+  transform: translateX(-50%);
+  pointer-events: auto;
+  border: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-bg) 88%, transparent);
+  padding: 6px 8px;
+}
+
+.touch-tune summary {
+  cursor: pointer;
+  color: var(--color-gold);
+  font-family: var(--font-display), sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  list-style: none;
+}
+
+.touch-tune label {
+  display: grid;
+  grid-template-columns: 72px 1fr 28px;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+  color: var(--color-muted);
+  font-family: var(--font-display), sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.touch-tune input {
+  width: 100%;
+  accent-color: var(--color-gold);
+}

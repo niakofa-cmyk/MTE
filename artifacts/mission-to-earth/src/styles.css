@@ -1,0 +1,189 @@
+@import "tailwindcss";
+@import "./game/touch-overlay.css";
+@import "./game/ui-configurator.css";
+
+@theme {
+  --color-bg: #07090d;
+  --color-surface: #12161c;
+  --color-surface-2: #1b2129;
+  --color-fg: #e8e4d8;
+  --color-muted: #8e948c;
+  --color-cyan: #2ee0c8;
+  --color-gold: #d4a24a;
+  --color-danger: #e24b4b;
+  --color-line: #2c3442;
+  --font-sans: "Barlow", sans-serif;
+  --font-display: "Rajdhani", sans-serif;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+.touch-only {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .touch-only {
+    display: flex;
+  }
+  .kb-hints {
+    display: none;
+  }
+}
+
+#mte-cross {
+  --gap: 6px;
+  width: 0;
+  height: 0;
+}
+
+#mte-cross span {
+  position: absolute;
+  background: var(--color-fg);
+  opacity: 0.9;
+}
+
+#mte-cross span[data-arm="l"],
+#mte-cross span[data-arm="r"] {
+  top: -1px;
+  width: 9px;
+  height: 2px;
+}
+
+#mte-cross span[data-arm="u"],
+#mte-cross span[data-arm="d"] {
+  left: -1px;
+  width: 2px;
+  height: 9px;
+}
+
+#mte-cross span[data-arm="l"] { right: var(--gap); }
+#mte-cross span[data-arm="r"] { left: var(--gap); }
+#mte-cross span[data-arm="u"] { bottom: var(--gap); }
+#mte-cross span[data-arm="d"] { top: var(--gap); }
+
+#mte-cross.is-skill span {
+  background: var(--color-gold);
+}
+
+#mte-hit span {
+  position: absolute;
+  width: 10px;
+  height: 2px;
+  background: var(--color-fg);
+}
+
+#mte-hit.is-head span {
+  background: var(--color-gold);
+}
+
+#mte-vig {
+  background: radial-gradient(ellipse at center, transparent 42%, rgba(226, 75, 75, 0.72) 100%);
+}
+
+#mte-vig.is-zone {
+  background: radial-gradient(ellipse at center, transparent 46%, rgba(226, 75, 75, 0.5) 100%);
+}
+
+#mte-vig.is-solar {
+  background:
+    radial-gradient(ellipse at 47% 50%, rgba(255, 236, 190, 0.72), transparent 42%),
+    radial-gradient(ellipse at 54% 50%, rgba(255, 90, 40, 0.34), transparent 62%),
+    radial-gradient(ellipse at 42% 50%, rgba(80, 190, 255, 0.22), transparent 64%);
+}
+
+#mte-map {
+  width: 132px;
+  height: 132px;
+  border-radius: 999px;
+  border: 1px solid var(--color-line);
+  background: rgba(7, 9, 13, 0.55);
+}
+
+#mte-stability-wrap.is-ready #mte-stability {
+  box-shadow: 0 0 8px var(--color-cyan);
+}
+
+#mte-stability-wrap.is-warp {
+  animation: mte-warp 0.16s steps(2) infinite;
+}
+
+@keyframes mte-warp {
+  50% {
+    transform: translateX(1px);
+    filter: contrast(1.8);
+  }
+}
+
+#mte-coil [data-seg].is-on {
+  background: var(--color-gold);
+  box-shadow: 0 0 6px var(--color-gold);
+}
+
+#mte-coil [data-seg].is-crit {
+  background: var(--color-danger);
+  box-shadow: 0 0 8px var(--color-danger);
+}
+
+#mte-coil-head.is-live {
+  animation: mte-hud-pulse 2s ease-in-out infinite;
+}
+
+#mte-solar-pct.is-crit {
+  color: var(--color-danger);
+  animation: mte-glitch 0.15s linear infinite;
+}
+
+#mte-coil-alert.is-hot {
+  animation: mte-alert 0.4s ease-in-out infinite;
+}
+
+@keyframes mte-hud-pulse {
+  0%,
+  100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes mte-glitch {
+  0%,
+  100% { transform: translate(0); }
+  20% { transform: translate(-2px, 1px); }
+  40% { transform: translate(1px, -1px); }
+  60% { transform: translate(-1px, -1px); }
+  80% { transform: translate(2px, 1px); }
+}
+
+@keyframes mte-alert {
+  0%,
+  100% {
+    background-color: rgba(226, 75, 75, 0.3);
+    border-color: var(--color-danger);
+  }
+  50% {
+    background-color: rgba(226, 75, 75, 0.05);
+    border-color: rgba(226, 75, 75, 0.25);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #mte-stability-wrap.is-warp,
+  #mte-coil-head.is-live,
+  #mte-solar-pct.is-crit,
+  #mte-coil-alert.is-hot {
+    animation: none;
+  }
+}
