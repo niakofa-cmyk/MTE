@@ -136,8 +136,10 @@ export function Mission() {
     const snapshotTimer = window.setInterval(() => {
       void serverClient.getSnapshot()
         .then((snapshot) => {
-          const player = snapshot.players.find((entry) => entry.playerId === serverClient.playerId);
-          if (player) engineRef.current?.applyServerPosition(player);
+          engineRef.current?.applyServerSnapshot(
+            snapshot.players,
+            serverClient.localPlayerId,
+          );
         })
         .catch((error: unknown) => {
           setServerMessage(error instanceof Error ? error.message : "Match position sync failed.");
@@ -167,10 +169,10 @@ export function Mission() {
     setServerStatus("connecting");
     setServerMessage(null);
     try {
-      const connected = await ServerMatchClient.connect();
+      const connected = await ServerMatchClient.connect({ operatorId: op });
       const engine = engineRef.current;
       if (!engine) throw new Error("The game is not ready to start.");
-      engine.start(op, connected.player.position);
+      engine.start(connected.operatorId, connected.player.position);
       engine.enableServerGameplay(connected.gameplay, {
         claimLoot: async (lootId) => {
           const result = await connected.client.claimLoot(lootId);

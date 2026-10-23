@@ -93,4 +93,25 @@ export class WeaponCycle {
     this.reloadRemaining = 0;
     this.reloadDuration = 0;
   }
+
+  syncAuthoritativeReload(
+    isReloading: boolean,
+    remainingSeconds: number,
+    totalDurationSeconds: number,
+  ) {
+    if (
+      !Number.isFinite(remainingSeconds) ||
+      !Number.isFinite(totalDurationSeconds) ||
+      remainingSeconds < 0 ||
+      totalDurationSeconds < 0
+    ) {
+      throw new Error("Server reload timing must be finite and non-negative.");
+    }
+    if (!isReloading) {
+      this.cancelReload();
+      return;
+    }
+    this.reloadDuration = Math.max(remainingSeconds, totalDurationSeconds);
+    this.reloadRemaining = Math.min(remainingSeconds, this.reloadDuration);
+  }
 }

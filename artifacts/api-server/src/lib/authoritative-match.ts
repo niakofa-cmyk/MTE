@@ -3,8 +3,9 @@
  *
  * A transport must authenticate a connection and pass its server-resolved
  * player ID to submitInput. The packet itself never establishes identity.
- * This module is deliberately transport-agnostic and does not implement
- * matchmaking, weapon raycasts, or client prediction.
+ * This module is deliberately transport-agnostic: it owns bounded movement,
+ * player combat, and operator effects, but not account identity, matchmaking,
+ * client prediction, or durable progression.
  */
 
 import { SpatialHashGrid } from "./spatial-hash-grid.ts";
@@ -13,6 +14,16 @@ import {
   type StaticAabb,
 } from "./static-world-collision-map.ts";
 import { loadLevelGeometryAsset } from "./level-asset-loader.ts";
+import {
+  MTEAuthoritativeAbilityManager,
+  MTE_SERVER_WEAPON_CATALOG,
+  MTEWeaponTelemetryEngine,
+  SERVER_OPERATOR_PROFILES,
+  type AbilityType,
+  type PlayerAbilityState,
+  type RuntimeWeaponProfile,
+  type ServerOperatorId,
+} from "./authoritative-combat-systems.ts";
 
 export const ClientInputFlags = {
   FIRE_RIGHT: 1 << 0,
@@ -20,6 +31,8 @@ export const ClientInputFlags = {
   RELOAD_RIGHT: 1 << 2,
   RELOAD_LEFT: 1 << 3,
   FOCUS_AIM: 1 << 4,
+  RELOAD_REQUEST: 1 << 5,
+  ACTIVATE_ABILITY: 1 << 6,
 } as const;
 
 const VALID_INPUT_FLAGS = Object.values(ClientInputFlags).reduce(
@@ -35,7 +48,23 @@ export type MatchPhase =
   | "EXTRACTION_READY"
   | "MATCH_OVER";
 
-export type HandAction = "IDLE" | "FIRING" | "RELOADING";
+export type HandAction = "IDLE" | "FIRING" | "RELOADING" | "DRY_CLICK";
+
+export interface WeaponHandSnapshot {
+  weaponId: string;
+  ammoInMagazine: number;
+  reserveAmmo: number;
+  maxClipSize: number;
+  isReloading: boolean;
+  reloadRemainingSeconds: number;
+}
+
+export interface PlayerAbilitySnapshot {
+  abilityId: AbilityType;
+  isActive: boolean;
+  cooldownRemainingSeconds: number;
+  activeDurationRemainingSeconds: number;
+}
 
 export interface Position3 {
   x: number;
@@ -120,6 +149,10 @@ export interface PlayerStateSnapshot {
   pitch: number;
   rightHandState: HandAction;
   leftHandState: HandAction;
+  operatorId: ServerOperatorId;
+  rightWeapon: WeaponHandSnapshot;
+  leftWeapon: WeaponHandSnapshot;
+  ability: PlayerAbilitySnapshot;
   isFocusAiming: boolean;
   health: number;
 }
@@ -133,6 +166,7 @@ export interface ZoneStateSnapshot {
 }
 
 export interface AuthoritativeWorldSnapshot {
+  protocolVersion: 3;
   snapshotId: number;
   serverTimestampMs: number;
   players: PlayerStateSnapshot[];
@@ -168,6 +202,27 @@ interface InternalPlayer {
   rightHandState: HandAction;
   leftHandState: HandAction;
   isFocusAiming: boolean;
+  operatorId: ServerOperatorId;
+  rightWeapon: InternalWeaponHand;
+  leftWeapon: InternalWeaponHand;
+  ability: PlayerAbilityState;
+  abilityHeld: boolean;
+  reloadHeld: boolean;
+  lastReloadRequestAtMs: number | null;
+  reloadLeftAfterRight: boolean;
+  dryClickUntilMs: { right: number; left: number };
+  gatewayEntry: Position3 | null;
+  gatewayExit: Position3 | null;
+  gatewayLockSeconds: number;
+}
+
+interface InternalWeaponHand {
+  profile: RuntimeWeaponProfile;
+  ammoInMagazine: number;
+  reserveAmmo: number;
+  isReloading: boolean;
+  reloadRemainingSeconds: number;
+  nextShotAtMs: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -325,6 +380,34 @@ function copyInput(packet: ClientInputPacket): ClientInputPacket {
   };
 }
 
+function raySphereDistance(
+  origin: Position3,
+  direction: Position3,
+  center: Position3,
+  radius: number,
+): number | null {
+  const offset = {
+    x: origin.x - center.x,
+    y: origin.y - center.y,
+    z: origin.z - center.z,
+  };
+  const b =
+    offset.x * direction.x +
+    offset.y * direction.y +
+    offset.z * direction.z;
+  const c =
+    offset.x * offset.x +
+    offset.y * offset.y +
+    offset.z * offset.z -
+    radius * radius;
+  const discriminant = b * b - c;
+  if (discriminant < 0) return null;
+  const near = -b - Math.sqrt(discriminant);
+  if (near >= 0) return near;
+  const far = -b + Math.sqrt(discriminant);
+  return far >= 0 ? far : null;
+}
+
 export class AuthoritativeMatch {
   private readonly config: MatchConfig;
   private readonly players = new Map<string, InternalPlayer>();
@@ -359,12 +442,19 @@ export class AuthoritativeMatch {
    * Spawn position and player identity must come from server-side match logic.
    * Never pass client-submitted identity or coordinates directly here.
    */
-  registerPlayer(playerId: string, serverSelectedSpawn: Position3): void {
+  registerPlayer(
+    playerId: string,
+    serverSelectedSpawn: Position3,
+    operatorId: ServerOperatorId = "jaya",
+  ): void {
     if (!playerId.trim() || playerId.length > 128) {
       throw new Error("playerId must be a non-empty server-owned identifier.");
     }
     if (this.players.has(playerId)) {
       throw new Error("Player is already registered in this match.");
+    }
+    if (!Object.hasOwn(SERVER_OPERATOR_PROFILES, operatorId)) {
+      throw new Error("Operator selection is not in the server roster.");
     }
     if (this.players.size >= this.config.maxPlayers) {
       throw new Error("Match player capacity has been reached.");
@@ -382,6 +472,21 @@ export class AuthoritativeMatch {
       throw new Error("Spawn position intersects static world geometry.");
     }
 
+    const operatorProfile = SERVER_OPERATOR_PROFILES[operatorId];
+    const makeWeaponHand = (weaponId: string): InternalWeaponHand => {
+      const profile = MTEWeaponTelemetryEngine.calculateRuntimeProfile(
+        { weaponId, equippedAttachmentIds: [] },
+        MTE_SERVER_WEAPON_CATALOG,
+      );
+      return {
+        profile,
+        ammoInMagazine: profile.maxClipSize,
+        reserveAmmo: profile.maxClipSize * 2,
+        isReloading: false,
+        reloadRemainingSeconds: 0,
+        nextShotAtMs: 0,
+      };
+    };
     const player: InternalPlayer = {
       playerId,
       position: { ...serverSelectedSpawn },
@@ -399,6 +504,20 @@ export class AuthoritativeMatch {
       rightHandState: "IDLE",
       leftHandState: "IDLE",
       isFocusAiming: false,
+      operatorId,
+      rightWeapon: makeWeaponHand(operatorProfile.primaryWeaponId),
+      leftWeapon: makeWeaponHand(operatorProfile.secondaryWeaponId),
+      ability: MTEAuthoritativeAbilityManager.createDefaultState(
+        operatorProfile.abilityId,
+      ),
+      abilityHeld: false,
+      reloadHeld: false,
+      lastReloadRequestAtMs: null,
+      reloadLeftAfterRight: false,
+      dryClickUntilMs: { right: 0, left: 0 },
+      gatewayEntry: null,
+      gatewayExit: null,
+      gatewayLockSeconds: 0,
     };
     this.players.set(playerId, player);
     this.spatialGrid.insert(player);
@@ -582,13 +701,17 @@ export class AuthoritativeMatch {
 
       if (!input || player.health <= 0) {
         player.velocity = { x: 0, y: 0, z: 0 };
-        player.rightHandState = "IDLE";
-        player.leftHandState = "IDLE";
         player.isFocusAiming = false;
-        continue;
+      } else {
+        this.simulatePlayerInput(player, input, boundedDelta);
       }
 
-      this.simulatePlayerInput(player, input, boundedDelta);
+      this.simulateCombat(
+        player,
+        input && player.health > 0 ? flags : 0,
+        boundedDelta,
+        serverNowMs,
+      );
     }
 
     this.applyZoneDamage(boundedDelta);
@@ -598,6 +721,9 @@ export class AuthoritativeMatch {
         player.rightHandState = "IDLE";
         player.leftHandState = "IDLE";
         player.isFocusAiming = false;
+        player.ability.isActive = false;
+        player.gatewayEntry = null;
+        player.gatewayExit = null;
       }
     }
 
@@ -613,6 +739,7 @@ export class AuthoritativeMatch {
 
   getSnapshot(serverTimestampMs = this.lastServerTimeMs ?? 0): AuthoritativeWorldSnapshot {
     return {
+      protocolVersion: 3,
       snapshotId: this.snapshotId,
       serverTimestampMs,
       players: [...this.players.values()].map((player) => ({
@@ -624,6 +751,16 @@ export class AuthoritativeMatch {
         pitch: player.pitch,
         rightHandState: player.rightHandState,
         leftHandState: player.leftHandState,
+        operatorId: player.operatorId,
+        rightWeapon: this.toWeaponHandSnapshot(player.rightWeapon),
+        leftWeapon: this.toWeaponHandSnapshot(player.leftWeapon),
+        ability: {
+          abilityId: player.ability.abilityId,
+          isActive: player.ability.isActive,
+          cooldownRemainingSeconds: player.ability.cooldownRemainingSec,
+          activeDurationRemainingSeconds:
+            player.ability.activeDurationRemainingSec,
+        },
         isFocusAiming: player.isFocusAiming,
         health: player.health,
       })),
@@ -635,6 +772,413 @@ export class AuthoritativeMatch {
         phaseRemainingSeconds: this.phaseRemainingSeconds,
       },
     };
+  }
+
+  private toWeaponHandSnapshot(
+    hand: InternalWeaponHand,
+  ): WeaponHandSnapshot {
+    return {
+      weaponId: hand.profile.weaponId,
+      ammoInMagazine: hand.ammoInMagazine,
+      reserveAmmo: hand.reserveAmmo,
+      maxClipSize: hand.profile.maxClipSize,
+      isReloading: hand.isReloading,
+      reloadRemainingSeconds: hand.reloadRemainingSeconds,
+    };
+  }
+
+  private simulateCombat(
+    player: InternalPlayer,
+    flags: number,
+    deltaSeconds: number,
+    serverNowMs: number,
+  ): void {
+    MTEAuthoritativeAbilityManager.advanceAbilityTimeline(
+      player.ability,
+      deltaSeconds,
+    );
+    player.gatewayLockSeconds = Math.max(
+      0,
+      player.gatewayLockSeconds - deltaSeconds,
+    );
+    if (!player.ability.isActive && player.ability.abilityId === "MANDALA_GATEWAY") {
+      player.gatewayEntry = null;
+      player.gatewayExit = null;
+    }
+    if (player.ability.isActive && player.ability.abilityId === "RAS_RADIANCE") {
+      if (player.health > 0) {
+        player.health = Math.min(100, player.health + 16 * deltaSeconds);
+      }
+    }
+
+    this.advanceReload(player.rightWeapon, deltaSeconds);
+    this.advanceReload(player.leftWeapon, deltaSeconds);
+    if (player.reloadLeftAfterRight && !player.rightWeapon.isReloading) {
+      player.reloadLeftAfterRight = false;
+      this.beginReload(player.leftWeapon);
+    }
+
+    const reloadMask =
+      ClientInputFlags.RELOAD_REQUEST |
+      ClientInputFlags.RELOAD_RIGHT |
+      ClientInputFlags.RELOAD_LEFT;
+    const reloadIsHeld = (flags & reloadMask) !== 0;
+    if (reloadIsHeld && !player.reloadHeld) {
+      if ((flags & ClientInputFlags.RELOAD_REQUEST) !== 0) {
+        this.handleReloadRequest(player, serverNowMs);
+      } else {
+        if ((flags & ClientInputFlags.RELOAD_RIGHT) !== 0) {
+          this.beginReload(player.rightWeapon);
+        }
+        if ((flags & ClientInputFlags.RELOAD_LEFT) !== 0) {
+          this.beginReload(player.leftWeapon);
+        }
+      }
+    }
+    player.reloadHeld = reloadIsHeld;
+
+    const abilityIsHeld =
+      (flags & ClientInputFlags.ACTIVATE_ABILITY) !== 0;
+    if (abilityIsHeld && !player.abilityHeld) {
+      this.activatePlayerAbility(player);
+    }
+    player.abilityHeld = abilityIsHeld;
+
+    this.updateHandAction(
+      player,
+      "right",
+      player.rightWeapon,
+      (flags & ClientInputFlags.FIRE_RIGHT) !== 0,
+      serverNowMs,
+    );
+    this.updateHandAction(
+      player,
+      "left",
+      player.leftWeapon,
+      (flags & ClientInputFlags.FIRE_LEFT) !== 0,
+      serverNowMs,
+    );
+  }
+
+  private handleReloadRequest(player: InternalPlayer, serverNowMs: number): void {
+    const doubleTap =
+      player.lastReloadRequestAtMs !== null &&
+      serverNowMs - player.lastReloadRequestAtMs <= 320;
+    player.lastReloadRequestAtMs = serverNowMs;
+    const rightNeedsReload = this.needsReload(player.rightWeapon);
+    const leftNeedsReload = this.needsReload(player.leftWeapon);
+    if (!rightNeedsReload && !leftNeedsReload) return;
+
+    if (doubleTap) {
+      player.reloadLeftAfterRight = false;
+      this.beginReload(player.rightWeapon, 1.2, true);
+      this.beginReload(player.leftWeapon, 1.2, true);
+      return;
+    }
+    if (rightNeedsReload && leftNeedsReload) {
+      player.reloadLeftAfterRight = this.beginReload(player.rightWeapon);
+      if (!player.reloadLeftAfterRight) this.beginReload(player.leftWeapon);
+      return;
+    }
+    this.beginReload(
+      rightNeedsReload ? player.rightWeapon : player.leftWeapon,
+    );
+  }
+
+  private needsReload(hand: InternalWeaponHand): boolean {
+    return (
+      !hand.isReloading &&
+      hand.reserveAmmo > 0 &&
+      hand.ammoInMagazine < hand.profile.maxClipSize
+    );
+  }
+
+  private beginReload(
+    hand: InternalWeaponHand,
+    durationMultiplier = 1,
+    restartExisting = false,
+  ): boolean {
+    const canReload =
+      hand.reserveAmmo > 0 &&
+      hand.ammoInMagazine < hand.profile.maxClipSize &&
+      (restartExisting || !hand.isReloading);
+    if (!canReload) return false;
+    hand.isReloading = true;
+    hand.reloadRemainingSeconds =
+      hand.profile.reloadDurationSec * durationMultiplier;
+    return true;
+  }
+
+  private advanceReload(hand: InternalWeaponHand, deltaSeconds: number): void {
+    if (!hand.isReloading) return;
+    hand.reloadRemainingSeconds = Math.max(
+      0,
+      hand.reloadRemainingSeconds - deltaSeconds,
+    );
+    if (hand.reloadRemainingSeconds > 0) return;
+    const loaded = Math.min(
+      hand.profile.maxClipSize - hand.ammoInMagazine,
+      hand.reserveAmmo,
+    );
+    hand.ammoInMagazine += loaded;
+    hand.reserveAmmo -= loaded;
+    hand.isReloading = false;
+  }
+
+  private activatePlayerAbility(player: InternalPlayer): void {
+    if (player.ability.abilityId === "MANDALA_GATEWAY") {
+      if (player.ability.cooldownRemainingSec > 0) return;
+      if (!player.gatewayEntry) {
+        player.gatewayEntry = { ...player.position };
+        player.ability.isActive = true;
+        player.ability.activeDurationRemainingSec = 18;
+        return;
+      }
+      if (player.gatewayExit) return;
+      const yaw = (player.yaw * Math.PI) / 180;
+      const endpoint = {
+        x: this.clampWorldCoordinate(player.position.x + Math.sin(yaw) * 14),
+        y: player.position.y,
+        z: this.clampWorldCoordinate(player.position.z + Math.cos(yaw) * 14),
+      };
+      if (!this.collisionMap.isPositionClear(endpoint)) return;
+      player.gatewayExit = endpoint;
+      player.ability.cooldownRemainingSec = 16;
+      player.ability.activeDurationRemainingSec = 18;
+      player.ability.isActive = true;
+      return;
+    }
+
+    if (!MTEAuthoritativeAbilityManager.executeActivationTrigger(player.ability)) {
+      return;
+    }
+    switch (player.ability.abilityId) {
+      case "THERMITE_BREACH":
+        this.applyThermiteBreach(player);
+        break;
+      case "QUANTUM_SHIFT":
+        this.applyQuantumShift(player);
+        break;
+      case "SHATTER_PULSE":
+        this.applyShatterPulse(player);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private applyThermiteBreach(player: InternalPlayer): void {
+    const direction = this.lookDirection(player);
+    const origin = { ...player.position, y: player.position.y + 1.2 };
+    const wallDistance = this.collisionMap.traceRay(origin, direction, 18);
+    const blastDistance = wallDistance === null ? 6 : Math.min(16, wallDistance);
+    const center = {
+      x: origin.x + direction.x * blastDistance,
+      y: origin.y + direction.y * blastDistance,
+      z: origin.z + direction.z * blastDistance,
+    };
+    this.applyAreaDamage(player, center, wallDistance === null ? 3.4 : 4.6, wallDistance === null ? 34 : 70);
+  }
+
+  private applyQuantumShift(player: InternalPlayer): void {
+    const direction = this.lookDirection(player);
+    const movement = this.collisionMap.resolveHorizontalMovement(
+      player.position,
+      direction.x * 8,
+      direction.z * 8,
+    );
+    if (
+      Math.hypot(
+        movement.position.x - player.position.x,
+        movement.position.z - player.position.z,
+      ) < 0.5
+    ) {
+      return;
+    }
+    player.position = {
+      x: this.clampWorldCoordinate(movement.position.x),
+      y: player.position.y,
+      z: this.clampWorldCoordinate(movement.position.z),
+    };
+    player.velocity = { x: 0, y: 0, z: 0 };
+    this.spatialGrid.update(player);
+  }
+
+  private applyShatterPulse(player: InternalPlayer): void {
+    const direction = this.lookDirection(player);
+    for (const target of this.players.values()) {
+      if (target === player || target.health <= 0) continue;
+      const dx = target.position.x - player.position.x;
+      const dz = target.position.z - player.position.z;
+      const distance = Math.hypot(dx, dz);
+      if (distance > 15) continue;
+      const facingDot =
+        (dx * direction.x + dz * direction.z) / Math.max(distance, 0.001);
+      if (facingDot < Math.cos(Math.PI / 3)) continue;
+      target.health = Math.max(0, target.health - 48);
+    }
+  }
+
+  private applyAreaDamage(
+    attacker: InternalPlayer,
+    center: Position3,
+    radius: number,
+    damage: number,
+  ): void {
+    for (const target of this.players.values()) {
+      if (target === attacker || target.health <= 0) continue;
+      const distance = Math.hypot(
+        target.position.x - center.x,
+        target.position.z - center.z,
+      );
+      if (distance > radius) continue;
+      if (
+        target.ability.isActive &&
+        target.ability.abilityId === "TEMPORAL_PHASE" &&
+        Math.hypot(
+          target.position.x - attacker.position.x,
+          target.position.z - attacker.position.z,
+        ) > 4
+      ) {
+        continue;
+      }
+      target.health = Math.max(0, target.health - damage);
+    }
+  }
+
+  private lookDirection(player: InternalPlayer): Position3 {
+    const yaw = (player.yaw * Math.PI) / 180;
+    const pitch = (player.pitch * Math.PI) / 180;
+    const horizontal = Math.cos(pitch);
+    return {
+      x: Math.sin(yaw) * horizontal,
+      y: Math.sin(pitch),
+      z: Math.cos(yaw) * horizontal,
+    };
+  }
+
+  private updateHandAction(
+    player: InternalPlayer,
+    hand: "right" | "left",
+    state: InternalWeaponHand,
+    wantsFire: boolean,
+    serverNowMs: number,
+  ): void {
+    if (state.isReloading) {
+      if (hand === "right") player.rightHandState = "RELOADING";
+      else player.leftHandState = "RELOADING";
+      return;
+    }
+    if (!wantsFire) {
+      const action =
+        serverNowMs < player.dryClickUntilMs[hand] ? "DRY_CLICK" : "IDLE";
+      if (hand === "right") player.rightHandState = action;
+      else player.leftHandState = action;
+      return;
+    }
+    if (state.ammoInMagazine <= 0) {
+      player.dryClickUntilMs[hand] = serverNowMs + 120;
+      if (hand === "right") player.rightHandState = "DRY_CLICK";
+      else player.leftHandState = "DRY_CLICK";
+      return;
+    }
+    if (serverNowMs >= state.nextShotAtMs) {
+      state.ammoInMagazine -= 1;
+      state.nextShotAtMs =
+        serverNowMs + state.profile.fireIntervalMs;
+      this.resolveServerShot(player, state.profile);
+    }
+    if (hand === "right") player.rightHandState = "FIRING";
+    else player.leftHandState = "FIRING";
+  }
+
+  private resolveServerShot(
+    attacker: InternalPlayer,
+    weapon: RuntimeWeaponProfile,
+  ): void {
+    const direction = this.lookDirection(attacker);
+    const origin = {
+      x: attacker.position.x,
+      y: attacker.position.y + 1.5,
+      z: attacker.position.z,
+    };
+    let bestTarget: InternalPlayer | null = null;
+    let bestDistance = weapon.maxEffectiveRange;
+    for (const target of this.players.values()) {
+      if (target === attacker || target.health <= 0) continue;
+      const distance = raySphereDistance(
+        origin,
+        direction,
+        {
+          x: target.position.x,
+          y: target.position.y + 1,
+          z: target.position.z,
+        },
+        0.55,
+      );
+      if (distance === null || distance >= bestDistance) continue;
+      if (
+        target.ability.isActive &&
+        target.ability.abilityId === "TEMPORAL_PHASE" &&
+        Math.hypot(
+          target.position.x - attacker.position.x,
+          target.position.z - attacker.position.z,
+        ) > 4
+      ) {
+        continue;
+      }
+      const wallDistance = this.collisionMap.traceRay(
+        origin,
+        direction,
+        distance,
+      );
+      if (wallDistance !== null && wallDistance < distance - 0.02) continue;
+      bestTarget = target;
+      bestDistance = distance;
+    }
+    if (!bestTarget) return;
+    const falloffRange = Math.max(
+      0.001,
+      weapon.maxEffectiveRange - weapon.falloffStartRange,
+    );
+    const falloffProgress = Math.max(
+      0,
+      Math.min(1, (bestDistance - weapon.falloffStartRange) / falloffRange),
+    );
+    const multiplier =
+      1 -
+      falloffProgress * (1 - weapon.minimumDamageMultiplier);
+    bestTarget.health = Math.max(
+      0,
+      bestTarget.health - weapon.damage * multiplier,
+    );
+  }
+
+  private tryTraverseGateway(player: InternalPlayer): void {
+    if (
+      player.gatewayLockSeconds > 0 ||
+      !player.ability.isActive ||
+      !player.gatewayEntry ||
+      !player.gatewayExit
+    ) {
+      return;
+    }
+    const nearEntry =
+      Math.hypot(
+        player.position.x - player.gatewayEntry.x,
+        player.position.z - player.gatewayEntry.z,
+      ) <= 1.25;
+    const nearExit =
+      Math.hypot(
+        player.position.x - player.gatewayExit.x,
+        player.position.z - player.gatewayExit.z,
+      ) <= 1.25;
+    if (!nearEntry && !nearExit) return;
+    const destination = nearEntry ? player.gatewayExit : player.gatewayEntry;
+    player.position = { ...destination };
+    player.velocity = { x: 0, y: 0, z: 0 };
+    player.gatewayLockSeconds = 0.5;
+    this.spatialGrid.update(player);
   }
 
   private simulatePlayerInput(
@@ -685,20 +1229,7 @@ export class AuthoritativeMatch {
       z: this.clampWorldCoordinate(resolvedMovement.position.z),
     };
     this.spatialGrid.update(player);
-
-    const flags = input.inputFlags;
-    player.rightHandState =
-      (flags & ClientInputFlags.RELOAD_RIGHT) !== 0
-        ? "RELOADING"
-        : (flags & ClientInputFlags.FIRE_RIGHT) !== 0
-          ? "FIRING"
-          : "IDLE";
-    player.leftHandState =
-      (flags & ClientInputFlags.RELOAD_LEFT) !== 0
-        ? "RELOADING"
-        : (flags & ClientInputFlags.FIRE_LEFT) !== 0
-          ? "FIRING"
-          : "IDLE";
+    this.tryTraverseGateway(player);
   }
 
   private clampWorldCoordinate(value: number): number {

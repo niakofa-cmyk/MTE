@@ -29,6 +29,9 @@ export interface BaseWeaponProfile {
   fireRateRpm: number;
   maxClipSize: number;
   baseRecoil: number;
+  reloadDurationSec: number;
+  falloffStartRange: number;
+  minimumDamageMultiplier: number;
   maxEffectiveRange: number;
 }
 
@@ -51,6 +54,136 @@ export interface ServerWeaponCatalog {
   attachments: readonly AttachmentProfile[];
 }
 
+export const SERVER_OPERATOR_IDS = [
+  "jaya",
+  "bodhi",
+  "khensu",
+  "aset",
+  "ananda",
+  "nefret",
+] as const;
+export type ServerOperatorId = (typeof SERVER_OPERATOR_IDS)[number];
+
+export const SERVER_SNAPSHOT_WEAPON_IDS = [
+  "smg",
+  "rifle",
+  "shotgun",
+  "lmg",
+  "rail",
+  "pistol",
+  "needles",
+  "slug",
+] as const;
+
+export const OPERATOR_ABILITY_IDS = [
+  "TEMPORAL_PHASE",
+  "MANDALA_GATEWAY",
+  "THERMITE_BREACH",
+  "RAS_RADIANCE",
+  "QUANTUM_SHIFT",
+  "SHATTER_PULSE",
+] as const;
+export type OperatorAbilityType = (typeof OPERATOR_ABILITY_IDS)[number];
+
+export interface ServerOperatorProfile {
+  primaryWeaponId: string;
+  secondaryWeaponId: string;
+  abilityId: OperatorAbilityType;
+}
+
+export const SERVER_OPERATOR_PROFILES: Readonly<
+  Record<ServerOperatorId, ServerOperatorProfile>
+> = Object.freeze({
+  jaya: Object.freeze({
+    primaryWeaponId: "smg",
+    secondaryWeaponId: "pistol",
+    abilityId: "TEMPORAL_PHASE",
+  }),
+  bodhi: Object.freeze({
+    primaryWeaponId: "shotgun",
+    secondaryWeaponId: "pistol",
+    abilityId: "MANDALA_GATEWAY",
+  }),
+  khensu: Object.freeze({
+    primaryWeaponId: "lmg",
+    secondaryWeaponId: "pistol",
+    abilityId: "THERMITE_BREACH",
+  }),
+  aset: Object.freeze({
+    primaryWeaponId: "rail",
+    secondaryWeaponId: "pistol",
+    abilityId: "RAS_RADIANCE",
+  }),
+  ananda: Object.freeze({
+    primaryWeaponId: "needles",
+    secondaryWeaponId: "pistol",
+    abilityId: "QUANTUM_SHIFT",
+  }),
+  nefret: Object.freeze({
+    primaryWeaponId: "slug",
+    secondaryWeaponId: "pistol",
+    abilityId: "SHATTER_PULSE",
+  }),
+});
+
+/**
+ * Baseline server-owned stats copied from the current playable weapon roster.
+ * Attachments remain empty until inventory ownership/equip claims are server-owned.
+ */
+export const MTE_SERVER_WEAPON_CATALOG: ServerWeaponCatalog = Object.freeze({
+  weapons: Object.freeze([
+    {
+      weaponId: "smg", name: "KARMA-9", weaponClass: "BALLISTIC",
+      baseDamage: 13, fireRateRpm: 880, maxClipSize: 34, baseRecoil: 0.012,
+      reloadDurationSec: 1.55, falloffStartRange: 18,
+      minimumDamageMultiplier: 0.55, maxEffectiveRange: 70,
+    },
+    {
+      weaponId: "rifle", name: "VEIL RIFLE", weaponClass: "BALLISTIC",
+      baseDamage: 24, fireRateRpm: 620, maxClipSize: 30, baseRecoil: 0.018,
+      reloadDurationSec: 1.9, falloffStartRange: 40,
+      minimumDamageMultiplier: 0.62, maxEffectiveRange: 110,
+    },
+    {
+      weaponId: "shotgun", name: "MANDALA 12", weaponClass: "BALLISTIC",
+      baseDamage: 11, fireRateRpm: 80, maxClipSize: 6, baseRecoil: 0.045,
+      reloadDurationSec: 2.3, falloffStartRange: 6,
+      minimumDamageMultiplier: 0.25, maxEffectiveRange: 28,
+    },
+    {
+      weaponId: "lmg", name: "STONE DRUM", weaponClass: "BALLISTIC",
+      baseDamage: 18, fireRateRpm: 540, maxClipSize: 80, baseRecoil: 0.02,
+      reloadDurationSec: 3.1, falloffStartRange: 30,
+      minimumDamageMultiplier: 0.6, maxEffectiveRange: 100,
+    },
+    {
+      weaponId: "rail", name: "HORIZON RAIL", weaponClass: "ENERGY_RAIL",
+      baseDamage: 86, fireRateRpm: 48, maxClipSize: 5, baseRecoil: 0.055,
+      reloadDurationSec: 2.5, falloffStartRange: 80,
+      minimumDamageMultiplier: 0.8, maxEffectiveRange: 180,
+    },
+    {
+      weaponId: "pistol", name: "SIDEARM", weaponClass: "BALLISTIC",
+      baseDamage: 22, fireRateRpm: 360, maxClipSize: 14, baseRecoil: 0.02,
+      reloadDurationSec: 1.35, falloffStartRange: 20,
+      minimumDamageMultiplier: 0.5, maxEffectiveRange: 60,
+    },
+    {
+      weaponId: "needles", name: "NULL PAIR", weaponClass: "BALLISTIC",
+      baseDamage: 11, fireRateRpm: 1080, maxClipSize: 44, baseRecoil: 0.007,
+      reloadDurationSec: 1.35, falloffStartRange: 12,
+      minimumDamageMultiplier: 0.48, maxEffectiveRange: 46,
+    },
+    {
+      weaponId: "slug", name: "RA SLUG", weaponClass: "ENERGY_RAIL",
+      baseDamage: 18, fireRateRpm: 68, maxClipSize: 4, baseRecoil: 0.05,
+      reloadDurationSec: 2.45, falloffStartRange: 7,
+      minimumDamageMultiplier: 0.4, maxEffectiveRange: 34,
+    },
+  ] as BaseWeaponProfile[]),
+  attachments: Object.freeze([]),
+});
+
 export interface ActiveWeaponConfiguration {
   weaponId: string;
   equippedAttachmentIds: readonly string[];
@@ -65,6 +198,9 @@ export interface RuntimeWeaponProfile {
   fireIntervalMs: number;
   maxClipSize: number;
   recoil: number;
+  reloadDurationSec: number;
+  falloffStartRange: number;
+  minimumDamageMultiplier: number;
   maxEffectiveRange: number;
   soundRadius: number;
   activeGameplayModifiers: readonly GameplayPerk[];
@@ -116,6 +252,9 @@ function validateWeapon(profile: BaseWeaponProfile): void {
       "fireRateRpm",
       "maxClipSize",
       "baseRecoil",
+      "reloadDurationSec",
+      "falloffStartRange",
+      "minimumDamageMultiplier",
       "maxEffectiveRange",
     ]) ||
     typeof profile.weaponId !== "string" ||
@@ -131,6 +270,14 @@ function validateWeapon(profile: BaseWeaponProfile): void {
   finiteInRange(profile.fireRateRpm, 10, MAX_FIRE_RATE_RPM, "base fire rate");
   finiteInRange(profile.maxClipSize, 1, MAX_CLIP_SIZE, "base clip size");
   finiteInRange(profile.baseRecoil, 0, 10, "base recoil");
+  finiteInRange(profile.reloadDurationSec, 0.1, 20, "reload duration");
+  finiteInRange(profile.falloffStartRange, 0, MAX_EFFECTIVE_RANGE, "falloff start");
+  finiteInRange(
+    profile.minimumDamageMultiplier,
+    0.05,
+    1,
+    "minimum damage multiplier",
+  );
   finiteInRange(profile.maxEffectiveRange, 1, MAX_EFFECTIVE_RANGE, "base range");
 }
 
@@ -354,6 +501,9 @@ export class MTEWeaponTelemetryEngine {
       fireIntervalMs: Math.max(30, 60_000 / fireRateRpm),
       maxClipSize,
       recoil,
+      reloadDurationSec: weapon.reloadDurationSec,
+      falloffStartRange: weapon.falloffStartRange,
+      minimumDamageMultiplier: weapon.minimumDamageMultiplier,
       maxEffectiveRange,
       soundRadius: soundRadius ?? 36,
       activeGameplayModifiers: Object.freeze([...activePerks]),
@@ -365,6 +515,12 @@ export const ABILITY_TYPES = [
   "FOOTPRINT_TRACKER",
   "COMPACT_PORTAL",
   "DECOY_CLONE",
+  "TEMPORAL_PHASE",
+  "MANDALA_GATEWAY",
+  "THERMITE_BREACH",
+  "RAS_RADIANCE",
+  "QUANTUM_SHIFT",
+  "SHATTER_PULSE",
 ] as const;
 
 export type AbilityType = (typeof ABILITY_TYPES)[number];
@@ -397,6 +553,30 @@ export const REFERENCE_ABILITY_REGISTRY: AbilityRegistry = Object.freeze({
   DECOY_CLONE: Object.freeze({
     cooldownMaxSec: 25,
     activeDurationMaxSec: 5,
+  }),
+  TEMPORAL_PHASE: Object.freeze({
+    cooldownMaxSec: 14,
+    activeDurationMaxSec: 3.2,
+  }),
+  MANDALA_GATEWAY: Object.freeze({
+    cooldownMaxSec: 16,
+    activeDurationMaxSec: 18,
+  }),
+  THERMITE_BREACH: Object.freeze({
+    cooldownMaxSec: 11,
+    activeDurationMaxSec: 0,
+  }),
+  RAS_RADIANCE: Object.freeze({
+    cooldownMaxSec: 13,
+    activeDurationMaxSec: 4.2,
+  }),
+  QUANTUM_SHIFT: Object.freeze({
+    cooldownMaxSec: 9,
+    activeDurationMaxSec: 0,
+  }),
+  SHATTER_PULSE: Object.freeze({
+    cooldownMaxSec: 8,
+    activeDurationMaxSec: 0,
   }),
 });
 

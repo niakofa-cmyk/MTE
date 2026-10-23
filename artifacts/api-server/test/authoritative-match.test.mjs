@@ -125,11 +125,11 @@ test("loads trusted level footprints before registration and rejects late loads"
   );
 });
 
-test("valid sequenced input moves server state and keeps hand actions independent", () => {
+test("valid sequenced input moves server state and tracks both server weapons", () => {
   const match = createMatch({ maxDeltaSeconds: 0.25 });
   const flags =
     ClientInputFlags.FIRE_RIGHT |
-    ClientInputFlags.RELOAD_LEFT |
+    ClientInputFlags.FIRE_LEFT |
     ClientInputFlags.FOCUS_AIM;
   assert.deepEqual(
     match.submitInput(
@@ -146,9 +146,195 @@ test("valid sequenced input moves server state and keeps hand actions independen
   assert.ok(player.position.x > 0);
   assert.ok(Math.hypot(player.velocity.x, player.velocity.z) <= 5 * 0.72 + 1e-9);
   assert.equal(player.rightHandState, "FIRING");
-  assert.equal(player.leftHandState, "RELOADING");
+  assert.equal(player.leftHandState, "FIRING");
+  assert.equal(player.operatorId, "jaya");
+  assert.equal(player.rightWeapon.weaponId, "smg");
+  assert.equal(player.leftWeapon.weaponId, "pistol");
+  assert.equal(player.rightWeapon.ammoInMagazine, 33);
+  assert.equal(player.leftWeapon.ammoInMagazine, 13);
   assert.equal(player.isFocusAiming, true);
   assert.equal(player.lastProcessedSequence, 1);
+});
+
+test("server validates hits, blocks shots through cover, and enforces weapon cadence", () => {
+  const match = new AuthoritativeMatch(createConfig({ maxDeltaSeconds: 0.05 }));
+  match.registerPlayer("shooter", { x: 0, y: 0, z: 0 }, "jaya");
+  match.registerPlayer("target", { x: 0, y: 0, z: 10 }, "aset");
+  match.submitInput("shooter", packet(1, ClientInputFlags.FIRE_RIGHT), 1_000);
+
+  let target = match.tick(0.016, 1_016).players.find((player) => player.playerId === "target");
+  assert.equal(target.health, 87);
+  assert.equal(target.lastProcessedSequence, 0);
+  let shooter = match.getSnapshot().players.find((player) => player.playerId === "shooter");
+  assert.equal(shooter.rightWeapon.ammoInMagazine, 33);
+
+  match.submitInput("shooter", packet(2, ClientInputFlags.FIRE_RIGHT), 1_050);
+  match.tick(0.016, 1_066);
+  target = match.getSnapshot().players.find((player) => player.playerId === "target");
+  assert.equal(target.health, 87);
+  match.submitInput("shooter", packet(3, ClientInputFlags.FIRE_RIGHT), 1_090);
+  match.tick(0.016, 1_106);
+  target = match.getSnapshot().players.find((player) => player.playerId === "target");
+  assert.equal(target.health, 74);
+
+  const blocked = new AuthoritativeMatch(createConfig({ maxDeltaSeconds: 0.05 }));
+  blocked.addStaticCollisionBounds({
+    min: { x: -1, y: 0, z: 4 },
+    max: { x: 1, y: 3, z: 4.2 },
+  });
+  blocked.registerPlayer("shooter", { x: 0, y: 0, z: 0 }, "jaya");
+  blocked.registerPlayer("target", { x: 0, y: 0, z: 10 }, "aset");
+  blocked.submitInput("shooter", packet(1, ClientInputFlags.FIRE_RIGHT), 1_000);
+  target = blocked.tick(0.016, 1_016).players.find((player) => player.playerId === "target");
+  assert.equal(target.health, 100);
+});
+
+test("single reload staggers both hands and leaves the other hand available", () => {
+  const match = createMatch({ maxDeltaSeconds: 0.05 });
+  let now = 1_000;
+  for (let sequence = 1; sequence <= 14; sequence += 1) {
+    match.submitInput(
+      "server-player-1",
+      packet(sequence, ClientInputFlags.FIRE_LEFT),
+      now,
+    );
+    match.tick(0.05, now + 50);
+    now += 200;
+  }
+
+  assert.equal(match.getSnapshot().players[0].leftWeapon.ammoInMagazine, 0);
+  match.submitInput(
+    "server-player-1",
+    packet(15, ClientInputFlags.RELOAD_REQUEST),
+    now,
+  );
+  let player = match.tick(0.05, now + 50).players[0];
+  assert.equal(player.rightHandState, "IDLE");
+  assert.equal(player.leftHandState, "RELOADING");
+
+  match.submitInput(
+    "server-player-1",
+    packet(16, ClientInputFlags.FIRE_RIGHT),
+    now + 60,
+  );
+  player = match.tick(0.05, now + 100).players[0];
+  assert.equal(player.rightHandState, "FIRING");
+  assert.equal(player.leftHandState, "RELOADING");
+  assert.equal(player.rightWeapon.ammoInMagazine, 33);
+
+  for (let tick = 0; tick < 30; tick += 1) {
+    player = match.tick(0.05, now + 150 + tick * 50).players[0];
+  }
+  assert.equal(player.leftHandState, "IDLE");
+  assert.equal(player.leftWeapon.ammoInMagazine, 14);
+  assert.equal(player.leftWeapon.reserveAmmo, 14);
+});
+
+test("a released double-tap restarts both eligible reloads together at the penalty", () => {
+  const match = createMatch({ maxDeltaSeconds: 0.05 });
+  match.submitInput(
+    "server-player-1",
+    packet(1, ClientInputFlags.FIRE_RIGHT | ClientInputFlags.FIRE_LEFT),
+    1_000,
+  );
+  match.tick(0.016, 1_016);
+
+  match.submitInput(
+    "server-player-1",
+    packet(2, ClientInputFlags.RELOAD_REQUEST),
+    1_060,
+  );
+  let player = match.tick(0.05, 1_110).players[0];
+  assert.equal(player.rightHandState, "RELOADING");
+  assert.equal(player.leftHandState, "IDLE");
+
+  match.submitInput("server-player-1", packet(3, 0), 1_120);
+  match.tick(0.016, 1_130);
+  match.submitInput(
+    "server-player-1",
+    packet(4, ClientInputFlags.RELOAD_REQUEST),
+    1_140,
+  );
+  player = match.tick(0.05, 1_160).players[0];
+  assert.equal(player.rightHandState, "RELOADING");
+  assert.equal(player.leftHandState, "RELOADING");
+  assert.ok(player.rightWeapon.reloadRemainingSeconds > 1.7);
+  assert.ok(player.leftWeapon.reloadRemainingSeconds > 1.5);
+});
+
+test("server assigns operator abilities and only activates them on a fresh input edge", () => {
+  const match = createMatch();
+  match.submitInput(
+    "server-player-1",
+    packet(1, ClientInputFlags.ACTIVATE_ABILITY),
+    1_000,
+  );
+  let player = match.tick(0.05, 1_050).players[0];
+  assert.equal(player.ability.abilityId, "TEMPORAL_PHASE");
+  assert.equal(player.ability.isActive, true);
+  assert.equal(player.ability.cooldownRemainingSeconds, 14);
+
+  match.submitInput(
+    "server-player-1",
+    packet(2, ClientInputFlags.ACTIVATE_ABILITY),
+    1_060,
+  );
+  player = match.tick(0.05, 1_100).players[0];
+  assert.ok(player.ability.cooldownRemainingSeconds < 14);
+  assert.ok(player.ability.cooldownRemainingSeconds > 13);
+
+  const invalidOperator = new AuthoritativeMatch(createConfig());
+  assert.throws(
+    () => invalidOperator.registerPlayer("unsupported", { x: 0, y: 0, z: 0 }, "admin"),
+    /server roster/,
+  );
+});
+
+test("each operator's server ability applies its bounded match effect", () => {
+  const makePair = (operatorId) => {
+    const match = new AuthoritativeMatch(createConfig({ maxDeltaSeconds: 0.05 }));
+    match.registerPlayer("operator", { x: 0, y: 0, z: 0 }, operatorId);
+    match.registerPlayer("target", { x: 0, y: 0, z: 8 }, "jaya");
+    return match;
+  };
+
+  const khensu = makePair("khensu");
+  khensu.submitInput("operator", packet(1, ClientInputFlags.ACTIVATE_ABILITY), 1_000);
+  let snapshot = khensu.tick(0.05, 1_050);
+  assert.equal(snapshot.players.find((player) => player.playerId === "target").health, 66);
+  assert.equal(snapshot.players.find((player) => player.playerId === "operator").ability.abilityId, "THERMITE_BREACH");
+
+  const nefret = makePair("nefret");
+  nefret.submitInput("operator", packet(1, ClientInputFlags.ACTIVATE_ABILITY), 1_000);
+  snapshot = nefret.tick(0.05, 1_050);
+  assert.equal(snapshot.players.find((player) => player.playerId === "target").health, 52);
+
+  const ananda = makePair("ananda");
+  ananda.submitInput("operator", packet(1, ClientInputFlags.ACTIVATE_ABILITY), 1_000);
+  snapshot = ananda.tick(0.05, 1_050);
+  assert.equal(snapshot.players.find((player) => player.playerId === "operator").position.z, 8);
+
+  const bodhi = makePair("bodhi");
+  bodhi.submitInput("operator", packet(1, ClientInputFlags.ACTIVATE_ABILITY), 1_000);
+  bodhi.tick(0.05, 1_050);
+  bodhi.submitInput("operator", packet(2, 0), 1_060);
+  bodhi.tick(0.016, 1_070);
+  bodhi.submitInput("operator", packet(3, ClientInputFlags.ACTIVATE_ABILITY), 1_080);
+  snapshot = bodhi.tick(0.05, 1_100);
+  assert.equal(snapshot.players.find((player) => player.playerId === "operator").ability.isActive, true);
+  snapshot = bodhi.tick(0.05, 1_150);
+  assert.equal(snapshot.players.find((player) => player.playerId === "operator").position.z, 14);
+
+  const aset = new AuthoritativeMatch(createConfig({ maxDeltaSeconds: 0.05 }));
+  aset.registerPlayer("shooter", { x: 0, y: 0, z: 0 }, "jaya");
+  aset.registerPlayer("operator", { x: 0, y: 0, z: 8 }, "aset");
+  aset.submitInput("shooter", packet(1, ClientInputFlags.FIRE_RIGHT), 1_000);
+  aset.tick(0.05, 1_050);
+  aset.submitInput("shooter", packet(2, 0), 1_060);
+  aset.submitInput("operator", packet(1, ClientInputFlags.ACTIVATE_ABILITY), 1_060);
+  aset.tick(0.05, 1_100);
+  snapshot = aset.tick(0.05, 1_150);
+  assert.ok(snapshot.players.find((player) => player.playerId === "operator").health > 87);
 });
 
 test("server bounds rotation speed and publishes server-owned yaw and pitch", () => {

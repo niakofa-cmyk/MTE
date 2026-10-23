@@ -4,11 +4,16 @@ import type {
   HandAction,
   MatchPhase,
 } from "./authoritative-match.ts";
+import {
+  OPERATOR_ABILITY_IDS,
+  SERVER_OPERATOR_IDS,
+  SERVER_SNAPSHOT_WEAPON_IDS,
+} from "./authoritative-combat-systems.ts";
 
 const MAGIC = [0x4d, 0x54, 0x45] as const; // "MTE"
-const VERSION = 2;
+const VERSION = 3;
 const HEADER_BYTES = 39;
-const PLAYER_FIXED_BYTES = 42;
+const PLAYER_FIXED_BYTES = 75;
 const MAX_PACKET_BYTES = 64 * 1024;
 const MAX_PLAYER_COUNT = 1_024;
 const MAX_PLAYER_ID_BYTES = 128;
@@ -34,12 +39,26 @@ const ACTION_TO_CODE: Record<HandAction, number> = {
   IDLE: 0,
   FIRING: 1,
   RELOADING: 2,
+  DRY_CLICK: 3,
 };
 const CODE_TO_ACTION: readonly HandAction[] = [
   "IDLE",
   "FIRING",
   "RELOADING",
+  "DRY_CLICK",
 ];
+const WEAPON_TO_CODE = new Map<string, number>(
+  SERVER_SNAPSHOT_WEAPON_IDS.map((weaponId, index) => [weaponId, index + 1]),
+);
+const OPERATOR_TO_CODE = new Map<string, number>(
+  SERVER_OPERATOR_IDS.map((operatorId, index) => [operatorId, index + 1]),
+);
+const ABILITY_TO_CODE = new Map<string, number>(
+  OPERATOR_ABILITY_IDS.map((abilityId, index) => [abilityId, index + 1]),
+);
+const CODE_TO_WEAPON = [null, ...SERVER_SNAPSHOT_WEAPON_IDS] as const;
+const CODE_TO_OPERATOR = [null, ...SERVER_OPERATOR_IDS] as const;
+const CODE_TO_ABILITY = [null, ...OPERATOR_ABILITY_IDS] as const;
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
@@ -97,6 +116,9 @@ export function serializeWorldSnapshot(
     throw new RangeError(
       `maxBytes must be between ${HEADER_BYTES} and ${MAX_PACKET_BYTES}.`,
     );
+  }
+  if (snapshot.protocolVersion !== VERSION) {
+    throw new Error(`Snapshot protocol version must be ${VERSION}.`);
   }
   assertUInt32(snapshot.snapshotId, "snapshotId");
   assertFinite(snapshot.serverTimestampMs, "serverTimestampMs");
@@ -179,6 +201,58 @@ export function serializeWorldSnapshot(
     ) {
       throw new Error(`Player ${index} contains an invalid action state.`);
     }
+    const rightWeaponCode = WEAPON_TO_CODE.get(player.rightWeapon.weaponId);
+    const leftWeaponCode = WEAPON_TO_CODE.get(player.leftWeapon.weaponId);
+    if (
+      rightWeaponCode === undefined ||
+      leftWeaponCode === undefined ||
+      !OPERATOR_TO_CODE.has(player.operatorId) ||
+      !ABILITY_TO_CODE.has(player.ability.abilityId) ||
+      typeof player.rightWeapon.isReloading !== "boolean" ||
+      typeof player.leftWeapon.isReloading !== "boolean" ||
+      player.rightWeapon.isReloading !==
+        (player.rightHandState === "RELOADING") ||
+      player.leftWeapon.isReloading !==
+        (player.leftHandState === "RELOADING") ||
+      typeof player.ability.isActive !== "boolean"
+    ) {
+      throw new Error(`Player ${index} contains invalid combat identifiers or state.`);
+    }
+    for (const [label, hand] of [
+      ["right", player.rightWeapon],
+      ["left", player.leftWeapon],
+    ] as const) {
+      if (
+        !Number.isInteger(hand.ammoInMagazine) ||
+        hand.ammoInMagazine < 0 ||
+        !Number.isInteger(hand.reserveAmmo) ||
+        hand.reserveAmmo < 0 ||
+        hand.reserveAmmo > 2_000 ||
+        !Number.isInteger(hand.maxClipSize) ||
+        hand.maxClipSize < 1 ||
+        hand.maxClipSize > 500 ||
+        hand.ammoInMagazine > hand.maxClipSize
+      ) {
+        throw new RangeError(`Player ${index} ${label} weapon ammo is invalid.`);
+      }
+      if (
+        !Number.isFinite(hand.reloadRemainingSeconds) ||
+        hand.reloadRemainingSeconds < 0 ||
+        hand.reloadRemainingSeconds > 20
+      ) {
+        throw new RangeError(`Player ${index} ${label} reload time is invalid.`);
+      }
+    }
+    if (
+      !Number.isFinite(player.ability.cooldownRemainingSeconds) ||
+      player.ability.cooldownRemainingSeconds < 0 ||
+      player.ability.cooldownRemainingSeconds > 600 ||
+      !Number.isFinite(player.ability.activeDurationRemainingSeconds) ||
+      player.ability.activeDurationRemainingSeconds < 0 ||
+      player.ability.activeDurationRemainingSeconds > 120
+    ) {
+      throw new RangeError(`Player ${index} ability timers are invalid.`);
+    }
 
     packetBytes += PLAYER_FIXED_BYTES + idBytes.byteLength;
   }
@@ -238,6 +312,34 @@ export function serializeWorldSnapshot(
       (player.isFocusAiming ? 1 << 4 : 0);
     view.setUint8(offset, handAndFocusState);
     offset += 1;
+
+    for (const hand of [player.rightWeapon, player.leftWeapon]) {
+      view.setUint8(offset, WEAPON_TO_CODE.get(hand.weaponId)!);
+      offset += 1;
+      view.setUint16(offset, hand.ammoInMagazine, true);
+      offset += 2;
+      view.setUint16(offset, hand.reserveAmmo, true);
+      offset += 2;
+      view.setUint16(offset, hand.maxClipSize, true);
+      offset += 2;
+      view.setFloat32(offset, hand.reloadRemainingSeconds, true);
+      offset += 4;
+    }
+
+    view.setUint8(offset, OPERATOR_TO_CODE.get(player.operatorId)!);
+    offset += 1;
+    view.setUint8(offset, ABILITY_TO_CODE.get(player.ability.abilityId)!);
+    offset += 1;
+    view.setUint8(offset, player.ability.isActive ? 1 : 0);
+    offset += 1;
+    view.setFloat32(offset, player.ability.cooldownRemainingSeconds, true);
+    offset += 4;
+    view.setFloat32(
+      offset,
+      player.ability.activeDurationRemainingSeconds,
+      true,
+    );
+    offset += 4;
   }
 
   return bytes;
@@ -376,6 +478,78 @@ export function deserializeWorldSnapshot(
       throw new Error("Snapshot packet contains an invalid hand state.");
     }
 
+    const decodeWeaponHand = (): AuthoritativeWorldSnapshot["players"][number]["rightWeapon"] => {
+      const weaponCode = view.getUint8(offset);
+      offset += 1;
+      const weaponId = CODE_TO_WEAPON[weaponCode];
+      if (!weaponId) throw new Error("Snapshot packet has an invalid weapon ID.");
+      const ammoInMagazine = view.getUint16(offset, true);
+      offset += 2;
+      const reserveAmmo = view.getUint16(offset, true);
+      offset += 2;
+      const maxClipSize = view.getUint16(offset, true);
+      offset += 2;
+      const reloadRemainingSeconds = readFloat32(
+        view,
+        offset,
+        "weapon reload remaining time",
+      );
+      offset += 4;
+      if (
+        maxClipSize < 1 ||
+        maxClipSize > 500 ||
+        ammoInMagazine > maxClipSize ||
+        reserveAmmo > 2_000 ||
+        reloadRemainingSeconds < 0 ||
+        reloadRemainingSeconds > 20
+      ) {
+        throw new Error("Snapshot packet contains invalid weapon state.");
+      }
+      return {
+        weaponId,
+        ammoInMagazine,
+        reserveAmmo,
+        maxClipSize,
+        isReloading: false,
+        reloadRemainingSeconds,
+      };
+    };
+    const rightWeapon = decodeWeaponHand();
+    const leftWeapon = decodeWeaponHand();
+    rightWeapon.isReloading = rightAction === "RELOADING";
+    leftWeapon.isReloading = leftAction === "RELOADING";
+
+    const operatorCode = view.getUint8(offset);
+    offset += 1;
+    const operatorId = CODE_TO_OPERATOR[operatorCode];
+    const abilityCode = view.getUint8(offset);
+    const abilityId = CODE_TO_ABILITY[abilityCode];
+    const abilityFlags = view.getUint8(offset + 1);
+    if (!operatorId || !abilityId || (abilityFlags & 0b1111_1110) !== 0) {
+      throw new Error("Snapshot packet contains invalid operator ability state.");
+    }
+    offset += 2;
+    const cooldownRemainingSeconds = readFloat32(
+      view,
+      offset,
+      "ability cooldown remaining time",
+    );
+    offset += 4;
+    const activeDurationRemainingSeconds = readFloat32(
+      view,
+      offset,
+      "ability active remaining time",
+    );
+    offset += 4;
+    if (
+      cooldownRemainingSeconds < 0 ||
+      cooldownRemainingSeconds > 600 ||
+      activeDurationRemainingSeconds < 0 ||
+      activeDurationRemainingSeconds > 120
+    ) {
+      throw new Error("Snapshot packet contains invalid ability timers.");
+    }
+
     players.push({
       playerId,
       lastProcessedSequence,
@@ -386,6 +560,15 @@ export function deserializeWorldSnapshot(
       pitch,
       rightHandState: rightAction,
       leftHandState: leftAction,
+      operatorId,
+      rightWeapon,
+      leftWeapon,
+      ability: {
+        abilityId,
+        isActive: (abilityFlags & 1) !== 0,
+        cooldownRemainingSeconds,
+        activeDurationRemainingSeconds,
+      },
       isFocusAiming: (packedState & (1 << 4)) !== 0,
     });
   }
@@ -395,6 +578,7 @@ export function deserializeWorldSnapshot(
   }
 
   return {
+    protocolVersion: VERSION,
     snapshotId,
     serverTimestampMs,
     players,

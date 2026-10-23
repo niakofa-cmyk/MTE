@@ -7,6 +7,10 @@ import {
   type SubmitInputResult,
 } from "./authoritative-match.ts";
 import {
+  SERVER_OPERATOR_PROFILES,
+  type ServerOperatorId,
+} from "./authoritative-combat-systems.ts";
+import {
   AuthoritativeGameplayState,
   type AuthoritativeGameplaySnapshot,
   type GrantedGameplayItem,
@@ -22,6 +26,7 @@ const STATIC_COLLISION_ERROR = "Spawn position intersects static world geometry.
 export type MatchSessionErrorCode =
   | "server-capacity"
   | "player-capacity"
+  | "invalid-operator"
   | "not-found"
   | "unauthorized"
   | "no-safe-spawn"
@@ -69,6 +74,7 @@ export interface CreatedMatchSession {
 export interface JoinedMatchSession {
   matchId: string;
   playerId: string;
+  operatorId: ServerOperatorId;
   accessToken: string;
   snapshot: AuthoritativeWorldSnapshot;
 }
@@ -200,9 +206,15 @@ export class MatchSessionManager {
     }
   }
 
-  joinSession(matchId: string): JoinedMatchSession {
+  joinSession(
+    matchId: string,
+    operatorId: ServerOperatorId = "jaya",
+  ): JoinedMatchSession {
     const nowNs = this.readClock();
     const session = this.getLiveSession(matchId, nowNs);
+    if (!Object.hasOwn(SERVER_OPERATOR_PROFILES, operatorId)) {
+      throw new MatchSessionError("invalid-operator", "Operator is not available.");
+    }
     if (session.players.size >= this.maxPlayersPerSession) {
       throw new MatchSessionError(
         "player-capacity",
@@ -213,7 +225,7 @@ export class MatchSessionManager {
     const playerId = randomUUID();
     const accessToken = randomBytes(32).toString("base64url");
     const accessTokenDigest = digestAccessToken(accessToken);
-    this.registerAtServerSelectedSpawn(session, playerId);
+    this.registerAtServerSelectedSpawn(session, playerId, operatorId);
     session.players.set(playerId, { accessTokenDigest });
     session.playerByTokenDigest.set(accessTokenDigest, playerId);
     session.lastActivityAtNs = nowNs;
@@ -221,6 +233,7 @@ export class MatchSessionManager {
     return {
       matchId,
       playerId,
+      operatorId,
       accessToken,
       snapshot: session.match.getSnapshot(),
     };
@@ -399,6 +412,7 @@ export class MatchSessionManager {
   private registerAtServerSelectedSpawn(
     session: MatchSessionRecord,
     playerId: string,
+    operatorId: ServerOperatorId,
   ): void {
     const nearbyPlayerIds: string[] = [];
     for (const spawn of makeSpawnCandidates()) {
@@ -413,7 +427,7 @@ export class MatchSessionManager {
         continue;
       }
       try {
-        session.match.registerPlayer(playerId, spawn);
+        session.match.registerPlayer(playerId, spawn, operatorId);
         return;
       } catch (error) {
         if (

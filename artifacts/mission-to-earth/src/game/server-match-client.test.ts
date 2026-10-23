@@ -26,16 +26,46 @@ function response(status: number, body: unknown): Response {
   });
 }
 
-function snapshot(lastProcessedSequence = 0) {
+function snapshot(lastProcessedSequence = 0, operatorId: "jaya" | "aset" = "jaya") {
+  const rightWeapon = operatorId === "aset" ? "rail" : "smg";
+  const abilityId = operatorId === "aset" ? "RAS_RADIANCE" : "TEMPORAL_PHASE";
   return {
     matchId,
     snapshot: {
+      protocolVersion: 3,
       players: [{
         playerId,
         lastProcessedSequence,
         position: { x: 0, y: 0, z: 86 },
         yaw: -180,
         pitch: 0,
+        health: 100,
+        operatorId,
+        rightHandState: "IDLE",
+        leftHandState: "IDLE",
+        rightWeapon: {
+          weaponId: rightWeapon,
+          ammoInMagazine: operatorId === "aset" ? 5 : 34,
+          reserveAmmo: 68,
+          maxClipSize: operatorId === "aset" ? 5 : 34,
+          isReloading: false,
+          reloadRemainingSeconds: 0,
+        },
+        leftWeapon: {
+          weaponId: "pistol",
+          ammoInMagazine: 14,
+          reserveAmmo: 28,
+          maxClipSize: 14,
+          isReloading: false,
+          reloadRemainingSeconds: 0,
+        },
+        ability: {
+          abilityId,
+          isActive: false,
+          cooldownRemainingSeconds: 0,
+          activeDurationRemainingSeconds: 0,
+        },
+        isFocusAiming: false,
       }],
     },
   };
@@ -62,7 +92,13 @@ describe("server match client", () => {
       calls.push(path);
       if (path === "/api/matches") return response(201, { matchId });
       if (path === `/api/matches/${matchId}/players`) {
-        return response(201, { matchId, playerId, accessToken, snapshot: snapshot().snapshot });
+        return response(201, {
+          matchId,
+          playerId,
+          operatorId: "jaya",
+          accessToken,
+          snapshot: snapshot().snapshot,
+        });
       }
       if (path === `/api/matches/${matchId}/world-state`) return response(200, gameplay());
       throw new Error(`Unexpected request: ${path}`);
@@ -80,6 +116,38 @@ describe("server match client", () => {
     assert.ok(storage.getItem("mte.server-match.v1")?.includes(accessToken));
   });
 
+  it("sends the selected operator and accepts only the server-assigned profile", async () => {
+    let joinBody: unknown;
+    const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/matches") return response(201, { matchId });
+      if (path === `/api/matches/${matchId}/players`) {
+        joinBody = JSON.parse(String(init?.body));
+        return response(201, {
+          matchId,
+          playerId,
+          operatorId: "aset",
+          accessToken,
+          snapshot: snapshot(0, "aset").snapshot,
+        });
+      }
+      if (path === `/api/matches/${matchId}/world-state`) {
+        return response(200, gameplay());
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    }) as typeof fetch;
+
+    const connected = await ServerMatchClient.connect({
+      fetcher,
+      storage: null,
+      operatorId: "aset",
+    });
+    assert.deepEqual(joinBody, { operatorId: "aset" });
+    assert.equal(connected.operatorId, "aset");
+    assert.equal(connected.player.rightWeapon.weaponId, "rail");
+    assert.equal(connected.player.ability.abilityId, "RAS_RADIANCE");
+  });
+
   it("restores a same-tab session and rehydrates its server-owned inventory", async () => {
     const storage = new MemoryStorage();
     const item = {
@@ -93,7 +161,13 @@ describe("server match client", () => {
       const path = String(input);
       if (path === "/api/matches") return response(201, { matchId });
       if (path.endsWith("/players")) {
-        return response(201, { matchId, playerId, accessToken, snapshot: snapshot().snapshot });
+        return response(201, {
+          matchId,
+          playerId,
+          operatorId: "jaya",
+          accessToken,
+          snapshot: snapshot().snapshot,
+        });
       }
       return response(200, gameplay());
     }) as typeof fetch;
@@ -124,7 +198,13 @@ describe("server match client", () => {
       const path = String(input);
       if (path === "/api/matches") return response(201, { matchId });
       if (path.endsWith("/players")) {
-        return response(201, { matchId, playerId, accessToken, snapshot: snapshot().snapshot });
+        return response(201, {
+          matchId,
+          playerId,
+          operatorId: "jaya",
+          accessToken,
+          snapshot: snapshot().snapshot,
+        });
       }
       return response(200, gameplay());
     }) as typeof fetch;

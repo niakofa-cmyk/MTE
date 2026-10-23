@@ -7,6 +7,7 @@ import {
 
 function sampleSnapshot() {
   return {
+    protocolVersion: 3,
     snapshotId: 17,
     serverTimestampMs: 1_234.5,
     players: [
@@ -19,6 +20,29 @@ function sampleSnapshot() {
         pitch: 20,
         rightHandState: "FIRING",
         leftHandState: "RELOADING",
+        operatorId: "jaya",
+        rightWeapon: {
+          weaponId: "smg",
+          ammoInMagazine: 20,
+          reserveAmmo: 68,
+          maxClipSize: 34,
+          isReloading: false,
+          reloadRemainingSeconds: 0,
+        },
+        leftWeapon: {
+          weaponId: "pistol",
+          ammoInMagazine: 10,
+          reserveAmmo: 28,
+          maxClipSize: 14,
+          isReloading: true,
+          reloadRemainingSeconds: 1.2,
+        },
+        ability: {
+          abilityId: "TEMPORAL_PHASE",
+          isActive: true,
+          cooldownRemainingSeconds: 12.8,
+          activeDurationRemainingSeconds: 2,
+        },
         isFocusAiming: true,
         health: 87.5,
       },
@@ -31,6 +55,29 @@ function sampleSnapshot() {
         pitch: -89,
         rightHandState: "IDLE",
         leftHandState: "FIRING",
+        operatorId: "aset",
+        rightWeapon: {
+          weaponId: "rail",
+          ammoInMagazine: 5,
+          reserveAmmo: 10,
+          maxClipSize: 5,
+          isReloading: false,
+          reloadRemainingSeconds: 0,
+        },
+        leftWeapon: {
+          weaponId: "pistol",
+          ammoInMagazine: 14,
+          reserveAmmo: 28,
+          maxClipSize: 14,
+          isReloading: false,
+          reloadRemainingSeconds: 0,
+        },
+        ability: {
+          abilityId: "RAS_RADIANCE",
+          isActive: false,
+          cooldownRemainingSeconds: 13,
+          activeDurationRemainingSeconds: 0,
+        },
         isFocusAiming: false,
         health: 100,
       },
@@ -49,13 +96,16 @@ test("round-trips compact snapshots including UTF-8 IDs and dual-hand states", (
   const snapshot = sampleSnapshot();
   const bytes = serializeWorldSnapshot(snapshot);
   const decoded = deserializeWorldSnapshot(bytes);
+  const expected = structuredClone(snapshot);
+  expected.players[0].ability.cooldownRemainingSeconds = Math.fround(12.8);
+  expected.players[0].leftWeapon.reloadRemainingSeconds = Math.fround(1.2);
 
-  assert.deepEqual(decoded, snapshot);
+  assert.deepEqual(decoded, expected);
   assert.equal(
     new TextDecoder().decode(bytes.subarray(0, 3)),
     "MTE",
   );
-  assert.equal(bytes[3], 2);
+  assert.equal(bytes[3], 3);
 });
 
 test("each encoding owns its bytes instead of sharing a mutable static buffer", () => {

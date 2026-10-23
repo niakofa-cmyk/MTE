@@ -78,6 +78,15 @@ test("match session routes load the map, assign server identity, and authorize a
       },
     );
     assert.equal(invalidJoinResponse.status, 400);
+    const invalidOperatorResponse = await fetch(
+      `${baseUrl}/matches/${created.matchId}/players`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ operatorId: "admin" }),
+      },
+    );
+    assert.equal(invalidOperatorResponse.status, 400);
 
     const joinedResponse = await fetch(
       `${baseUrl}/matches/${created.matchId}/players`,
@@ -91,16 +100,23 @@ test("match session routes load the map, assign server identity, and authorize a
     assert.deepEqual(joined.snapshot.players[0].position, { x: 0, y: 0, z: 86 });
     const secondJoinResponse = await fetch(
       `${baseUrl}/matches/${created.matchId}/players`,
-      { method: "POST" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ operatorId: "aset" }),
+      },
     );
     assert.equal(secondJoinResponse.status, 201);
     const secondJoin = await secondJoinResponse.json();
+    assert.equal(secondJoin.operatorId, "aset");
     const secondSpawn = secondJoin.snapshot.players.find(
       (player) => player.playerId === secondJoin.playerId,
-    ).position;
-    assert.ok(Math.hypot(secondSpawn.x, secondSpawn.z - 86) > 12);
-    assert.ok(Math.abs(secondSpawn.x) <= 152);
-    assert.ok(Math.abs(secondSpawn.z) <= 152);
+    );
+    assert.equal(secondSpawn.operatorId, "aset");
+    assert.equal(secondSpawn.rightWeapon.weaponId, "rail");
+    assert.ok(Math.hypot(secondSpawn.position.x, secondSpawn.position.z - 86) > 12);
+    assert.ok(Math.abs(secondSpawn.position.x) <= 152);
+    assert.ok(Math.abs(secondSpawn.position.z) <= 152);
 
     const missingGameplayAuth = await fetch(
       `${baseUrl}/matches/${created.matchId}/world-state`,

@@ -5,6 +5,10 @@ import {
   type MatchSessionManager,
 } from "../lib/match-session-manager.ts";
 import { GameplayStateError } from "../lib/authoritative-gameplay-state.ts";
+import {
+  SERVER_OPERATOR_IDS,
+  type ServerOperatorId,
+} from "../lib/authoritative-combat-systems.ts";
 
 const MATCH_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -96,14 +100,15 @@ export function createMatchSessionsRouter(
       res.status(404).json({ error: "match-not-found" });
       return;
     }
-    if (hasUnexpectedBody(req)) {
-      res.status(400).json({ error: "server-selects-player-spawn" });
+    const operatorId = parseOperatorSelection(req.body);
+    if (!operatorId) {
+      res.status(400).json({ error: "invalid-operator-selection" });
       return;
     }
     if (rejectIfLimited(joinLimiter, req, res)) return;
 
     try {
-      const joined = manager.joinSession(req.params.matchId);
+      const joined = manager.joinSession(req.params.matchId, operatorId);
       res.status(201).json(joined);
     } catch (error) {
       sendSessionError(res, error);
@@ -297,6 +302,28 @@ function isMatchId(value: string | undefined): value is string {
   return typeof value === "string" && MATCH_ID_PATTERN.test(value);
 }
 
+function parseOperatorSelection(value: unknown): ServerOperatorId | null {
+  if (value === undefined || value === null) return "jaya";
+  if (
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (keys.length === 0) return "jaya";
+  if (
+    keys.length !== 1 ||
+    keys[0] !== "operatorId" ||
+    typeof record.operatorId !== "string" ||
+    !SERVER_OPERATOR_IDS.includes(record.operatorId as ServerOperatorId)
+  ) {
+    return null;
+  }
+  return record.operatorId as ServerOperatorId;
+}
+
 function hasUnexpectedBody(req: Request): boolean {
   const body: unknown = req.body;
   if (body === undefined || body === null) return false;
@@ -340,6 +367,8 @@ function sendSessionError(res: Response, error: unknown): void {
   const statusCode =
     error.code === "not-found"
       ? 404
+      : error.code === "invalid-operator"
+        ? 400
       : error.code === "unauthorized"
         ? 401
         : error.code === "server-capacity"

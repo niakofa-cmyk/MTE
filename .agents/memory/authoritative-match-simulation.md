@@ -19,8 +19,8 @@ Loot spawn and objective registries are generated from the same deterministic No
 
 **How to apply:** Keep network/session ownership separate from the pure match simulator. The HTTP wrapper uses ephemeral bearer identity and bounded in-memory sessions; preserve those limits and do not treat them as persistent accounts. Keep server claims independent of local extraction rewards. Before broad online use, add durable identity only if required, deployment abuse controls, authoritative combat/objectives, load profiling, and multi-client verification.
 
-The server now also has standalone weapon-stat validation and ability-timer primitives. They are not yet connected to match registration, input processing, or hit resolution; do not treat them as live combat authority.
+REST match sessions now assign allowlisted operators and server-owned base weapons. The server owns per-hand ammo, fire cadence, reloads, player hit resolution, operator ability cooldowns/effects, and version-3 weapon/ability snapshots. Attachment modifiers are not applied to match loadouts.
 
-**Why:** The current REST match owns movement and loot, but it has no server-owned loadout catalog, player ability selection, or combat target resolver.
+**Why:** Multiplayer stats and rewards must not be chosen by clients, while the current session remains an ephemeral prototype rather than a production identity or economy.
 
-**How to apply:** Wire these primitives only after those server-owned inputs and effects exist. Keep client-supplied stat values out of loadout and ability requests.
+**How to apply:** Keep damage inputs server-derived from validated fire flags, server-owned transforms, trusted weapon profiles, and static collision. Keep solo NPC combat, extraction progression, and durable inventory explicitly outside this match authority until they receive their own server-owned models. Do not claim the REST polling prototype is production netcode.

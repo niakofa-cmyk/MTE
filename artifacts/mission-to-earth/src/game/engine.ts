@@ -415,6 +415,17 @@ export class MissionEngine {
   private cityAsh: THREE.Points;
   private serverGameplayHandlers: ServerGameplayHandlers | null = null;
   private serverGameplayActive = false;
+  private serverAbilityPulse = false;
+  private serverReloadPulse = false;
+  private serverPlayerAvatars = new Map<
+    string,
+    {
+      group: THREE.Group;
+      rightWeapon: THREE.Mesh;
+      leftWeapon: THREE.Mesh;
+      abilityRing: THREE.Mesh;
+    }
+  >();
   private pendingServerInteractions = new Set<string>();
   private serverGameplayGeneration = 0;
   private renderer: THREE.WebGLRenderer;
@@ -1300,9 +1311,123 @@ export class MissionEngine {
 
   applyServerPosition(player: ServerPlayerSnapshot) {
     if (!this.serverGameplayActive || (this.mode !== "ground" && this.mode !== "drop")) return;
-    if (Math.hypot(player.position.x - this.x, player.position.z - this.z) < 1.1) return;
-    this.x = player.position.x;
-    this.z = player.position.z;
+    if (Math.hypot(player.position.x - this.x, player.position.z - this.z) >= 1.1) {
+      this.x = player.position.x;
+      this.z = player.position.z;
+    }
+    this.hp = player.health;
+    this.syncServerWeapon("right", player.rightWeapon);
+    this.syncServerWeapon("left", player.leftWeapon);
+    this.qCd = player.ability.cooldownRemainingSeconds;
+    this.phaseT =
+      player.ability.abilityId === "TEMPORAL_PHASE" && player.ability.isActive
+        ? player.ability.activeDurationRemainingSeconds
+        : 0;
+    this.healT =
+      player.ability.abilityId === "RAS_RADIANCE" && player.ability.isActive
+        ? player.ability.activeDurationRemainingSeconds
+        : 0;
+  }
+
+  applyServerSnapshot(
+    players: ServerPlayerSnapshot[],
+    localPlayerId: string,
+  ) {
+    const localPlayer = players.find((player) => player.playerId === localPlayerId);
+    if (localPlayer) this.applyServerPosition(localPlayer);
+    const seen = new Set<string>();
+    for (const player of players) {
+      if (player.playerId === localPlayerId) continue;
+      seen.add(player.playerId);
+      let avatar = this.serverPlayerAvatars.get(player.playerId);
+      if (!avatar) {
+        const group = new THREE.Group();
+        const body = new THREE.Mesh(
+          new THREE.CapsuleGeometry(0.34, 0.92, 4, 8),
+          new THREE.MeshStandardMaterial({
+            color: 0x607a83,
+            roughness: 0.72,
+            metalness: 0.28,
+          }),
+        );
+        body.position.y = 0.96;
+        group.add(body);
+        const rightWeapon = new THREE.Mesh(
+          new THREE.BoxGeometry(0.12, 0.14, 0.48),
+          new THREE.MeshStandardMaterial({ color: 0xffbf68, emissive: 0x43240b }),
+        );
+        rightWeapon.position.set(0.34, 1.22, 0.42);
+        group.add(rightWeapon);
+        const leftWeapon = new THREE.Mesh(
+          new THREE.BoxGeometry(0.12, 0.14, 0.48),
+          new THREE.MeshStandardMaterial({ color: 0x77cde0, emissive: 0x0c3442 }),
+        );
+        leftWeapon.position.set(-0.34, 1.22, 0.42);
+        group.add(leftWeapon);
+        const abilityRing = new THREE.Mesh(
+          new THREE.TorusGeometry(0.62, 0.035, 6, 24),
+          new THREE.MeshBasicMaterial({ color: 0x82d8ff, transparent: true, opacity: 0.85 }),
+        );
+        abilityRing.rotation.x = Math.PI / 2;
+        abilityRing.position.y = 0.08;
+        abilityRing.visible = false;
+        group.add(abilityRing);
+        this.scene.add(group);
+        avatar = { group, rightWeapon, leftWeapon, abilityRing };
+        this.serverPlayerAvatars.set(player.playerId, avatar);
+      }
+      avatar.group.position.set(
+        player.position.x,
+        player.position.y,
+        player.position.z,
+      );
+      avatar.group.rotation.y = (player.yaw * Math.PI) / 180;
+      avatar.group.visible = player.health > 0;
+      avatar.abilityRing.visible = player.ability.isActive;
+      const rightMaterial = avatar.rightWeapon.material as THREE.MeshStandardMaterial;
+      const leftMaterial = avatar.leftWeapon.material as THREE.MeshStandardMaterial;
+      rightMaterial.color.set(
+        player.rightHandState === "FIRING" ? 0xfff0b0 : 0xffbf68,
+      );
+      leftMaterial.color.set(
+        player.leftHandState === "FIRING" ? 0xd3f8ff : 0x77cde0,
+      );
+      const abilityMaterial = avatar.abilityRing.material as THREE.MeshBasicMaterial;
+      abilityMaterial.color.set(
+        player.ability.abilityId === "TEMPORAL_PHASE" ? 0x82d8ff : 0xff7861,
+      );
+    }
+    for (const [playerId, avatar] of this.serverPlayerAvatars) {
+      if (seen.has(playerId)) continue;
+      this.scene.remove(avatar.group);
+      avatar.group.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          node.geometry.dispose();
+          const materials = Array.isArray(node.material)
+            ? node.material
+            : [node.material];
+          for (const material of materials) material.dispose();
+        }
+      });
+      this.serverPlayerAvatars.delete(playerId);
+    }
+  }
+
+  private syncServerWeapon(
+    hand: WeaponHand,
+    serverWeapon: ServerPlayerSnapshot["rightWeapon"],
+  ) {
+    const slot = this.slotForHand(hand);
+    if (!slot) return;
+    slot.id = serverWeapon.weaponId as WeaponId;
+    slot.mods = [];
+    slot.mag = serverWeapon.ammoInMagazine;
+    slot.reserve = serverWeapon.reserveAmmo;
+    this.weaponCycles[hand].syncAuthoritativeReload(
+      serverWeapon.isReloading,
+      serverWeapon.reloadRemainingSeconds,
+      this.weaponForHand(hand).reload,
+    );
   }
 
   matchInput(): MatchInput {
@@ -1323,9 +1448,14 @@ export class MissionEngine {
     if (this.fireLeftHeld || this.virtual.fireLeft || this.gamepad.fireLeft) {
       inputFlags |= SERVER_INPUT_FLAGS.FIRE_LEFT;
     }
-    if (this.held("KeyR") || this.virtual.reload) {
-      inputFlags |= SERVER_INPUT_FLAGS.RELOAD_RIGHT;
+    if (this.held("KeyR") || this.virtual.reload || this.serverReloadPulse) {
+      inputFlags |= SERVER_INPUT_FLAGS.RELOAD_REQUEST;
     }
+    if (this.held("KeyQ") || this.virtual.ability || this.serverAbilityPulse) {
+      inputFlags |= SERVER_INPUT_FLAGS.ACTIVATE_ABILITY;
+    }
+    this.serverReloadPulse = false;
+    this.serverAbilityPulse = false;
     if (this.aiming || this.focusToggle || this.virtual.aim || this.gamepad.focus) {
       inputFlags |= SERVER_INPUT_FLAGS.FOCUS_AIM;
     }
@@ -2244,6 +2374,7 @@ export class MissionEngine {
   }
 
   private handleReloadInput() {
+    if (this.serverGameplayActive) this.serverReloadPulse = true;
     const needs = {
       right: this.handNeedsReload("right"),
       left: this.handNeedsReload("left"),
@@ -2512,7 +2643,10 @@ export class MissionEngine {
   private abilities() {
     const q = this.risingKey("KeyQ") || this.consumeVirtual("ability");
     const f = this.risingKey("KeyF") || this.consumeVirtual("ult");
-    if (q) this.useActive();
+    if (q) {
+      if (this.serverGameplayActive) this.serverAbilityPulse = true;
+      this.useActive();
+    }
     if (f) this.useUlt();
   }
 

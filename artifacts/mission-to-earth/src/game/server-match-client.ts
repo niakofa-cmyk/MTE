@@ -51,9 +51,41 @@ export type ServerPlayerSnapshot = {
   position: { x: number; y: number; z: number };
   yaw: number;
   pitch: number;
+  operatorId: ServerOperatorId;
+  rightHandState: ServerHandAction;
+  leftHandState: ServerHandAction;
+  rightWeapon: ServerWeaponHandSnapshot;
+  leftWeapon: ServerWeaponHandSnapshot;
+  ability: ServerAbilitySnapshot;
+  isFocusAiming: boolean;
+  health: number;
 };
 
-type MatchSnapshot = { players: ServerPlayerSnapshot[] };
+export type ServerOperatorId = "jaya" | "bodhi" | "khensu" | "aset" | "ananda" | "nefret";
+export type ServerAbilityId =
+  | "TEMPORAL_PHASE"
+  | "MANDALA_GATEWAY"
+  | "THERMITE_BREACH"
+  | "RAS_RADIANCE"
+  | "QUANTUM_SHIFT"
+  | "SHATTER_PULSE";
+export type ServerHandAction = "IDLE" | "FIRING" | "RELOADING" | "DRY_CLICK";
+export type ServerWeaponHandSnapshot = {
+  weaponId: string;
+  ammoInMagazine: number;
+  reserveAmmo: number;
+  maxClipSize: number;
+  isReloading: boolean;
+  reloadRemainingSeconds: number;
+};
+export type ServerAbilitySnapshot = {
+  abilityId: ServerAbilityId;
+  isActive: boolean;
+  cooldownRemainingSeconds: number;
+  activeDurationRemainingSeconds: number;
+};
+
+type MatchSnapshot = { protocolVersion: 3; players: ServerPlayerSnapshot[] };
 type StoredSession = {
   matchId: string;
   playerId: string;
@@ -73,6 +105,40 @@ const INPUT_FIRE_LEFT = 1 << 1;
 const INPUT_RELOAD_RIGHT = 1 << 2;
 const INPUT_RELOAD_LEFT = 1 << 3;
 const INPUT_FOCUS = 1 << 4;
+const INPUT_RELOAD_REQUEST = 1 << 5;
+const INPUT_ACTIVATE_ABILITY = 1 << 6;
+const SERVER_OPERATOR_IDS: readonly ServerOperatorId[] = [
+  "jaya",
+  "bodhi",
+  "khensu",
+  "aset",
+  "ananda",
+  "nefret",
+];
+const SERVER_ABILITY_IDS: readonly ServerAbilityId[] = [
+  "TEMPORAL_PHASE",
+  "MANDALA_GATEWAY",
+  "THERMITE_BREACH",
+  "RAS_RADIANCE",
+  "QUANTUM_SHIFT",
+  "SHATTER_PULSE",
+];
+const SERVER_WEAPON_IDS = [
+  "smg",
+  "rifle",
+  "shotgun",
+  "lmg",
+  "rail",
+  "pistol",
+  "needles",
+  "slug",
+];
+const HAND_ACTIONS: readonly ServerHandAction[] = [
+  "IDLE",
+  "FIRING",
+  "RELOADING",
+  "DRY_CLICK",
+];
 
 export class ServerMatchError extends Error {
   readonly status: number;
@@ -144,7 +210,9 @@ function parseSnapshot(value: unknown, matchId: string): MatchSnapshot {
     !isRecord(value) ||
     value.matchId !== matchId ||
     !isRecord(value.snapshot) ||
-    !Array.isArray(value.snapshot.players)
+    value.snapshot.protocolVersion !== 3 ||
+    !Array.isArray(value.snapshot.players) ||
+    value.snapshot.players.length > 64
   ) {
     throw new Error("The match server returned an invalid player snapshot.");
   }
@@ -158,9 +226,64 @@ function parseSnapshot(value: unknown, matchId: string): MatchSnapshot {
       !finite(player.position.y) ||
       !finite(player.position.z) ||
       !finite(player.yaw) ||
-      !finite(player.pitch)
+      !finite(player.pitch) ||
+      !SERVER_OPERATOR_IDS.includes(player.operatorId as ServerOperatorId) ||
+      !HAND_ACTIONS.includes(player.rightHandState as ServerHandAction) ||
+      !HAND_ACTIONS.includes(player.leftHandState as ServerHandAction) ||
+      typeof player.isFocusAiming !== "boolean" ||
+      !finite(player.health) ||
+      player.health < 0 ||
+      player.health > 100 ||
+      !isRecord(player.rightWeapon) ||
+      !isRecord(player.leftWeapon) ||
+      !isRecord(player.ability)
     ) {
       throw new Error("The match server returned an invalid player record.");
+    }
+    const parseHand = (
+      input: Record<string, unknown>,
+      action: ServerHandAction,
+    ): ServerWeaponHandSnapshot => {
+      if (
+        typeof input.weaponId !== "string" ||
+        !SERVER_WEAPON_IDS.includes(input.weaponId) ||
+        !Number.isInteger(input.ammoInMagazine) ||
+        !Number.isInteger(input.reserveAmmo) ||
+        !Number.isInteger(input.maxClipSize) ||
+        (input.ammoInMagazine as number) < 0 ||
+        (input.reserveAmmo as number) < 0 ||
+        (input.reserveAmmo as number) > 2_000 ||
+        (input.maxClipSize as number) < 1 ||
+        (input.maxClipSize as number) > 500 ||
+        (input.ammoInMagazine as number) > (input.maxClipSize as number) ||
+        typeof input.isReloading !== "boolean" ||
+        input.isReloading !== (action === "RELOADING") ||
+        !finite(input.reloadRemainingSeconds) ||
+        input.reloadRemainingSeconds < 0 ||
+        input.reloadRemainingSeconds > 20
+      ) {
+        throw new Error("The match server returned invalid weapon state.");
+      }
+      return {
+        weaponId: input.weaponId,
+        ammoInMagazine: input.ammoInMagazine as number,
+        reserveAmmo: input.reserveAmmo as number,
+        maxClipSize: input.maxClipSize as number,
+        isReloading: input.isReloading,
+        reloadRemainingSeconds: input.reloadRemainingSeconds,
+      };
+    };
+    if (
+      !SERVER_ABILITY_IDS.includes(player.ability.abilityId as ServerAbilityId) ||
+      typeof player.ability.isActive !== "boolean" ||
+      !finite(player.ability.cooldownRemainingSeconds) ||
+      player.ability.cooldownRemainingSeconds < 0 ||
+      player.ability.cooldownRemainingSeconds > 600 ||
+      !finite(player.ability.activeDurationRemainingSeconds) ||
+      player.ability.activeDurationRemainingSeconds < 0 ||
+      player.ability.activeDurationRemainingSeconds > 120
+    ) {
+      throw new Error("The match server returned invalid ability state.");
     }
     return {
       playerId: player.playerId,
@@ -172,9 +295,30 @@ function parseSnapshot(value: unknown, matchId: string): MatchSnapshot {
       },
       yaw: player.yaw,
       pitch: player.pitch,
+      operatorId: player.operatorId as ServerOperatorId,
+      rightHandState: player.rightHandState as ServerHandAction,
+      leftHandState: player.leftHandState as ServerHandAction,
+      rightWeapon: parseHand(
+        player.rightWeapon,
+        player.rightHandState as ServerHandAction,
+      ),
+      leftWeapon: parseHand(
+        player.leftWeapon,
+        player.leftHandState as ServerHandAction,
+      ),
+      ability: {
+        abilityId: player.ability.abilityId as ServerAbilityId,
+        isActive: player.ability.isActive,
+        cooldownRemainingSeconds:
+          player.ability.cooldownRemainingSeconds,
+        activeDurationRemainingSeconds:
+          player.ability.activeDurationRemainingSeconds,
+      },
+      isFocusAiming: player.isFocusAiming,
+      health: player.health,
     };
   });
-  return { players };
+  return { protocolVersion: 3, players };
 }
 
 function parseGameplayState(value: unknown, matchId: string): ServerGameplayState {
@@ -319,17 +463,27 @@ export class ServerMatchClient {
     return this.session.playerId;
   }
 
+  get localPlayerId(): string {
+    return this.session.playerId;
+  }
+
   static async connect(options: {
     fetcher?: FetchLike;
     storage?: StorageLike | null;
+    operatorId?: ServerOperatorId;
   } = {}): Promise<{
     client: ServerMatchClient;
     player: ServerPlayerSnapshot;
     gameplay: ServerGameplayState;
+    operatorId: ServerOperatorId;
     restored: boolean;
   }> {
     const fetcher = options.fetcher ?? fetch;
     const storage = options.storage === undefined ? defaultStorage() : options.storage;
+    const requestedOperatorId = options.operatorId ?? "jaya";
+    if (!SERVER_OPERATOR_IDS.includes(requestedOperatorId)) {
+      throw new Error("The selected operator is not available in server matches.");
+    }
     const stored = readStoredSession(storage);
 
     if (stored) {
@@ -341,7 +495,13 @@ export class ServerMatchClient {
         client.nextSequence = Math.max(stored.nextSequence, player.lastProcessedSequence + 1);
         client.persistSession();
         const gameplay = await client.getGameplayState();
-        return { client, player, gameplay, restored: true };
+        return {
+          client,
+          player,
+          gameplay,
+          operatorId: player.operatorId,
+          restored: true,
+        };
       } catch (error) {
         if (!(error instanceof ServerMatchError) || (error.status !== 401 && error.status !== 404)) {
           throw error;
@@ -359,16 +519,23 @@ export class ServerMatchClient {
       throw new Error("The match server did not return a valid match ID.");
     }
     const matchId = createdValue.matchId;
-    const joinedValue = await requestJson(fetcher, `/api/matches/${matchId}/players`, {
-      method: "POST",
-    });
+    const joinedValue = await requestJson(
+      fetcher,
+      `/api/matches/${matchId}/players`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operatorId: requestedOperatorId }),
+      },
+    );
     if (
       !isRecord(joinedValue) ||
       joinedValue.matchId !== matchId ||
       typeof joinedValue.playerId !== "string" ||
       !MATCH_ID_PATTERN.test(joinedValue.playerId) ||
       typeof joinedValue.accessToken !== "string" ||
-      !PLAYER_TOKEN_PATTERN.test(joinedValue.accessToken)
+      !PLAYER_TOKEN_PATTERN.test(joinedValue.accessToken) ||
+      joinedValue.operatorId !== requestedOperatorId
     ) {
       throw new Error("The match server did not return valid player credentials.");
     }
@@ -377,7 +544,9 @@ export class ServerMatchClient {
       matchId,
     );
     const player = joinedSnapshot.players.find((entry) => entry.playerId === joinedValue.playerId);
-    if (!player) throw new Error("The match server omitted the joined player.");
+    if (!player || player.operatorId !== requestedOperatorId) {
+      throw new Error("The match server omitted the joined player profile.");
+    }
 
     const session: StoredSession = {
       matchId,
@@ -388,7 +557,13 @@ export class ServerMatchClient {
     const client = new ServerMatchClient(session, fetcher, storage);
     client.persistSession();
     const gameplay = await client.getGameplayState();
-    return { client, player, gameplay, restored: false };
+    return {
+      client,
+      player,
+      gameplay,
+      operatorId: player.operatorId,
+      restored: false,
+    };
   }
 
   setInputErrorHandler(handler: ((error: Error) => void) | null): void {
@@ -531,4 +706,6 @@ export const SERVER_INPUT_FLAGS = {
   RELOAD_RIGHT: INPUT_RELOAD_RIGHT,
   RELOAD_LEFT: INPUT_RELOAD_LEFT,
   FOCUS_AIM: INPUT_FOCUS,
+  RELOAD_REQUEST: INPUT_RELOAD_REQUEST,
+  ACTIVATE_ABILITY: INPUT_ACTIVATE_ABILITY,
 } as const;
