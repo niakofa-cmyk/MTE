@@ -62,7 +62,7 @@ type Actor = {
   blind: number;
   lift: number;
   mind: Mind;
-  mindAge: number;
+  mindStateAge: number;
   knownX: number;
   knownZ: number;
   group: THREE.Group;
@@ -797,7 +797,7 @@ export class MissionEngine {
         blind: 0,
         lift: 0,
         mind: "patrol",
-        mindAge: 0,
+        mindStateAge: 0,
         knownX: 0,
         knownZ: 0,
         group: fig.group,
@@ -908,6 +908,17 @@ export class MissionEngine {
         this.keyOverride = codes.length ? new Set(codes) : null;
       },
       getMode: () => this.mode,
+      getEnemyMindStates: () =>
+        this.pool
+          .filter((actor) => actor.alive && actor.team === "sec" && !actor.squad)
+          .map((actor) => ({
+            state: actor.mind,
+            age: actor.mindStateAge,
+            x: actor.x,
+            z: actor.z,
+            lastKnownX: actor.knownX,
+            lastKnownZ: actor.knownZ,
+          })),
     };
 
     this.raf = requestAnimationFrame(this.loop);
@@ -1248,6 +1259,10 @@ export class MissionEngine {
     actor.slow = 0;
     actor.blind = 0;
     actor.lift = 0;
+    actor.mind = "patrol";
+    actor.mindStateAge = 0;
+    actor.knownX = x;
+    actor.knownZ = z;
     actor.cooldown = Math.random();
     actor.group.visible = true;
     actor.group.rotation.set(0, 0, 0);
@@ -2669,14 +2684,14 @@ export class MissionEngine {
           seen,
           heard,
           dt,
-          age: actor.mindAge,
+          age: actor.mindStateAge,
           lastX: actor.knownX,
           lastZ: actor.knownZ,
           actorX: this.x,
           actorZ: this.z,
         });
         actor.mind = mind.state;
-        actor.mindAge = mind.age;
+        actor.mindStateAge = mind.age;
         actor.knownX = mind.lastX;
         actor.knownZ = mind.lastZ;
         actor.aggro = mind.shoot ? 2.8 : mind.investigate ? 1.2 : Math.max(0, actor.aggro - dt);
@@ -3980,6 +3995,14 @@ declare global {
       getPos: () => { x: number; y: number; z: number };
       setKeys: (codes: string[]) => void;
       getMode?: () => string;
+      getEnemyMindStates?: () => Array<{
+        state: Mind;
+        age: number;
+        x: number;
+        z: number;
+        lastKnownX: number;
+        lastKnownZ: number;
+      }>;
     };
   }
 }

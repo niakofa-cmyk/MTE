@@ -21,30 +21,44 @@ export type MindOutput = {
   investigate: boolean;
 };
 
+const SUSPICION_SECONDS = 0.45;
+const INVESTIGATION_SECONDS = 4;
+const SEARCH_SECONDS = 3.5;
+
 export function stepEnemyMind(input: MindInput): MindOutput {
-  const heardOrSeen = input.seen || input.heard;
   let state = input.state;
-  let age = input.age + input.dt;
-  const lastX = heardOrSeen ? input.actorX : input.lastX;
-  const lastZ = heardOrSeen ? input.actorZ : input.lastZ;
+  let age = Math.max(0, input.age);
+  const dt = Math.max(0, input.dt);
+  const lastX = input.seen || input.heard ? input.actorX : input.lastX;
+  const lastZ = input.seen || input.heard ? input.actorZ : input.lastZ;
+  const enter = (next: Mind) => {
+    state = next;
+    age = 0;
+  };
 
   if (input.seen) {
-    state = age < 0.45 && state !== "engage" ? "suspicious" : "engage";
-  } else if (state === "suspicious") {
-    state = "investigate";
-    age = 0;
-  } else if (state === "engage" && !input.seen) {
-    state = "investigate";
-    age = 0;
-  } else if (state === "investigate" && age > 4) {
-    state = "search";
-    age = 0;
-  } else if (state === "search" && age > 3.5) {
-    state = "patrol";
-    age = 0;
-  } else if (state === "patrol" && input.heard) {
-    state = "suspicious";
-    age = 0;
+    if (state === "engage") {
+      age += dt;
+    } else if (state === "suspicious") {
+      age += dt;
+      if (age >= SUSPICION_SECONDS) enter("engage");
+    } else {
+      enter("suspicious");
+    }
+  } else {
+    age += dt;
+
+    if (state === "patrol" && input.heard) {
+      enter("suspicious");
+    } else if (state === "suspicious" || state === "engage") {
+      enter("investigate");
+    } else if (state === "search" && input.heard) {
+      enter("investigate");
+    } else if (state === "investigate" && age >= INVESTIGATION_SECONDS) {
+      enter("search");
+    } else if (state === "search" && age >= SEARCH_SECONDS) {
+      enter("patrol");
+    }
   }
 
   return {

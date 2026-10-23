@@ -1,1 +1,2 @@
 - [WebGL game QA](webgl-game-qa.md) — the screenshot browser lacks WebGL, but workspace Chromium with SwiftShader can run the 3D game.
+- [Gameplay expansion scope](gameplay-expansion-scope.md) — deepen the existing loop before expanding the map, arsenal, vehicles, or multiplayer.
