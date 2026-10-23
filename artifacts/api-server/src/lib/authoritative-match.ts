@@ -412,6 +412,15 @@ export class AuthoritativeMatch {
   }
 
   /**
+   * Read a copy of the server-simulated position for an authenticated player.
+   * Callers must resolve the player ID from a server-owned session first.
+   */
+  getPlayerPosition(playerId: string): Position3 | null {
+    const player = this.players.get(playerId);
+    return player ? { ...player.position } : null;
+  }
+
+  /**
    * Add immutable level geometry from trusted server-side map data. Never
    * expose this method to raw client packets.
    */

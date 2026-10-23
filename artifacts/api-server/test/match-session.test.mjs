@@ -19,11 +19,24 @@ import {
 const generatedMapPath = fileURLToPath(
   new URL("../src/data/generated/nod-level-geometry.json", import.meta.url),
 );
+const generatedGameplayPath = fileURLToPath(
+  new URL("../src/data/generated/nod-gameplay-registry.json", import.meta.url),
+);
 
 test("match session routes load the map, assign server identity, and authorize actions", async () => {
   let nowNs = 1_000_000_000n;
+  let authoritativeMatch;
+  const bootstrap = async () => {
+    const result = await createNodAuthoritativeMatch(
+      DEFAULT_MATCH_CONFIG,
+      generatedMapPath,
+      generatedGameplayPath,
+    );
+    authoritativeMatch = result.match;
+    return result;
+  };
   const manager = new MatchSessionManager(
-    () => createNodAuthoritativeMatch(DEFAULT_MATCH_CONFIG, generatedMapPath),
+    bootstrap,
     {
       maxActiveSessions: 1,
       idleTimeoutMs: 1_000,
@@ -75,6 +88,28 @@ test("match session routes load the map, assign server identity, and authorize a
     assert.match(joined.playerId, /^[0-9a-f-]{36}$/i);
     assert.match(joined.accessToken, /^[A-Za-z0-9_-]{43}$/);
     assert.equal(joined.snapshot.players[0].playerId, joined.playerId);
+
+    const missingGameplayAuth = await fetch(
+      `${baseUrl}/matches/${created.matchId}/world-state`,
+    );
+    assert.equal(missingGameplayAuth.status, 401);
+
+    const gameplayResponse = await fetch(
+      `${baseUrl}/matches/${created.matchId}/world-state`,
+      { headers: { authorization: `Bearer ${joined.accessToken}` } },
+    );
+    assert.equal(gameplayResponse.status, 200);
+    const gameplayState = await gameplayResponse.json();
+    assert.equal(gameplayState.gameplay.lootSpawns.length, 87);
+    assert.equal(gameplayState.gameplay.terminals.length, 4);
+    assert.deepEqual(
+      gameplayState.gameplay.objectives.map((objective) => objective.id),
+      ["rescue-alpha", "rescue-omega", "raise-beacon", "extract"],
+    );
+    assert.equal(
+      gameplayState.gameplay.objectives[0].state,
+      "waiting-for-server-event",
+    );
 
     const missingAuth = await fetch(
       `${baseUrl}/matches/${created.matchId}/snapshot`,
@@ -157,6 +192,124 @@ test("match session routes load the map, assign server identity, and authorize a
     const state = await snapshotResponse.json();
     assert.equal(state.snapshot.players[0].rightHandState, "FIRING");
     assert.equal(state.snapshot.players[0].lastProcessedSequence, 1);
+
+    const targetLoot = gameplayState.gameplay.lootSpawns[0];
+    assert.ok(targetLoot);
+    const spoofedLootClaim = await fetch(
+      `${baseUrl}/matches/${created.matchId}/loot/${targetLoot.id}/claim`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${joined.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          position: { x: targetLoot.x, y: 0, z: targetLoot.z },
+          grant: { scrap: 100_000 },
+        }),
+      },
+    );
+    assert.equal(spoofedLootClaim.status, 400);
+
+    authoritativeMatch.getPlayerPosition = () => ({ x: 500, y: 0, z: 500 });
+    const outOfRangeClaim = await fetch(
+      `${baseUrl}/matches/${created.matchId}/loot/${targetLoot.id}/claim`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${joined.accessToken}` },
+      },
+    );
+    assert.equal(outOfRangeClaim.status, 422);
+
+    authoritativeMatch.getPlayerPosition = () => ({
+      x: targetLoot.x,
+      y: 0,
+      z: targetLoot.z,
+    });
+    const claimResponse = await fetch(
+      `${baseUrl}/matches/${created.matchId}/loot/${targetLoot.id}/claim`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${joined.accessToken}` },
+      },
+    );
+    assert.equal(claimResponse.status, 200);
+    const claimed = await claimResponse.json();
+    assert.equal(claimed.item.lootId, targetLoot.id);
+    assert.equal(claimed.inventory.length, 1);
+
+    const duplicateClaim = await fetch(
+      `${baseUrl}/matches/${created.matchId}/loot/${targetLoot.id}/claim`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${joined.accessToken}` },
+      },
+    );
+    assert.equal(duplicateClaim.status, 409);
+
+    const refreshedGameplayResponse = await fetch(
+      `${baseUrl}/matches/${created.matchId}/world-state`,
+      { headers: { authorization: `Bearer ${joined.accessToken}` } },
+    );
+    const refreshedGameplay = await refreshedGameplayResponse.json();
+    assert.equal(
+      refreshedGameplay.gameplay.lootSpawns.find((spawn) => spawn.id === targetLoot.id)
+        .available,
+      false,
+    );
+    assert.equal(refreshedGameplay.gameplay.inventory.length, 1);
+
+    const targetTerminal = gameplayState.gameplay.terminals[0];
+    assert.ok(targetTerminal);
+    authoritativeMatch.getPlayerPosition = () => ({
+      x: targetTerminal.x + targetTerminal.interactionRadius + 1,
+      y: 0,
+      z: targetTerminal.z,
+    });
+    const outOfRangeTerminal = await fetch(
+      `${baseUrl}/matches/${created.matchId}/terminals/${targetTerminal.id}/open`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${joined.accessToken}` },
+      },
+    );
+    assert.equal(outOfRangeTerminal.status, 422);
+
+    authoritativeMatch.getPlayerPosition = () => ({
+      x: targetTerminal.x,
+      y: 0,
+      z: targetTerminal.z,
+    });
+    const openedTerminal = await fetch(
+      `${baseUrl}/matches/${created.matchId}/terminals/${targetTerminal.id}/open`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${joined.accessToken}` },
+      },
+    );
+    assert.equal(openedTerminal.status, 200);
+    const terminalResult = await openedTerminal.json();
+    assert.equal(terminalResult.lootIds.length, 4);
+
+    const duplicateTerminal = await fetch(
+      `${baseUrl}/matches/${created.matchId}/terminals/${targetTerminal.id}/open`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${joined.accessToken}` },
+      },
+    );
+    assert.equal(duplicateTerminal.status, 409);
+
+    const openedWorldResponse = await fetch(
+      `${baseUrl}/matches/${created.matchId}/world-state`,
+      { headers: { authorization: `Bearer ${joined.accessToken}` } },
+    );
+    const openedWorld = await openedWorldResponse.json();
+    assert.equal(
+      openedWorld.gameplay.terminals.find((entry) => entry.id === targetTerminal.id).state,
+      "opened",
+    );
+    assert.equal(openedWorld.gameplay.lootSpawns.length, 91);
 
     const leaveResponse = await fetch(
       `${baseUrl}/matches/${created.matchId}/player`,

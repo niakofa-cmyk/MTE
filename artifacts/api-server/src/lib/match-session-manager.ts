@@ -6,6 +6,12 @@ import {
   type AuthoritativeWorldSnapshot,
   type SubmitInputResult,
 } from "./authoritative-match.ts";
+import {
+  AuthoritativeGameplayState,
+  type AuthoritativeGameplaySnapshot,
+  type GrantedGameplayItem,
+} from "./authoritative-gameplay-state.ts";
+import type { GameplayRegistryAsset } from "./gameplay-registry.ts";
 import { logger } from "./logger.ts";
 import { createNodAuthoritativeMatch } from "./match-bootstrap.ts";
 
@@ -18,7 +24,8 @@ export type MatchSessionErrorCode =
   | "player-capacity"
   | "not-found"
   | "unauthorized"
-  | "no-safe-spawn";
+  | "no-safe-spawn"
+  | "player-position-unavailable";
 
 export class MatchSessionError extends Error {
   readonly code: MatchSessionErrorCode;
@@ -37,6 +44,7 @@ export interface MatchBootstrap {
   (): Promise<{
     match: AuthoritativeMatch;
     loadedGeometryCount: number;
+    gameplayRegistry: GameplayRegistryAsset;
   }>;
 }
 
@@ -72,6 +80,7 @@ interface SessionPlayer {
 interface MatchSessionRecord {
   matchId: string;
   match: AuthoritativeMatch;
+  gameplay: AuthoritativeGameplayState;
   mapNodeCount: number;
   createdAtNs: bigint;
   lastActivityAtNs: bigint;
@@ -161,12 +170,13 @@ export class MatchSessionManager {
 
     this.pendingCreates += 1;
     try {
-      const { match, loadedGeometryCount } = await this.bootstrap();
+      const { match, loadedGeometryCount, gameplayRegistry } = await this.bootstrap();
       const createdAtNs = this.readClock();
       const matchId = randomUUID();
       const session: MatchSessionRecord = {
         matchId,
         match,
+        gameplay: new AuthoritativeGameplayState(gameplayRegistry),
         mapNodeCount: loadedGeometryCount,
         createdAtNs,
         lastActivityAtNs: createdAtNs,
@@ -242,6 +252,60 @@ export class MatchSessionManager {
     this.resolvePlayer(session, accessToken);
     session.lastActivityAtNs = nowNs;
     return { matchId, snapshot: session.match.getSnapshot() };
+  }
+
+  getGameplaySnapshot(
+    matchId: string,
+    accessToken: string,
+  ): { matchId: string; gameplay: AuthoritativeGameplaySnapshot } {
+    const nowNs = this.readClock();
+    const session = this.getLiveSession(matchId, nowNs);
+    const playerId = this.resolvePlayer(session, accessToken);
+    session.lastActivityAtNs = nowNs;
+    return {
+      matchId,
+      gameplay: session.gameplay.getSnapshot(playerId),
+    };
+  }
+
+  claimLoot(
+    matchId: string,
+    accessToken: string,
+    lootId: string,
+  ): { matchId: string; item: GrantedGameplayItem; inventory: GrantedGameplayItem[] } {
+    const nowNs = this.readClock();
+    const session = this.getLiveSession(matchId, nowNs);
+    const playerId = this.resolvePlayer(session, accessToken);
+    const position = session.match.getPlayerPosition(playerId);
+    if (!position) {
+      throw new MatchSessionError(
+        "player-position-unavailable",
+        "The authenticated player is not present in this match.",
+      );
+    }
+    const result = session.gameplay.claimLoot(playerId, lootId, position);
+    session.lastActivityAtNs = nowNs;
+    return { matchId, ...result };
+  }
+
+  openTerminal(
+    matchId: string,
+    accessToken: string,
+    terminalId: string,
+  ): { matchId: string; terminalId: string; lootIds: string[] } {
+    const nowNs = this.readClock();
+    const session = this.getLiveSession(matchId, nowNs);
+    const playerId = this.resolvePlayer(session, accessToken);
+    const position = session.match.getPlayerPosition(playerId);
+    if (!position) {
+      throw new MatchSessionError(
+        "player-position-unavailable",
+        "The authenticated player is not present in this match.",
+      );
+    }
+    const result = session.gameplay.openTerminal(terminalId, position);
+    session.lastActivityAtNs = nowNs;
+    return { matchId, ...result };
   }
 
   leaveSession(matchId: string, accessToken: string): void {

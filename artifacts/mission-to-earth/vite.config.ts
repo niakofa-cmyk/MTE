@@ -33,6 +33,10 @@ function levelGeometryExportPlugin(): Plugin {
   const watchedSources = new Set([
     path.resolve(import.meta.dirname, 'src/game/world.ts'),
     path.resolve(import.meta.dirname, 'src/game/region-layout.ts'),
+    path.resolve(import.meta.dirname, 'src/game/loot.ts'),
+    path.resolve(import.meta.dirname, 'src/game/loot-location.ts'),
+    path.resolve(import.meta.dirname, 'src/game/extraction-loot.ts'),
+    path.resolve(import.meta.dirname, 'src/game/gameplay-registry-export.ts'),
   ]);
   let exportQueue: Promise<void> = Promise.resolve();
 

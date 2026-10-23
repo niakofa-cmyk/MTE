@@ -4,10 +4,13 @@ import {
   MatchSessionError,
   type MatchSessionManager,
 } from "../lib/match-session-manager.ts";
+import { GameplayStateError } from "../lib/authoritative-gameplay-state.ts";
 
 const MATCH_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ACCESS_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const LOOT_ID_PATTERN = /^map-loot-\d{4}$/;
+const TERMINAL_ID_PATTERN = /^terminal-\d{2}$/;
 
 class FixedWindowRateLimiter {
   private readonly maxRequests: number;
@@ -64,6 +67,9 @@ export function createMatchSessionsRouter(
   const createLimiter = new FixedWindowRateLimiter(3, 60_000);
   const joinLimiter = new FixedWindowRateLimiter(12, 60_000);
   const snapshotLimiter = new FixedWindowRateLimiter(600, 60_000);
+  const gameplayLimiter = new FixedWindowRateLimiter(120, 60_000);
+  const lootClaimLimiter = new FixedWindowRateLimiter(30, 60_000);
+  const terminalLimiter = new FixedWindowRateLimiter(20, 60_000);
 
   router.use((_req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
@@ -163,6 +169,111 @@ export function createMatchSessionsRouter(
     }
   });
 
+  router.get("/matches/:matchId/world-state", (req, res) => {
+    if (!isMatchId(req.params.matchId)) {
+      res.status(404).json({ error: "match-not-found" });
+      return;
+    }
+    const accessToken = readAccessToken(req, res);
+    if (!accessToken) return;
+    const retryAfter = gameplayLimiter.consume(digestToken(accessToken));
+    if (retryAfter !== null) {
+      res.setHeader("Retry-After", String(retryAfter));
+      res.status(429).json({ error: "gameplay-state-rate-limit" });
+      return;
+    }
+
+    try {
+      res.json(manager.getGameplaySnapshot(req.params.matchId, accessToken));
+    } catch (error) {
+      sendSessionError(res, error);
+    }
+  });
+
+  router.post("/matches/:matchId/loot/:lootId/claim", (req, res) => {
+    if (!isMatchId(req.params.matchId)) {
+      res.status(404).json({ error: "match-not-found" });
+      return;
+    }
+    if (!LOOT_ID_PATTERN.test(req.params.lootId ?? "")) {
+      res.status(404).json({ error: "loot-not-found" });
+      return;
+    }
+    if (hasUnexpectedBody(req)) {
+      res.status(400).json({ error: "server-selects-loot-and-player-position" });
+      return;
+    }
+    const accessToken = readAccessToken(req, res);
+    if (!accessToken) return;
+    const retryAfter = lootClaimLimiter.consume(digestToken(accessToken));
+    if (retryAfter !== null) {
+      res.setHeader("Retry-After", String(retryAfter));
+      res.status(429).json({ error: "loot-claim-rate-limit" });
+      return;
+    }
+
+    try {
+      res.json(manager.claimLoot(req.params.matchId, accessToken, req.params.lootId));
+    } catch (error) {
+      if (error instanceof GameplayStateError) {
+        const statusCode =
+          error.code === "loot-not-found"
+            ? 404
+            : error.code === "loot-out-of-range"
+              ? 422
+              : 409;
+        res.status(statusCode).json({ error: error.code });
+        return;
+      }
+      sendSessionError(res, error);
+    }
+  });
+
+  router.post("/matches/:matchId/terminals/:terminalId/open", (req, res) => {
+    if (!isMatchId(req.params.matchId)) {
+      res.status(404).json({ error: "match-not-found" });
+      return;
+    }
+    if (!TERMINAL_ID_PATTERN.test(req.params.terminalId ?? "")) {
+      res.status(404).json({ error: "terminal-not-found" });
+      return;
+    }
+    if (hasUnexpectedBody(req)) {
+      res.status(400).json({ error: "server-selects-terminal-drops-and-player-position" });
+      return;
+    }
+    const accessToken = readAccessToken(req, res);
+    if (!accessToken) return;
+    const retryAfter = terminalLimiter.consume(digestToken(accessToken));
+    if (retryAfter !== null) {
+      res.setHeader("Retry-After", String(retryAfter));
+      res.status(429).json({ error: "terminal-interaction-rate-limit" });
+      return;
+    }
+
+    try {
+      res.json(
+        manager.openTerminal(
+          req.params.matchId,
+          accessToken,
+          req.params.terminalId,
+        ),
+      );
+    } catch (error) {
+      if (error instanceof GameplayStateError) {
+        const statusCode =
+          error.code === "terminal-not-found"
+            ? 404
+            : error.code === "terminal-out-of-range"
+              ? 422
+              : 409;
+        res.status(statusCode).json({ error: error.code });
+        return;
+      }
+      sendSessionError(res, error);
+    }
+  });
+
   router.delete("/matches/:matchId/player", (req, res) => {
     if (!isMatchId(req.params.matchId)) {
       res.status(404).json({ error: "match-not-found" });
@@ -234,7 +345,8 @@ function sendSessionError(res: Response, error: unknown): void {
         : error.code === "server-capacity"
           ? 503
           : error.code === "player-capacity" ||
-              error.code === "no-safe-spawn"
+              error.code === "no-safe-spawn" ||
+              error.code === "player-position-unavailable"
             ? 409
             : 500;
   res.status(statusCode).json({ error: error.code });

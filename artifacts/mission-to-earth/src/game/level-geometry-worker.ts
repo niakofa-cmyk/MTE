@@ -1,7 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { persistAtomicJson } from "./atomic-json-worker.ts";
 import {
   serializeStaticLevelGeometry,
   type SerializedStaticNode,
@@ -29,26 +28,10 @@ export async function persistWorldGeometry(
   outputPath = DEFAULT_OUTPUT_PATH,
 ): Promise<LevelAssetWriteResult> {
   const json = serializeStaticLevelGeometry(nodes);
-  const byteLength = Buffer.byteLength(json, "utf8");
-  if (byteLength > MAX_ASSET_BYTES) {
-    throw new Error("Generated level geometry exceeds the 1 MiB file limit.");
-  }
-
-  const targetPath = resolve(outputPath);
-  const temporaryPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
-  await mkdir(dirname(targetPath), { recursive: true });
-
-  try {
-    await writeFile(temporaryPath, json, { encoding: "utf8", flag: "wx" });
-    await rename(temporaryPath, targetPath);
-  } catch (error) {
-    await rm(temporaryPath, { force: true });
-    throw error;
-  }
+  const result = await persistAtomicJson(json, outputPath, MAX_ASSET_BYTES);
 
   return {
-    path: targetPath,
-    byteLength,
+    ...result,
     nodeCount: nodes.length,
   };
 }

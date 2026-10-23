@@ -1,4 +1,5 @@
 import { type WeaponDef, type WeaponId } from "@/game/content";
+import { sectorTier, type SectorTier } from "./loot-location.ts";
 import {
   applyValidAttachments,
   PERK_FLAGS,
@@ -7,7 +8,8 @@ import {
   type PerkFlag,
 } from "@/game/weapon-mod";
 
-export type SectorTier = 1 | 2 | 3 | 4;
+export { sectorTier } from "./loot-location.ts";
+export type { SectorTier } from "./loot-location.ts";
 export type ItemTier = "COMMON" | "UNCOMMON" | "RARE" | "LEGENDARY" | "ANOMALY";
 export type AttachSlot = "BARREL" | "RECEIVER" | "OPTIC" | "UNDERBARREL" | "MAGAZINE";
 export type WeaponClass = "BALLISTIC" | "ENERGY_RAIL";
@@ -138,13 +140,6 @@ function assertAttachment(data: Attachment) {
 }
 
 for (const row of ATTACHMENTS) assertAttachment(row);
-
-export function sectorTier(x: number, z: number): SectorTier {
-  if (Math.hypot(x - 80, z + 80) < 36 || Math.hypot(x + 80, z - 80) < 36) return 3;
-  if (x > 36) return 4;
-  if (x < -36) return 1;
-  return 2;
-}
 
 export function sectorLabel(x: number, z: number) {
   if (z < -118) return "RECOVERY CORRIDOR";

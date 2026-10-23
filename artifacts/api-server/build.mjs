@@ -129,6 +129,14 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     generatedLevelAsset,
     path.resolve(bundledAssetDir, "nod-level-geometry.json"),
   );
+  const generatedGameplayAsset = path.resolve(
+    artifactDir,
+    "src/data/generated/nod-gameplay-registry.json",
+  );
+  await copyFile(
+    generatedGameplayAsset,
+    path.resolve(bundledAssetDir, "nod-gameplay-registry.json"),
+  );
 }
 
 buildAll().catch((err) => {
