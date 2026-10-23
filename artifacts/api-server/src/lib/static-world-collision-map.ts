@@ -131,10 +131,11 @@ export class StaticWorldCollisionMap {
       throw new Error("Movement delta must be finite.");
     }
 
-    let x = position.x;
-    let z = position.z;
-    let blockedX = false;
-    let blockedZ = false;
+    const recovered = this.recoverInitialOverlap(position, radius, height);
+    let x = recovered.x;
+    let z = recovered.z;
+    let blockedX = recovered.x !== position.x;
+    let blockedZ = recovered.z !== position.z;
     let proposedX = x + deltaX;
 
     for (const bounds of this.colliders) {
@@ -197,6 +198,55 @@ export class StaticWorldCollisionMap {
       blockedX,
       blockedZ,
     };
+  }
+
+  /**
+   * Recover a player that begins a movement step intersecting static geometry.
+   * Normal movement should never create this state, but spawn changes or
+   * snapshot reconciliation can. Move out through the nearest collider face
+   * before applying the requested delta so the player can recover instead of
+   * remaining trapped inside an AABB.
+   */
+  private recoverInitialOverlap(
+    position: Position3,
+    radius: number,
+    height: number,
+  ): { x: number; z: number } {
+    let x = position.x;
+    let z = position.z;
+    const maxPasses = Math.min(16, Math.max(1, this.colliders.length));
+
+    for (let pass = 0; pass < maxPasses; pass += 1) {
+      let recoveredThisPass = false;
+
+      for (const bounds of this.colliders) {
+        if (!this.overlapsBody({ x, y: position.y, z }, radius, height, bounds)) {
+          continue;
+        }
+
+        const expandedMinX = bounds.min.x - radius;
+        const expandedMaxX = bounds.max.x + radius;
+        const expandedMinZ = bounds.min.z - radius;
+        const expandedMaxZ = bounds.max.z + radius;
+        const exits = [
+          { distance: x - expandedMinX, axis: "x", value: expandedMinX },
+          { distance: expandedMaxX - x, axis: "x", value: expandedMaxX },
+          { distance: z - expandedMinZ, axis: "z", value: expandedMinZ },
+          { distance: expandedMaxZ - z, axis: "z", value: expandedMaxZ },
+        ];
+        const exit = exits.reduce((nearest, candidate) =>
+          candidate.distance < nearest.distance ? candidate : nearest,
+        );
+
+        if (exit.axis === "x") x = exit.value;
+        else z = exit.value;
+        recoveredThisPass = true;
+      }
+
+      if (!recoveredThisPass) break;
+    }
+
+    return { x, z };
   }
 
   /**

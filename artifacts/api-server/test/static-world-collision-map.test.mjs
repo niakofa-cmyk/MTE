@@ -83,6 +83,25 @@ test("blocks swept horizontal movement while allowing a slide along the wall", (
   assert.equal(result.position.z, 2);
 });
 
+test("recovers movement that begins inside static geometry", () => {
+  const map = mapWithBox({
+    min: { x: 1, y: 0, z: -3 },
+    max: { x: 2, y: 2, z: 3 },
+  });
+
+  const result = map.resolveHorizontalMovement(
+    { x: 1.2, y: 0, z: 0 },
+    0,
+    -1,
+  );
+
+  assert.equal(result.blockedX, true);
+  assert.equal(result.blockedZ, false);
+  assert.equal(result.position.x, 0.65);
+  assert.equal(result.position.z, -1);
+  assert.equal(map.isPositionClear(result.position), true);
+});
+
 test("ray slabs handle parallel and vertical directions and nearest range", () => {
   const map = mapWithBox({
     min: { x: 1, y: 0, z: 1 },
