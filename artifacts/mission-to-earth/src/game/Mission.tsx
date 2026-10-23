@@ -621,38 +621,58 @@ function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
         <pre id="mte-squad" className="mt-1 font-display text-sm tracking-widest whitespace-pre text-fg" />
       </div>
       <div className="absolute right-4 bottom-4 left-4 md:left-auto md:w-80">
-        <div className="mb-2 flex items-end justify-between">
-          <p id="mte-weapon" className="font-display text-xl tracking-widest text-fg" />
-          <p className="font-display text-2xl text-fg">
-            <span id="mte-mag" />
-            <span className="text-muted"> / </span>
-            <span id="mte-res" className="text-muted" />
+        <div className="mb-2">
+          <p id="mte-weapon" className="mb-2 font-display text-xs tracking-widest text-fg" />
+          <p className="mb-2 hidden font-display text-[9px] tracking-wider text-muted md:block">
+            LMB RIGHT · RMB LEFT · MMB / V FOCUS · R STAGGER · DOUBLE R BOTH
           </p>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="border border-line bg-bg/75 px-2 py-1">
+              <p className="font-display text-[9px] tracking-widest text-cyan">RIGHT</p>
+              <p className="font-display text-lg text-fg">
+                <span id="mte-mag-right" />
+                <span className="text-muted"> / </span>
+                <span id="mte-res-right" className="text-muted" />
+              </p>
+            </div>
+            <div className="border border-line bg-bg/75 px-2 py-1">
+              <p className="font-display text-[9px] tracking-widest text-gold">LEFT</p>
+              <p className="font-display text-lg text-fg">
+                <span id="mte-mag-left" />
+                <span className="text-muted"> / </span>
+                <span id="mte-res-left" className="text-muted" />
+              </p>
+            </div>
+          </div>
         </div>
         <div
           id="mte-reload-wrap"
-          className="mb-2"
+          className="mb-2 grid grid-cols-2 gap-2"
           style={{ display: "none" }}
         >
-          <div className="mb-1 flex items-center justify-between font-display text-[10px] tracking-widest text-gold">
-            <span>RELOAD</span>
-            <span id="mte-reload-pct">0%</span>
-          </div>
-          <div
-            id="mte-reload-progress"
-            className="h-1 overflow-hidden bg-surface-2"
-            role="progressbar"
-            aria-label="Reloading weapon"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={0}
-          >
-            <div
-              id="mte-reload-fill"
-              className="h-full bg-gold"
-              style={{ width: "0%" }}
-            />
-          </div>
+          {(["right", "left"] as const).map((hand) => (
+            <div id={`mte-reload-${hand}-wrap`} key={hand} style={{ display: "none" }}>
+              <div className="mb-1 flex items-center justify-between font-display text-[9px] tracking-widest text-gold">
+                <span>{hand.toUpperCase()} RELOAD</span>
+                <span id={`mte-reload-${hand}-pct`}>0%</span>
+              </div>
+              <div
+                id={`mte-reload-${hand}-progress`}
+                className="h-1 overflow-hidden bg-surface-2"
+                role="progressbar"
+                aria-label={`Reloading ${hand}-hand weapon`}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={0}
+              >
+                <div
+                  id={`mte-reload-${hand}-fill`}
+                  className="h-full bg-gold"
+                  style={{ width: "0%" }}
+                />
+              </div>
+            </div>
+          ))}
         </div>
         <div className="h-2 bg-surface-2">
           <div id="mte-hp" className="h-full bg-cyan" style={{ width: "100%" }} />
@@ -672,7 +692,9 @@ function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
             <p id="mte-fcd" className="font-display text-xs text-muted" />
           </div>
         </div>
-        <p className="kb-hints mt-2 text-xs text-muted">WASD move · Shift sprint · C slide · Ctrl crouch · RMB aim · R reload · E interact · B bloodline · X mass · 1 / 2 weapons</p>
+        <p className="kb-hints mt-2 text-xs text-muted">
+          WASD move · Shift sprint · C slide · LMB right / RMB left · MMB or V focus · R reload · double R both · E interact · B bloodline · X mass
+        </p>
       </div>
       <button
         id="mte-lock"
@@ -695,9 +717,15 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
   const [wheel, setWheel] = useState<string | null>(null);
   const [tune, setTune] = useState({ flick: 15, shove: 75, look: 1.7, disc: 1, discRight: 24, discTop: 55, cone: 8, magnet: 0.25, drag: 0.6 });
   const [layoutOpen, setLayoutOpen] = useState(false);
-  const [readout, setReadout] = useState<{ prompt: string; action: "interact" | "ability" | null; weapons: { name: string; active: boolean }[] }>({
+  const [readout, setReadout] = useState<{
+    prompt: string;
+    action: "interact" | "ability" | null;
+    focused: boolean;
+    weapons: { name: string; active: boolean; hand: string }[];
+  }>({
     prompt: "",
     action: null,
+    focused: false,
     weapons: [],
   });
 
@@ -829,7 +857,29 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
         </div>
       </div>
       <button type="button" className="touch-fire" onPointerDown={start("FIRE")} onPointerUp={finish("FIRE")} onPointerCancel={finish("FIRE")}>
-        FIRE
+        RIGHT
+      </button>
+      {readout.weapons.length > 1 ? (
+        <button
+          type="button"
+          className="touch-fire-left"
+          onPointerDown={start("FIRE_LEFT")}
+          onPointerUp={finish("FIRE_LEFT")}
+          onPointerCancel={finish("FIRE_LEFT")}
+          aria-label="Fire left-hand weapon"
+        >
+          LEFT
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className={`touch-focus ${readout.focused ? "is-live" : ""}`}
+        onPointerDown={start("FOCUS")}
+        onPointerUp={finish("FOCUS")}
+        onPointerCancel={finish("FOCUS")}
+        aria-pressed={readout.focused}
+      >
+        {readout.focused ? "FOCUS ON" : "FOCUS"}
       </button>
       {readout.weapons.length > 0 ? (
         <div className="touch-weapons">
@@ -843,7 +893,8 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
                 engineRef.current?.selectWeapon(index);
               }}
             >
-              {weapon.name}
+              <span>{weapon.hand}</span>
+              <span>{weapon.name}</span>
             </button>
           ))}
         </div>

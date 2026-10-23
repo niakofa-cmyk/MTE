@@ -21,6 +21,14 @@ import {
 } from "@/game/combat-feedback";
 import { WeaponCycle } from "@/game/weapon-cycle";
 import {
+  dualWieldSpreadMultiplier,
+  handMuzzleOffset,
+  planDualReload,
+  type WeaponHand,
+  weaponHandForMouseButton,
+} from "@/game/dual-wield";
+import { readGamepadInput, type GamepadInput } from "@/game/gamepad-input";
+import {
   chooseFlankPosition,
   coordinatedCombatRole,
   findCoverPlans,
@@ -390,7 +398,10 @@ export class MissionEngine {
   private viewScene = new THREE.Scene();
   private viewCam = new THREE.PerspectiveCamera(78, 1, 0.05, 8);
   private viewRig = new THREE.Group();
-  private guns = new Map<WeaponId, THREE.Group>();
+  private handGuns: Record<WeaponHand, Map<WeaponId, THREE.Group>> = {
+    right: new Map(),
+    left: new Map(),
+  };
   private world: WorldData;
   private solids: Box[];
   private audio = new AudioBus();
@@ -415,12 +426,22 @@ export class MissionEngine {
   private keyOverride: Set<string> | null = null;
   private prev: Record<string, boolean> = {};
   private vPrev = { jump: false, ability: false, ult: false, reload: false, slide: false };
+  private gamepad: GamepadInput = {
+    moveX: 0,
+    moveY: 0,
+    lookX: 0,
+    lookY: 0,
+    fireRight: false,
+    fireLeft: false,
+    focus: false,
+  };
   virtual = {
     ax: 0,
     ay: 0,
     lookX: 0,
     lookY: 0,
     fire: false,
+    fireLeft: false,
     aim: false,
     jump: false,
     sprint: false,
@@ -458,11 +479,19 @@ export class MissionEngine {
   private slideT = 0;
   private wallRun = 0;
   private touchingWall = false;
-  private mouseAim = false;
+  private mouseFocus = false;
+  private focusToggle = false;
   private fireHeld = false;
+  private fireLeftHeld = false;
   private slots: { id: WeaponId; mag: number; reserve: number; mods: string[] }[] = [];
   private slot = 0;
-  private weaponCycle = new WeaponCycle();
+  private weaponCycles: Record<WeaponHand, WeaponCycle> = {
+    right: new WeaponCycle(),
+    left: new WeaponCycle(),
+  };
+  private reloadTapAt = -Infinity;
+  private reloadSequence: "left" | null = null;
+  private handRecoil: Record<WeaponHand, number> = { right: 0, left: 0 };
   private hp = 100;
   private armor = 0;
   private invuln = 0;
@@ -880,10 +909,18 @@ export class MissionEngine {
     viewSun.position.set(1, 2, 1);
     this.viewScene.add(viewSun);
     (Object.keys(WEAPONS) as WeaponId[]).forEach((id) => {
-      const mesh = gunMesh(id);
-      mesh.visible = false;
-      this.viewRig.add(mesh);
-      this.guns.set(id, mesh);
+      const right = gunMesh(id);
+      right.position.x = 0.22;
+      right.visible = false;
+      this.viewRig.add(right);
+      this.handGuns.right.set(id, right);
+
+      const left = gunMesh(id);
+      left.position.x = -0.22;
+      left.scale.x = -1;
+      left.visible = false;
+      this.viewRig.add(left);
+      this.handGuns.left.set(id, left);
     });
 
     this.onKeyDown = (e) => {
@@ -899,7 +936,7 @@ export class MissionEngine {
     this.onMouse = (e) => {
       if (!this.locked || this.paused) return;
       if (this.mode !== "drop" && this.mode !== "ground") return;
-      const sens = this.sens * (this.aiming ? 0.62 : 1);
+      const sens = this.sens * (this.aiming ? 0.78 : 1);
       this.yaw -= e.movementX * sens;
       this.pitch = clamp(this.pitch - e.movementY * sens, -1.35, 1.35);
       this.mouseDX += e.movementX;
@@ -907,22 +944,32 @@ export class MissionEngine {
     };
     this.onDown = (e) => {
       if (!this.locked || this.paused) return;
-      if (e.button === 0) this.fireHeld = true;
-      if (e.button === 2) this.mouseAim = true;
+      const hand = weaponHandForMouseButton(e.button);
+      if (hand === "right") this.fireHeld = true;
+      if (hand === "left") this.fireLeftHeld = true;
+      if (e.button === 1) this.mouseFocus = true;
     };
     this.onUp = (e) => {
-      if (e.button === 0) this.fireHeld = false;
-      if (e.button === 2) this.mouseAim = false;
+      const hand = weaponHandForMouseButton(e.button);
+      if (hand === "right") this.fireHeld = false;
+      if (hand === "left") this.fireLeftHeld = false;
+      if (e.button === 1) this.mouseFocus = false;
     };
     this.onLock = () => {
       this.locked = document.pointerLockElement === this.renderer.domElement;
       if (!this.locked) {
         this.fireHeld = false;
-        this.mouseAim = false;
+        this.fireLeftHeld = false;
+        this.mouseFocus = false;
       }
       this.hooks.onEvent({ type: "lock", locked: this.locked });
     };
-    this.onBlur = () => this.keys.clear();
+    this.onBlur = () => {
+      this.keys.clear();
+      this.fireHeld = false;
+      this.fireLeftHeld = false;
+      this.mouseFocus = false;
+    };
     this.onContext = (e) => e.preventDefault();
     this.onResize = () => this.resize();
     window.addEventListener("keydown", this.onKeyDown);
@@ -1016,6 +1063,8 @@ export class MissionEngine {
     this.paused = !this.paused;
     if (this.paused) {
       this.fireHeld = false;
+      this.fireLeftHeld = false;
+      this.mouseFocus = false;
       if (document.pointerLockElement) document.exitPointerLock();
     }
     this.hooks.onEvent({ type: "pause", paused: this.paused });
@@ -1032,6 +1081,8 @@ export class MissionEngine {
     this.paused = false;
     this.mode = "attract";
     this.fireHeld = false;
+    this.fireLeftHeld = false;
+    this.mouseFocus = false;
     this.keyOverride = null;
     if (document.pointerLockElement) document.exitPointerLock();
     this.resetMission();
@@ -1143,7 +1194,7 @@ export class MissionEngine {
     this.feed = [];
     this.floaters = [];
     this.footprints = [];
-    this.weaponCycle.cancelReload();
+    this.resetHandCombat();
     this.slideT = 0;
     for (const loot of [...this.loots]) {
       if (loot.extra) {
@@ -1449,6 +1500,7 @@ export class MissionEngine {
     this.sinceAid += dt;
     this.sincePush += dt;
 
+    this.readGamepad(dt);
     this.readEdges();
     this.simulatePlayer(dt);
     this.tickReload(dt);
@@ -1493,6 +1545,12 @@ export class MissionEngine {
     return down && !was;
   }
 
+  private readGamepad(dt: number) {
+    const pads = navigator.getGamepads?.();
+    const connected = pads ? Array.from(pads).find((pad) => pad?.connected) : null;
+    this.gamepad = readGamepadInput(connected, dt);
+  }
+
   private consumeVirtual(name: "jump" | "ability" | "ult" | "reload" | "slide") {
     const down = this.virtual[name];
     const was = this.vPrev[name];
@@ -1503,16 +1561,14 @@ export class MissionEngine {
   private readEdges() {
     if (this.edge("Digit1")) {
       this.slot = 0;
-      this.weaponCycle.cancelReload();
     }
     if (this.edge("Digit2")) {
       this.slot = 1;
-      this.weaponCycle.cancelReload();
     }
     if (this.virtual.swap && !this.swapPrev) {
       this.slot = this.slot === 0 ? 1 : 0;
-      this.weaponCycle.cancelReload();
     }
+    if (this.edge("KeyV")) this.focusToggle = !this.focusToggle;
     this.swapPrev = this.virtual.swap;
     const blood = this.held("KeyB") || this.virtual.blood;
     if (blood && !this.bloodPrev) this.cycleBlood();
@@ -1525,7 +1581,6 @@ export class MissionEngine {
   selectWeapon(index: number) {
     if (index < 0 || index >= this.slots.length || this.slot === index) return;
     this.slot = index;
-    this.weaponCycle.cancelReload();
   }
 
   setLookSensitivity(scale: number) {
@@ -1538,24 +1593,29 @@ export class MissionEngine {
     return {
       prompt,
       action: action as "interact" | "ability" | null,
-      weapons: this.slots.map((slot, index) => ({ name: WEAPONS[slot.id].name, active: index === this.slot })),
+      focused: this.aiming,
+      weapons: this.slots.map((slot, index) => ({
+        name: WEAPONS[slot.id].name,
+        active: index === this.slot,
+        hand: index === 0 ? "RIGHT" : "LEFT",
+      })),
     };
   }
 
   private simulatePlayer(dt: number) {
     const forwardInput = clamp(
-      (this.held("KeyW") ? 1 : 0) - (this.held("KeyS") ? 1 : 0) + this.virtual.ay,
+      (this.held("KeyW") ? 1 : 0) - (this.held("KeyS") ? 1 : 0) + this.virtual.ay + this.gamepad.moveY,
       -1,
       1,
     );
     const strafeInput = clamp(
-      (this.held("KeyD") ? 1 : 0) - (this.held("KeyA") ? 1 : 0) + this.virtual.ax,
+      (this.held("KeyD") ? 1 : 0) - (this.held("KeyA") ? 1 : 0) + this.virtual.ax + this.gamepad.moveX,
       -1,
       1,
     );
-    const sens = this.sens * (this.aiming ? 0.62 : 1);
-    let lookX = this.virtual.lookX;
-    let lookY = this.virtual.lookY;
+    const sens = this.sens * (this.aiming ? 0.78 : 1);
+    let lookX = this.virtual.lookX + this.gamepad.lookX;
+    let lookY = this.virtual.lookY + this.gamepad.lookY;
     if (this.touch && this.virtual.lookHeld && (this.mode === "ground" || this.mode === "drop")) {
       const targets = [];
       for (const actor of this.pool) {
@@ -1597,7 +1657,9 @@ export class MissionEngine {
       wishZ /= wishLen;
     }
 
-    this.aiming = (this.mouseAim || this.virtual.aim) && this.mode === "ground";
+    this.aiming =
+      (this.mouseFocus || this.focusToggle || this.virtual.aim || this.gamepad.focus) &&
+      this.mode === "ground";
     const sprinting =
       (this.held("ShiftLeft") || this.held("ShiftRight") || this.virtual.sprint) &&
       forwardInput > 0.15 &&
@@ -1737,7 +1799,7 @@ export class MissionEngine {
       }
     }
 
-    if (this.reloadWant()) this.beginReload();
+    if (this.reloadWant()) this.handleReloadInput();
   }
 
   private slidePrev = false;
@@ -1902,43 +1964,133 @@ export class MissionEngine {
     return compileWeapon(weapon, this.slots[this.slot]?.mods ?? []);
   }
 
-  private beginReload() {
-    const weapon = this.currentWeapon();
-    const stats = this.gunStats();
-    const slot = this.slots[this.slot];
-    if (!slot) return;
-    this.weaponCycle.beginReload(
+  private resetHandCombat() {
+    this.weaponCycles.right.cancelReload();
+    this.weaponCycles.left.cancelReload();
+    this.reloadSequence = null;
+    this.reloadTapAt = -Infinity;
+    this.handRecoil.right = 0;
+    this.handRecoil.left = 0;
+  }
+
+  private slotForHand(hand: WeaponHand) {
+    return this.slots[hand === "right" ? 0 : 1];
+  }
+
+  private weaponForHand(hand: WeaponHand) {
+    return WEAPONS[this.slotForHand(hand)?.id ?? "pistol"];
+  }
+
+  private statsForHand(hand: WeaponHand) {
+    const slot = this.slotForHand(hand);
+    return compileWeapon(this.weaponForHand(hand), slot?.mods ?? []);
+  }
+
+  private handIndex(hand: WeaponHand) {
+    return hand === "right" ? 0 : 1;
+  }
+
+  private handNeedsReload(hand: WeaponHand) {
+    const slot = this.slotForHand(hand);
+    if (!slot || slot.reserve <= 0) return false;
+    const cycle = this.weaponCycles[hand];
+    const capacity = this.statsForHand(hand).mag;
+    if (slot.mag >= capacity) return false;
+    return cycle.isReloading || slot.mag <= Math.ceil(capacity * 0.25);
+  }
+
+  private beginHandReload(hand: WeaponHand, durationMultiplier = 1) {
+    const slot = this.slotForHand(hand);
+    if (!slot) return false;
+    const weapon = this.weaponForHand(hand);
+    const stats = this.statsForHand(hand);
+    return this.weaponCycles[hand].beginReload(
       slot.mag,
       stats.mag,
       slot.reserve,
-      weapon.reload * (stats.perks.has("CAPACITY_DOUBLE") ? 1.15 : 1),
+      weapon.reload * (stats.perks.has("CAPACITY_DOUBLE") ? 1.15 : 1) * durationMultiplier,
     );
+  }
+
+  private autoReloadHand(hand: WeaponHand) {
+    if (
+      hand === "left" &&
+      this.reloadSequence === "left" &&
+      this.weaponCycles.right.isReloading
+    ) {
+      return;
+    }
+    this.beginHandReload(hand);
   }
 
   private tickReload(dt: number) {
-    const stats = this.gunStats();
-    const slot = this.slots[this.slot];
-    if (!slot) return;
-    const ammo = this.weaponCycle.tickReload(
-      dt,
-      slot.mag,
-      slot.reserve,
-      stats.mag,
-    );
-    if (!ammo) return;
-    slot.mag = ammo.magazine;
-    slot.reserve = ammo.reserve;
+    for (const hand of ["right", "left"] as const) {
+      const slot = this.slotForHand(hand);
+      if (!slot) continue;
+      const ammo = this.weaponCycles[hand].tickReload(
+        dt,
+        slot.mag,
+        slot.reserve,
+        this.statsForHand(hand).mag,
+      );
+      if (ammo) {
+        slot.mag = ammo.magazine;
+        slot.reserve = ammo.reserve;
+      }
+    }
+    if (
+      this.reloadSequence === "left" &&
+      !this.weaponCycles.right.isReloading &&
+      !this.weaponCycles.left.isReloading
+    ) {
+      this.reloadSequence = null;
+      this.beginHandReload("left");
+    }
+  }
+
+  private handleReloadInput() {
+    const needs = {
+      right: this.handNeedsReload("right"),
+      left: this.handNeedsReload("left"),
+    };
+    const doubleTap = this.time - this.reloadTapAt <= 0.32;
+    this.reloadTapAt = this.time;
+    const plan = planDualReload(needs, doubleTap);
+    if (plan === "none") return;
+    if (plan === "simultaneous") {
+      this.reloadSequence = null;
+      this.weaponCycles.right.cancelReload();
+      this.weaponCycles.left.cancelReload();
+      this.beginHandReload("right", 1.2);
+      this.beginHandReload("left", 1.2);
+      return;
+    }
+    if (plan === "staggered") {
+      this.reloadSequence = "left";
+      if (!this.weaponCycles.right.isReloading && !this.beginHandReload("right")) {
+        this.reloadSequence = null;
+        this.beginHandReload("left");
+      }
+      return;
+    }
+    this.beginHandReload(plan);
   }
 
   private tryShoot() {
-    const weapon = this.currentWeapon();
-    const stats = this.gunStats();
-    const slot = this.slots[this.slot];
+    if ((this.mode !== "ground" && this.mode !== "drop") || this.paused) return;
+    this.tryShootHand("right", this.fireHeld || this.virtual.fire || this.gamepad.fireRight);
+    this.tryShootHand("left", this.fireLeftHeld || this.virtual.fireLeft || this.gamepad.fireLeft);
+  }
+
+  private tryShootHand(hand: WeaponHand, wanted: boolean) {
+    const slot = this.slotForHand(hand);
     if (!slot) return;
-    const want = (this.fireHeld || this.virtual.fire) && (this.mode === "ground" || this.mode === "drop") && !this.paused;
-    const attempt = this.weaponCycle.attemptShot({
+    const weapon = this.weaponForHand(hand);
+    const stats = this.statsForHand(hand);
+    const cycle = this.weaponCycles[hand];
+    const attempt = cycle.attemptShot({
       automatic: weapon.auto,
-      wanted: want,
+      wanted,
       now: this.time,
       interval: (60 / stats.rpm) * (this.inUnravel(this.x, this.z) ? 0.67 : 1),
       magazine: slot.mag,
@@ -1946,7 +2098,7 @@ export class MissionEngine {
     if (attempt === "wait") return;
     if (attempt === "empty") {
       this.audio.empty();
-      this.beginReload();
+      this.autoReloadHand(hand);
       return;
     }
     slot.mag -= 1;
@@ -1954,38 +2106,43 @@ export class MissionEngine {
     this.shotEcho = this.op === "ananda" ? 0 : quiet ? 0.4 : 0.55;
     if (this.phaseT > 0) this.phaseT = 0;
     this.audio.gun(weapon.id);
-    this.pitch = clamp(this.pitch + stats.recoil, -1.35, 1.35);
+    this.handRecoil[hand] = Math.min(0.2, this.handRecoil[hand] + stats.recoil * 1.5);
     this.kick = Math.min(0.14, this.kick + 0.045 * stats.recoil / Math.max(0.004, weapon.recoil));
     if (this.op !== "khensu") this.shake = Math.min(0.7, this.shake + 0.16);
-    const muzzle = this.guns.get(weapon.id)?.userData.muzzle as THREE.Mesh | undefined;
+    const muzzle = this.handGuns[hand].get(weapon.id)?.userData.muzzle as THREE.Mesh | undefined;
     if (muzzle) muzzle.visible = true;
     const sliding = stats.perks.has("SLIDE_ACCURACY_BUFF") && this.slideT > 0;
     const skill = this.slideT > 0 || (!this.grounded && this.airTime > 0.16);
-    const dual =
-      !this.aiming &&
-      ((this.op === "jaya" && weapon.id === "smg") || (this.op === "ananda" && weapon.id === "needles"));
-    const count = dual ? 2 : weapon.pellets;
+    const count = weapon.pellets;
     this.camera.updateMatrixWorld();
     for (let i = 0; i < count; i++) {
       this.camera.getWorldDirection(this.aim);
-      const base = sliding || this.aiming ? stats.adsSpread : stats.spread;
+      const base = this.aiming
+        ? Math.max(stats.adsSpread, stats.spread * dualWieldSpreadMultiplier(true))
+        : (sliding ? stats.adsSpread : stats.spread) * dualWieldSpreadMultiplier(false);
       const spread = base * (Math.hypot(this.vx, this.vz) > 4 && !sliding ? 1.4 : 1);
       this.camRight.setFromMatrixColumn(this.camera.matrixWorld, 0);
       this.camUp.setFromMatrixColumn(this.camera.matrixWorld, 1);
-      this.aim.addScaledVector(this.camRight, (Math.random() - 0.5) * spread * 2 + (dual && i === 1 ? -0.05 : 0));
+      this.aim.addScaledVector(this.camRight, (Math.random() - 0.5) * spread * 2);
       this.aim.addScaledVector(this.camUp, (Math.random() - 0.5) * spread * 2);
       this.aim.normalize();
-      this.fireRay(weapon, skill);
+      this.fireRay(weapon, stats, skill, hand);
     }
-    if (slot.mag <= 0) this.beginReload();
+    if (slot.mag <= 0) this.autoReloadHand(hand);
   }
 
-  private fireRay(weapon: (typeof WEAPONS)[WeaponId], skill: boolean) {
-    const stats = this.gunStats();
+  private fireRay(
+    weapon: (typeof WEAPONS)[WeaponId],
+    stats: ReturnType<MissionEngine["gunStats"]>,
+    skill: boolean,
+    hand: WeaponHand,
+  ) {
     this.camera.getWorldPosition(this.camPos);
-    let ox = this.camPos.x;
+    this.camRight.setFromMatrixColumn(this.camera.matrixWorld, 0);
+    const muzzleOffset = handMuzzleOffset(hand);
+    let ox = this.camPos.x + this.camRight.x * muzzleOffset;
     let oy = this.camPos.y;
-    let oz = this.camPos.z;
+    let oz = this.camPos.z + this.camRight.z * muzzleOffset;
     const dx = this.aim.x;
     const dy = this.aim.y;
     const dz = this.aim.z;
@@ -2554,12 +2711,14 @@ export class MissionEngine {
   }
 
   private syncGearMeshes() {
-    const live = new Set(this.slots.map((slot) => slot.id));
-    for (const [id, mesh] of this.guns) {
-      if (!live.has(id)) paintGunKit(mesh, []);
-    }
-    for (const slot of this.slots) {
-      const mesh = this.guns.get(slot.id);
+    for (const hand of ["right", "left"] as const) {
+      const slot = this.slotForHand(hand);
+      const liveId = slot?.id;
+      for (const [id, mesh] of this.handGuns[hand]) {
+        if (id !== liveId) paintGunKit(mesh, []);
+      }
+      if (!slot) continue;
+      const mesh = this.handGuns[hand].get(slot.id);
       if (!mesh) continue;
       const stats = compileWeapon(WEAPONS[slot.id], slot.mods);
       const packet = packHeldGear({
@@ -2609,7 +2768,7 @@ export class MissionEngine {
       { id: "pistol", mag: WEAPONS.pistol.mag, reserve: WEAPONS.pistol.mag * 2, mods: [] },
     ];
     this.slot = 0;
-    this.weaponCycle.cancelReload();
+    this.resetHandCombat();
     this.qCd = 0.35;
     this.ultCd = 1;
     this.solar = id === "nefret" ? 20 : 0;
@@ -3478,7 +3637,9 @@ export class MissionEngine {
         this.slots[0] = { id, mag: WEAPONS[id].mag, reserve: WEAPONS[id].mag * 2, mods: [] };
         this.slot = 0;
         this.sealLoadout();
-        this.weaponCycle.cancelReload();
+        this.weaponCycles.right.cancelReload();
+        this.reloadSequence = null;
+        this.handRecoil.right = 0;
       }
       if (loot.scrap) {
         this.toastMsg = `${loot.label}  +${loot.scrap}`;
@@ -3525,6 +3686,7 @@ export class MissionEngine {
     if (this.mode === "win") return;
     this.mode = "win";
     this.fireHeld = false;
+    this.fireLeftHeld = false;
     if (document.pointerLockElement) document.exitPointerLock();
     this.say("ACCORD", "Lineages secured. The resistance remains on Earth. You are going home.");
     this.hooks.onEvent({
@@ -3568,6 +3730,7 @@ export class MissionEngine {
     this.mode = "dead";
     this.hp = 0;
     this.fireHeld = false;
+    this.fireLeftHeld = false;
     this.haul = 0;
     if (document.pointerLockElement) document.exitPointerLock();
     this.hooks.onEvent({ type: "dead" });
@@ -3727,6 +3890,8 @@ export class MissionEngine {
   private decayJuice(dt: number) {
     this.shake = this.reduce ? 0 : this.shake * Math.exp(-6 * dt);
     this.kick *= Math.exp(-14 * dt);
+    this.handRecoil.right *= Math.exp(-8 * dt);
+    this.handRecoil.left *= Math.exp(-8 * dt);
     this.hurtFlash = Math.max(0, this.hurtFlash - dt * 1.5);
     this.solarFlash = Math.max(0, this.solarFlash - dt * 0.85);
     this.combatFeedback.update(dt);
@@ -3758,9 +3923,17 @@ export class MissionEngine {
       tracer.life -= dt;
       tracer.line.visible = tracer.life > 0;
     }
-    const active = this.guns.get(this.slots[this.slot]?.id ?? "pistol");
-    const muzzle = active?.userData.muzzle as THREE.Mesh | undefined;
-    if (muzzle && this.time > this.weaponCycle.nextShotAt - 60 / this.currentWeapon().rpm + 0.045) muzzle.visible = false;
+    for (const hand of ["right", "left"] as const) {
+      const mesh = this.handGuns[hand].get(this.weaponForHand(hand).id);
+      const muzzle = mesh?.userData.muzzle as THREE.Mesh | undefined;
+      const cycle = this.weaponCycles[hand];
+      if (
+        muzzle &&
+        this.time > cycle.nextShotAt - 60 / this.weaponForHand(hand).rpm + 0.045
+      ) {
+        muzzle.visible = false;
+      }
+    }
   }
 
   private floater(text: string, x: number, y: number, z: number, color: string) {
@@ -3871,44 +4044,62 @@ export class MissionEngine {
         : 0;
     if (this.grounded) this.bobPhase += Math.hypot(this.vx, this.vz) * 0.16;
     const shake = this.op === "khensu" ? this.shake * 0.15 : this.shake;
-    this.euler.set(this.pitch, this.yaw, 0, "YXZ");
+    this.euler.set(
+      this.pitch + this.handRecoil.right + this.handRecoil.left,
+      this.yaw,
+      0,
+      "YXZ",
+    );
     this.camera.quaternion.setFromEuler(this.euler);
     this.camera.position.set(
       this.x + (Math.random() - 0.5) * shake * 0.06,
       this.y + this.eye + bob + (Math.random() - 0.5) * shake * 0.05,
       this.z,
     );
-    const fov = this.aiming ? 50 : 78;
+    const fov = this.aiming ? 68 : 78;
     this.camera.fov += (fov - this.camera.fov) * 0.18;
     this.camera.updateProjectionMatrix();
     this.viewCam.fov = this.camera.fov;
     this.viewCam.aspect = this.camera.aspect;
     this.viewCam.updateProjectionMatrix();
 
-    const id = this.slots[this.slot]?.id ?? "pistol";
-    for (const [key, mesh] of this.guns) mesh.visible = key === id && this.mode !== "attract";
+    const ads = this.aiming ? 1 : 0;
+    for (const hand of ["right", "left"] as const) {
+      const id = this.weaponForHand(hand).id;
+      for (const [key, mesh] of this.handGuns[hand]) {
+        mesh.visible = key === id && this.mode !== "attract";
+      }
+      const active = this.handGuns[hand].get(id);
+      if (active) {
+        const side = hand === "right" ? 1 : -1;
+        active.position.x = side * (this.aiming ? 0.17 : 0.23) + this.swayX * 0.35;
+        active.position.z = -Math.min(0.12, this.handRecoil[hand] * 0.8);
+        active.rotation.x = this.handRecoil[hand] * 1.2;
+      }
+    }
     this.swayX += (this.mouseDX * 0.0012 - this.swayX) * 0.18;
     this.swayY += (this.mouseDY * 0.0012 - this.swayY) * 0.18;
     this.mouseDX = 0;
     this.mouseDY = 0;
-    const ads = this.aiming ? 1 : 0;
     this.viewRig.position.set(
-      0.26 * (1 - ads) + 0.02 * ads + this.swayX,
+      this.swayX * 0.4,
       -0.24 * (1 - ads) - 0.16 * ads + this.swayY - bob * 0.4,
       -0.5 + this.kick,
     );
-    const held = this.guns.get(id);
-    const kit = held?.userData.kit as Record<string, THREE.Mesh> | undefined;
-    if (kit) {
-      const beam = this.orbitalVfx / 1.5;
-      for (const mesh of Object.values(kit)) {
-        const mat = mesh.material as THREE.MeshStandardMaterial;
-        const baseI = (mesh.userData.baseEmit as number) ?? 0;
-        const baseColor = (mesh.userData.baseColor as number) ?? mat.color.getHex();
-        const solar = mesh.userData.solar === true;
-        const spec = beam * (0.04 + 0.96 * mat.metalness) * (1 - mat.roughness * 0.85);
-        mat.emissiveIntensity = baseI + (solar ? beam * 2.4 : spec * 5);
-        mat.emissive.setHex(!solar && beam > 0.05 && mat.metalness > 0.45 ? 0xf2c56e : baseColor);
+    for (const hand of ["right", "left"] as const) {
+      const held = this.handGuns[hand].get(this.weaponForHand(hand).id);
+      const kit = held?.userData.kit as Record<string, THREE.Mesh> | undefined;
+      if (kit) {
+        const beam = this.orbitalVfx / 1.5;
+        for (const mesh of Object.values(kit)) {
+          const mat = mesh.material as THREE.MeshStandardMaterial;
+          const baseI = (mesh.userData.baseEmit as number) ?? 0;
+          const baseColor = (mesh.userData.baseColor as number) ?? mat.color.getHex();
+          const solar = mesh.userData.solar === true;
+          const spec = beam * (0.04 + 0.96 * mat.metalness) * (1 - mat.roughness * 0.85);
+          mat.emissiveIntensity = baseI + (solar ? beam * 2.4 : spec * 5);
+          mat.emissive.setHex(!solar && beam > 0.05 && mat.metalness > 0.45 ? 0xf2c56e : baseColor);
+        }
       }
     }
   }
@@ -3939,9 +4130,7 @@ export class MissionEngine {
 
   private writeHud() {
     if (!this.hud) return;
-    const weapon = this.currentWeapon();
     const stats = this.gunStats();
-    const slot = this.slots[this.slot];
     const op = OPERATOR_BY_ID[this.op];
     const obj = this.objectivePoint();
     const dist = Math.hypot(obj.x - this.x, obj.z - this.z);
@@ -3954,18 +4143,27 @@ export class MissionEngine {
     if (hp) hp.style.width = `${clamp(this.hp, 0, 100)}%`;
     const ar = this.el("mte-ar");
     if (ar) ar.style.width = `${clamp(this.armor, 0, 80) / 80 * 100}%`;
-    const reloading = this.weaponCycle.isReloading;
-    const reloadPercent = Math.round(this.weaponCycle.reloadProgress * 100);
-    set("mte-mag", reloading ? "···" : `${slot?.mag ?? 0}`);
-    set("mte-res", `${slot?.reserve ?? 0}`);
-    set("mte-weapon", reloading ? "RELOADING" : stats.modCount > 0 ? `${weapon.name}  +${stats.modCount}` : weapon.name);
+    const rightWeapon = this.weaponForHand("right");
+    const leftWeapon = this.weaponForHand("left");
+    set("mte-weapon", `R · ${rightWeapon.name}    L · ${leftWeapon.name}`);
+    let reloading = false;
+    for (const hand of ["right", "left"] as const) {
+      const slot = this.slotForHand(hand);
+      const cycle = this.weaponCycles[hand];
+      const reloadPercent = Math.round(cycle.reloadProgress * 100);
+      set(`mte-mag-${hand}`, cycle.isReloading ? "···" : `${slot?.mag ?? 0}`);
+      set(`mte-res-${hand}`, `${slot?.reserve ?? 0}`);
+      const reloadWrap = this.el(`mte-reload-${hand}-wrap`);
+      if (reloadWrap) reloadWrap.style.display = cycle.isReloading ? "block" : "none";
+      const reloadProgress = this.el(`mte-reload-${hand}-progress`);
+      if (reloadProgress) reloadProgress.setAttribute("aria-valuenow", String(reloadPercent));
+      const reloadFill = this.el(`mte-reload-${hand}-fill`);
+      if (reloadFill) reloadFill.style.width = `${reloadPercent}%`;
+      set(`mte-reload-${hand}-pct`, `${reloadPercent}%`);
+      reloading ||= cycle.isReloading;
+    }
     const reloadWrap = this.el("mte-reload-wrap");
-    if (reloadWrap) reloadWrap.style.display = reloading ? "block" : "none";
-    const reloadProgress = this.el("mte-reload-progress");
-    if (reloadProgress) reloadProgress.setAttribute("aria-valuenow", String(reloadPercent));
-    const reloadFill = this.el("mte-reload-fill");
-    if (reloadFill) reloadFill.style.width = `${reloadPercent}%`;
-    set("mte-reload-pct", `${reloadPercent}%`);
+    if (reloadWrap) reloadWrap.style.display = reloading ? "grid" : "none";
     const act =
       this.mode === "drop"
         ? "DESCENT"

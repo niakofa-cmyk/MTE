@@ -15,6 +15,7 @@ function sink(): TouchSink {
     lookX: 0,
     lookY: 0,
     fire: false,
+    fireLeft: false,
     aim: false,
     jump: false,
     sprint: false,
@@ -55,6 +56,7 @@ describe("touch controller", () => {
     applyTouchCommand(pad, dragged.find((command) => command.type === "look")!);
     assert.equal(pad.fire, false);
     assert.notEqual(pad.lookX, 0);
+    assert.notEqual(pad.lookY, 0);
   });
 
   it("fires only while the fire pad is held", () => {
@@ -66,6 +68,22 @@ describe("touch controller", () => {
     assert.equal(pad.fire, true);
     for (const command of layer.end(1, 340, 640, 80)) applyTouchCommand(pad, command);
     assert.equal(pad.fire, false);
+  });
+
+  it("fires the off-hand independently and toggles focus without interrupting right-stick look", () => {
+    const layer = new TouchControllerLayer();
+    const pad = sink();
+    for (const command of layer.begin(1, "FIRE_LEFT", 40, 700, 0)) applyTouchCommand(pad, command);
+    assert.equal(pad.fireLeft, true);
+    assert.equal(pad.fire, false);
+    for (const command of layer.end(1, 40, 700, 80)) applyTouchCommand(pad, command);
+    assert.equal(pad.fireLeft, false);
+
+    for (const command of layer.begin(2, "FOCUS", 350, 60, 100)) applyTouchCommand(pad, command);
+    assert.equal(pad.aim, true);
+    for (const command of layer.end(2, 350, 60, 120)) applyTouchCommand(pad, command);
+    for (const command of layer.begin(3, "FOCUS", 350, 60, 200)) applyTouchCommand(pad, command);
+    assert.equal(pad.aim, false);
   });
 
   it("flicks the left stick into a slide only when the gesture is short", () => {

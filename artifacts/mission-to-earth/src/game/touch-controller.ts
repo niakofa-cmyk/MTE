@@ -1,6 +1,14 @@
 import { GoldDiscController, type DiscCommand } from "./gold-disc.ts";
 
-export type TouchZone = "MOVEMENT" | "PARKOUR" | "LOOK_COMBAT" | "UTILITY" | "FIRE" | "INTERACT";
+export type TouchZone =
+  | "MOVEMENT"
+  | "PARKOUR"
+  | "LOOK_COMBAT"
+  | "UTILITY"
+  | "FIRE"
+  | "FIRE_LEFT"
+  | "FOCUS"
+  | "INTERACT";
 
 export const STICK_RADIUS = 56;
 export const FLICK_PX = 15;
@@ -20,6 +28,8 @@ export type TouchCommand =
   | { type: "crouch"; down: boolean }
   | { type: "look"; dx: number; dy: number }
   | { type: "fire"; down: boolean }
+  | { type: "fire-left"; down: boolean }
+  | { type: "focus-toggle" }
   | { type: "rearm" }
   | { type: "aim" }
   | { type: "interact"; down: boolean }
@@ -33,6 +43,7 @@ export type TouchSink = {
   lookX: number;
   lookY: number;
   fire: boolean;
+  fireLeft: boolean;
   aim: boolean;
   jump: boolean;
   sprint: boolean;
@@ -96,6 +107,8 @@ export function applyTouchCommand(sink: TouchSink, command: TouchCommand, later:
     sink.lookX += command.dx;
     sink.lookY += command.dy;
   } else if (command.type === "fire") sink.fire = command.down;
+  else if (command.type === "fire-left") sink.fireLeft = command.down;
+  else if (command.type === "focus-toggle") sink.aim = !sink.aim;
   else if (command.type === "aim") sink.aim = !sink.aim;
   else if (command.type === "interact") sink.interact = command.down;
   else if (command.type === "look-held") sink.lookHeld = command.down;
@@ -125,6 +138,8 @@ export class TouchControllerLayer {
     let look: Track["look"] = "pending";
     const commands: TouchCommand[] = [];
     if (zone === "FIRE") commands.push({ type: "fire", down: true });
+    if (zone === "FIRE_LEFT") commands.push({ type: "fire-left", down: true });
+    if (zone === "FOCUS") commands.push({ type: "focus-toggle" });
     if (zone === "INTERACT") commands.push({ type: "interact", down: true });
     if (zone === "UTILITY") commands.push(...this.disc.begin(x, y, now));
     if (zone === "LOOK_COMBAT") {
@@ -192,6 +207,7 @@ export class TouchControllerLayer {
       commands.push({ type: "look-held", down: false });
     }
     if (track.zone === "FIRE") commands.push({ type: "fire", down: false });
+    if (track.zone === "FIRE_LEFT") commands.push({ type: "fire-left", down: false });
     if (track.zone === "INTERACT") commands.push({ type: "interact", down: false });
     if (track.zone === "UTILITY") commands.push(...this.disc.end(x, y, now));
     return commands;
