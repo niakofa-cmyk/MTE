@@ -1,6 +1,6 @@
 # Authoritative Multiplayer Architecture Reference
 
-The original architecture brief and its scaling follow-up are preserved in [`authoritative-multiplayer-source.txt`](./authoritative-multiplayer-source.txt) and [`authoritative-scaling-source.txt`](./authoritative-scaling-source.txt). This file records their implementation guidance and the safety boundary chosen for Mission To Earth.
+The original architecture brief, scaling follow-up, and advanced engine proposal are preserved in [`authoritative-multiplayer-source.txt`](./authoritative-multiplayer-source.txt), [`authoritative-scaling-source.txt`](./authoritative-scaling-source.txt), and [`advanced-engine-additions-source.txt`](./advanced-engine-additions-source.txt). This file records their implementation guidance and the safety boundary chosen for Mission To Earth.
 
 ## Core direction
 
@@ -18,15 +18,17 @@ The sample is a design sketch, not production-ready networking code. It trusts p
 
 The later scaling sample also has correctness and performance problems: its packed 16-bit cell coordinates can alias distant locations; its `getNearbyPlayers` returns whole buckets without exact radius filtering; and `setImmediate` recursively schedules work without waiting for the next tick, which can consume a CPU core. The excerpt is malformed around its input bitmask and cannot be copied as compiling engine code. “Zero allocation” is not established by a pre-sized array, and preallocation should follow profiling rather than be claimed as a guarantee.
 
+The advanced additions sample is not production-ready either. It truncates player IDs to four UTF-16 code units, uses one static 64KB buffer without checking capacity, omits packet version and field validation, and still copies the buffer with `slice()`. Its mantle request can apply an upward impulse every held tick without ledge or collision validation. Its raycast checks one vertical cylinder at a time, has no maximum range or cover occlusion, and divides by the horizontal ray length for vertical shots.
+
 Do not copy those behaviors into a live service. A transport must authenticate a connection and map it to a server-owned player ID before passing input to the simulation. Keep credentials and identity out of input payloads.
 
 ## Implemented foundation
 
-`artifacts/api-server/src/lib/authoritative-match.ts` contains a pure, transport-agnostic match core. It validates packet shape, angles, movement, flags, and sequence order; limits queue size and packet rate; expires stale held input; derives movement from server configuration; and runs explicit safe-zone phases with capped delta time. `spatial-hash-grid.ts` provides collision-safe nested cell maps, exact radius filtering, and reusable query output; the match core updates it on registration, movement, and disconnect. `fixed-step-accumulator.ts` converts monotonic nanosecond timestamps into bounded fixed steps and reports dropped time without running a busy loop. Tests live in `artifacts/api-server/test/`.
+`artifacts/api-server/src/lib/authoritative-match.ts` contains a pure, transport-agnostic match core. It validates packet shape, angles, movement, flags, and 32-bit sequence order; limits queue size and packet rate; expires stale held input; derives movement from server configuration; and runs explicit safe-zone phases with capped delta time. `spatial-hash-grid.ts` provides collision-safe nested cell maps, exact radius filtering, and reusable query output; the match core updates it on registration, movement, and disconnect. `fixed-step-accumulator.ts` converts monotonic nanosecond timestamps into bounded fixed steps and reports dropped time without running a busy loop. `authoritative-snapshot-codec.ts` encodes and decodes a versioned `MTE` binary snapshot with bounded UTF-8 IDs and 64KB maximum packet size, rejects malformed fields and packets, and returns owned buffers rather than reusing mutable global storage. Tests live in `artifacts/api-server/test/`.
 
 These structures are correctness-oriented foundations, not a claim of AAA performance. Spatial indexing is currently used for bounded nearby-player queries, not a complete collision or raycast engine. The accumulator is caller-driven; the API server does not start a live match loop until authenticated rooms and transport exist. No zero-allocation or thousands-of-entities throughput guarantee is made without profiling.
 
-This core is not yet exposed to clients. The current game remains a local single-player mission. There is no authenticated multiplayer transport, matchmaking, client prediction/reconciliation, authoritative weapon raycasting, loot/inventory replication, or production Battle Royale mode. Do not describe the game as network-authoritative until those parts are implemented and verified together.
+This core is not yet exposed to clients. The current game remains a local single-player mission. There is no authenticated multiplayer transport, matchmaking, client prediction/reconciliation, server-side kinematics with world collision, authoritative weapon raycasting, loot/inventory replication, or production Battle Royale mode. The binary codec is not connected to a socket. Do not describe the game as network-authoritative until those parts are implemented and verified together.
 
 ## Integration order
 

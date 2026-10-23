@@ -104,6 +104,14 @@ test("rejects duplicate, old, malformed, and out-of-range input", () => {
     ),
     { accepted: false, reason: "invalid-packet" },
   );
+  assert.deepEqual(
+    match.submitInput(
+      "server-player-1",
+      packet(4_294_967_296),
+      1_003,
+    ),
+    { accepted: false, reason: "invalid-packet" },
+  );
 });
 
 test("bounds queued input and per-player packet rate", () => {

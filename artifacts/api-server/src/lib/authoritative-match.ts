@@ -21,6 +21,7 @@ const VALID_INPUT_FLAGS = Object.values(ClientInputFlags).reduce(
   (flags, value) => flags | value,
   0,
 );
+const MAX_SEQUENCE_NUMBER = 0xffff_ffff;
 
 export type MatchPhase =
   | "PRE_DROP"
@@ -196,6 +197,7 @@ function parseClientInput(value: unknown): ClientInputPacket | null {
   if (
     !Number.isSafeInteger(sequenceNumber) ||
     (sequenceNumber as number) < 1 ||
+    (sequenceNumber as number) > MAX_SEQUENCE_NUMBER ||
     !Number.isInteger(inputFlags) ||
     ((inputFlags as number) & ~VALID_INPUT_FLAGS) !== 0 ||
     !isFiniteNumber(pitch) ||

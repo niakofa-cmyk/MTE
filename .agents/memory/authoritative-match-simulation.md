@@ -7,8 +7,10 @@ The user wants to use the authoritative multiplayer brief as a game direction. T
 
 Use nested coordinate maps rather than 16-bit packed grid keys, and apply exact radius checks after broadphase queries. Fixed-step timing should consume monotonic time, cap catch-up work, and report dropped time; do not use a recursive `setImmediate` loop or claim zero allocations without profiling. Reuse caller-provided spatial query buffers when practical, but profile before introducing pooling.
 
+Binary snapshots need a versioned, bounded wire format with explicit numeric ranges, complete IDs, malformed-packet rejection, and buffer ownership safe for asynchronous sends. Keep codecs separate from transport; do not reuse a shared mutable buffer across sends. If sequence fields are narrowed to 32-bit values, define session reset/wrap behavior before network integration.
+
 The current multiplayer core is transport-agnostic and not wired to the solo client. Do not imply that this provides live multiplayer, authoritative weapon hits, or a complete Battle Royale mode. Keep the existing solo mission usable while adding transport, prediction, raycasts, rewards, and extraction in tested stages.
 
 **Why:** The attached proposals identify the right server-authority direction but their examples trust client identity/time, use unbounded or unsafe structures, and omit the transport and gameplay authority needed for production.
 
-**How to apply:** Keep network/session ownership separate from the pure match simulator. Before exposing it, add authenticated transport, abuse controls, client reconciliation, authoritative combat, load profiling, and multi-client verification.
+**How to apply:** Keep network/session ownership separate from the pure match simulator. Before exposing it, add authenticated transport, abuse controls, client reconciliation, authoritative combat and collision, load profiling, and multi-client verification.

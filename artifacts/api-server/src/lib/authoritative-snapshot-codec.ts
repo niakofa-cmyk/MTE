@@ -1,0 +1,387 @@
+import { TextDecoder, TextEncoder } from "node:util";
+import type {
+  AuthoritativeWorldSnapshot,
+  HandAction,
+  MatchPhase,
+} from "./authoritative-match.ts";
+
+const MAGIC = [0x4d, 0x54, 0x45] as const; // "MTE"
+const VERSION = 1;
+const HEADER_BYTES = 39;
+const PLAYER_FIXED_BYTES = 34;
+const MAX_PACKET_BYTES = 64 * 1024;
+const MAX_PLAYER_COUNT = 1_024;
+const MAX_PLAYER_ID_BYTES = 128;
+const UINT32_MAX = 0xffff_ffff;
+const MAX_FLOAT32 = 3.4028234663852886e38;
+
+const PHASE_TO_CODE: Record<MatchPhase, number> = {
+  PRE_DROP: 0,
+  ACTIVE_LOOTING: 1,
+  ZONE_COLLAPSE: 2,
+  EXTRACTION_READY: 3,
+  MATCH_OVER: 4,
+};
+const CODE_TO_PHASE: readonly MatchPhase[] = [
+  "PRE_DROP",
+  "ACTIVE_LOOTING",
+  "ZONE_COLLAPSE",
+  "EXTRACTION_READY",
+  "MATCH_OVER",
+];
+
+const ACTION_TO_CODE: Record<HandAction, number> = {
+  IDLE: 0,
+  FIRING: 1,
+  RELOADING: 2,
+};
+const CODE_TO_ACTION: readonly HandAction[] = [
+  "IDLE",
+  "FIRING",
+  "RELOADING",
+];
+
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder("utf-8", { fatal: true });
+
+function assertFinite(value: number, label: string): void {
+  if (!Number.isFinite(value)) {
+    throw new Error(`${label} must be finite.`);
+  }
+}
+
+function assertFloat32(value: number, label: string): void {
+  assertFinite(value, label);
+  if (Math.abs(value) > MAX_FLOAT32) {
+    throw new RangeError(`${label} is outside float32 range.`);
+  }
+}
+
+function assertUInt32(value: number, label: string): void {
+  if (!Number.isInteger(value) || value < 0 || value > UINT32_MAX) {
+    throw new RangeError(`${label} must be an unsigned 32-bit integer.`);
+  }
+}
+
+function assertCanRead(
+  bytes: Uint8Array,
+  offset: number,
+  length: number,
+): void {
+  if (offset < 0 || length < 0 || offset + length > bytes.byteLength) {
+    throw new Error("Snapshot packet is truncated.");
+  }
+}
+
+function readFloat32(view: DataView, offset: number, label: string): number {
+  const value = view.getFloat32(offset, true);
+  assertFinite(value, label);
+  return value;
+}
+
+/**
+ * Encode a detached, bounded snapshot for a future authenticated transport.
+ *
+ * Each call returns an owned Uint8Array. A shared static buffer is avoided so
+ * a later snapshot cannot overwrite bytes still being sent asynchronously.
+ */
+export function serializeWorldSnapshot(
+  snapshot: AuthoritativeWorldSnapshot,
+  maxBytes = MAX_PACKET_BYTES,
+): Uint8Array {
+  if (
+    !Number.isInteger(maxBytes) ||
+    maxBytes < HEADER_BYTES ||
+    maxBytes > MAX_PACKET_BYTES
+  ) {
+    throw new RangeError(
+      `maxBytes must be between ${HEADER_BYTES} and ${MAX_PACKET_BYTES}.`,
+    );
+  }
+  assertUInt32(snapshot.snapshotId, "snapshotId");
+  assertFinite(snapshot.serverTimestampMs, "serverTimestampMs");
+  if (snapshot.serverTimestampMs < 0) {
+    throw new RangeError("serverTimestampMs cannot be negative.");
+  }
+  if (snapshot.players.length > MAX_PLAYER_COUNT) {
+    throw new RangeError("Snapshot contains too many players.");
+  }
+
+  const phaseCode = PHASE_TO_CODE[snapshot.zoneState.phase];
+  if (phaseCode === undefined) {
+    throw new Error("Snapshot contains an unknown match phase.");
+  }
+  const zoneFloats = [
+    snapshot.zoneState.center.x,
+    snapshot.zoneState.center.z,
+    snapshot.zoneState.currentRadius,
+    snapshot.zoneState.targetRadius,
+    snapshot.zoneState.phaseRemainingSeconds,
+  ];
+  for (const [index, value] of zoneFloats.entries()) {
+    assertFloat32(value, `zone field ${index}`);
+  }
+  if (
+    snapshot.zoneState.currentRadius < 0 ||
+    snapshot.zoneState.targetRadius < 0 ||
+    snapshot.zoneState.phaseRemainingSeconds < 0
+  ) {
+    throw new RangeError("Zone radii and remaining time cannot be negative.");
+  }
+
+  const encodedIds: Uint8Array[] = [];
+  const playerIds = new Set<string>();
+  let packetBytes = HEADER_BYTES;
+  for (const [index, player] of snapshot.players.entries()) {
+    if (typeof player.playerId !== "string" || player.playerId.length === 0) {
+      throw new Error(`Player ${index} has an invalid playerId.`);
+    }
+    if (playerIds.has(player.playerId)) {
+      throw new Error("Snapshot player IDs must be unique.");
+    }
+    playerIds.add(player.playerId);
+
+    const idBytes = textEncoder.encode(player.playerId);
+    if (idBytes.byteLength === 0 || idBytes.byteLength > MAX_PLAYER_ID_BYTES) {
+      throw new RangeError(
+        `Player ${index} ID must be between 1 and ${MAX_PLAYER_ID_BYTES} UTF-8 bytes.`,
+      );
+    }
+    encodedIds.push(idBytes);
+    assertUInt32(player.lastProcessedSequence, "lastProcessedSequence");
+
+    for (const [label, value] of [
+      ["position.x", player.position.x],
+      ["position.y", player.position.y],
+      ["position.z", player.position.z],
+      ["velocity.x", player.velocity.x],
+      ["velocity.y", player.velocity.y],
+      ["velocity.z", player.velocity.z],
+      ["health", player.health],
+    ] as const) {
+      assertFloat32(value, label);
+    }
+    if (player.health < 0 || player.health > 100) {
+      throw new RangeError("Player health must be between 0 and 100.");
+    }
+    if (
+      ACTION_TO_CODE[player.rightHandState] === undefined ||
+      ACTION_TO_CODE[player.leftHandState] === undefined ||
+      typeof player.isFocusAiming !== "boolean"
+    ) {
+      throw new Error(`Player ${index} contains an invalid action state.`);
+    }
+
+    packetBytes += PLAYER_FIXED_BYTES + idBytes.byteLength;
+  }
+  if (packetBytes > maxBytes) {
+    throw new RangeError("Snapshot exceeds the configured packet size limit.");
+  }
+
+  const bytes = new Uint8Array(packetBytes);
+  const view = new DataView(bytes.buffer);
+  let offset = 0;
+  for (const magicByte of MAGIC) {
+    view.setUint8(offset, magicByte);
+    offset += 1;
+  }
+  view.setUint8(offset, VERSION);
+  offset += 1;
+  view.setUint8(offset, phaseCode);
+  offset += 1;
+  view.setUint32(offset, snapshot.snapshotId, true);
+  offset += 4;
+  view.setFloat64(offset, snapshot.serverTimestampMs, true);
+  offset += 8;
+  for (const value of zoneFloats) {
+    view.setFloat32(offset, value, true);
+    offset += 4;
+  }
+  view.setUint16(offset, snapshot.players.length, true);
+  offset += 2;
+
+  for (const [index, player] of snapshot.players.entries()) {
+    const idBytes = encodedIds[index]!;
+    view.setUint8(offset, idBytes.byteLength);
+    offset += 1;
+    bytes.set(idBytes, offset);
+    offset += idBytes.byteLength;
+
+    view.setUint32(offset, player.lastProcessedSequence, true);
+    offset += 4;
+    for (const value of [
+      player.position.x,
+      player.position.y,
+      player.position.z,
+      player.velocity.x,
+      player.velocity.y,
+      player.velocity.z,
+      player.health,
+    ]) {
+      view.setFloat32(offset, value, true);
+      offset += 4;
+    }
+
+    const handAndFocusState =
+      ACTION_TO_CODE[player.rightHandState] |
+      (ACTION_TO_CODE[player.leftHandState] << 2) |
+      (player.isFocusAiming ? 1 << 4 : 0);
+    view.setUint8(offset, handAndFocusState);
+    offset += 1;
+  }
+
+  return bytes;
+}
+
+/**
+ * Decode and validate a snapshot packet. Unknown versions, malformed UTF-8,
+ * reserved state bits, duplicate IDs, and trailing bytes are rejected.
+ */
+export function deserializeWorldSnapshot(
+  bytes: Uint8Array,
+): AuthoritativeWorldSnapshot {
+  if (
+    !(bytes instanceof Uint8Array) ||
+    bytes.byteLength < HEADER_BYTES ||
+    bytes.byteLength > MAX_PACKET_BYTES
+  ) {
+    throw new Error("Snapshot packet has an invalid size.");
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 0;
+  for (const magicByte of MAGIC) {
+    if (view.getUint8(offset) !== magicByte) {
+      throw new Error("Snapshot packet has an invalid magic header.");
+    }
+    offset += 1;
+  }
+
+  const version = view.getUint8(offset);
+  offset += 1;
+  if (version !== VERSION) {
+    throw new Error(`Unsupported snapshot version ${version}.`);
+  }
+  const phaseCode = view.getUint8(offset);
+  offset += 1;
+  const phase = CODE_TO_PHASE[phaseCode];
+  if (!phase) throw new Error("Snapshot packet has an invalid match phase.");
+
+  const snapshotId = view.getUint32(offset, true);
+  offset += 4;
+  const serverTimestampMs = view.getFloat64(offset, true);
+  offset += 8;
+  assertFinite(serverTimestampMs, "serverTimestampMs");
+  if (serverTimestampMs < 0) {
+    throw new Error("Snapshot packet has a negative timestamp.");
+  }
+
+  const zoneCenter = {
+    x: readFloat32(view, offset, "zone center x"),
+    z: readFloat32(view, offset + 4, "zone center z"),
+  };
+  offset += 8;
+  const currentRadius = readFloat32(view, offset, "current zone radius");
+  const targetRadius = readFloat32(view, offset + 4, "target zone radius");
+  const phaseRemainingSeconds = readFloat32(
+    view,
+    offset + 8,
+    "phase remaining seconds",
+  );
+  offset += 12;
+  if (
+    currentRadius < 0 ||
+    targetRadius < 0 ||
+    phaseRemainingSeconds < 0
+  ) {
+    throw new Error("Snapshot packet has negative zone values.");
+  }
+
+  const playerCount = view.getUint16(offset, true);
+  offset += 2;
+  if (playerCount > MAX_PLAYER_COUNT) {
+    throw new Error("Snapshot packet has too many players.");
+  }
+
+  const players: AuthoritativeWorldSnapshot["players"] = [];
+  const playerIds = new Set<string>();
+  for (let index = 0; index < playerCount; index += 1) {
+    assertCanRead(bytes, offset, 1);
+    const idLength = view.getUint8(offset);
+    offset += 1;
+    if (idLength === 0 || idLength > MAX_PLAYER_ID_BYTES) {
+      throw new Error(`Player ${index} has an invalid ID length.`);
+    }
+    assertCanRead(bytes, offset, idLength + PLAYER_FIXED_BYTES - 1);
+
+    let playerId: string;
+    try {
+      playerId = textDecoder.decode(bytes.subarray(offset, offset + idLength));
+    } catch {
+      throw new Error(`Player ${index} ID is not valid UTF-8.`);
+    }
+    offset += idLength;
+    if (playerId.length === 0 || playerIds.has(playerId)) {
+      throw new Error("Snapshot player IDs must be non-empty and unique.");
+    }
+    playerIds.add(playerId);
+
+    const lastProcessedSequence = view.getUint32(offset, true);
+    offset += 4;
+    const position = {
+      x: readFloat32(view, offset, "player position x"),
+      y: readFloat32(view, offset + 4, "player position y"),
+      z: readFloat32(view, offset + 8, "player position z"),
+    };
+    offset += 12;
+    const velocity = {
+      x: readFloat32(view, offset, "player velocity x"),
+      y: readFloat32(view, offset + 4, "player velocity y"),
+      z: readFloat32(view, offset + 8, "player velocity z"),
+    };
+    offset += 12;
+    const health = readFloat32(view, offset, "player health");
+    offset += 4;
+    if (health < 0 || health > 100) {
+      throw new Error("Snapshot packet has invalid player health.");
+    }
+
+    const packedState = view.getUint8(offset);
+    offset += 1;
+    if ((packedState & 0b1110_0000) !== 0) {
+      throw new Error("Snapshot packet contains reserved state bits.");
+    }
+    const rightAction = CODE_TO_ACTION[packedState & 0b11];
+    const leftAction = CODE_TO_ACTION[(packedState >> 2) & 0b11];
+    if (!rightAction || !leftAction) {
+      throw new Error("Snapshot packet contains an invalid hand state.");
+    }
+
+    players.push({
+      playerId,
+      lastProcessedSequence,
+      position,
+      velocity,
+      health,
+      rightHandState: rightAction,
+      leftHandState: leftAction,
+      isFocusAiming: (packedState & (1 << 4)) !== 0,
+    });
+  }
+
+  if (offset !== bytes.byteLength) {
+    throw new Error("Snapshot packet has unexpected trailing bytes.");
+  }
+
+  return {
+    snapshotId,
+    serverTimestampMs,
+    players,
+    zoneState: {
+      center: zoneCenter,
+      currentRadius,
+      targetRadius,
+      phase,
+      phaseRemainingSeconds,
+    },
+  };
+}
