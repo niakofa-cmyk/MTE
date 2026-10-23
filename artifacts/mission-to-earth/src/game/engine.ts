@@ -13,6 +13,7 @@ import { generateContainerDropArray, resolveExtractionDrop } from "@/game/extrac
 import { loadMars, modsForDrop, registryForLabel, solarCoilEmits, weaponIdForRegistry, COIL_EMISSION, type ExtractedPiece } from "@/game/mars-stash";
 import { applyAimAssist, AIM_ASSIST } from "@/game/aim-assist";
 import { stepEnemyMind, type Mind } from "@/game/enemy-ai";
+import { findNavigationPath, type NavigationPoint } from "@/game/navigation";
 import { acceptDropTicket, readAttachment, sealedModIds } from "@/game/weapon-mod";
 import { MOD_CODE, deserializeGearPacket, modCodes, packHeldGear } from "@/game/gear-packet";
 import { normalizeLookSensitivity } from "@/game/settings";
@@ -65,6 +66,13 @@ type Actor = {
   mindStateAge: number;
   knownX: number;
   knownZ: number;
+  navigation: {
+    goalX: number;
+    goalZ: number;
+    points: NavigationPoint[] | null;
+    index: number;
+    retryIn: number;
+  } | null;
   group: THREE.Group;
   bodyMat: THREE.MeshStandardMaterial;
   visorMat: THREE.MeshStandardMaterial;
@@ -800,6 +808,7 @@ export class MissionEngine {
         mindStateAge: 0,
         knownX: 0,
         knownZ: 0,
+        navigation: null,
         group: fig.group,
         bodyMat: fig.bodyMat,
         visorMat: fig.visorMat,
@@ -918,6 +927,7 @@ export class MissionEngine {
             z: actor.z,
             lastKnownX: actor.knownX,
             lastKnownZ: actor.knownZ,
+            waypoint: actor.navigation?.points?.[actor.navigation.index] ?? null,
           })),
     };
 
@@ -1263,6 +1273,7 @@ export class MissionEngine {
     actor.mindStateAge = 0;
     actor.knownX = x;
     actor.knownZ = z;
+    actor.navigation = null;
     actor.cooldown = Math.random();
     actor.group.visible = true;
     actor.group.rotation.set(0, 0, 0);
@@ -2696,6 +2707,7 @@ export class MissionEngine {
         actor.knownZ = mind.lastZ;
         actor.aggro = mind.shoot ? 2.8 : mind.investigate ? 1.2 : Math.max(0, actor.aggro - dt);
         if (mind.shoot) {
+          actor.navigation = null;
           const victim = this.nearestThreat(actor);
           if (victim) {
             target = victim;
@@ -2714,9 +2726,48 @@ export class MissionEngine {
             }
           }
         } else if (mind.investigate) {
-          tx = actor.knownX;
-          tz = actor.knownZ;
+          let route = actor.navigation;
+          if (!route || Math.hypot(route.goalX - actor.knownX, route.goalZ - actor.knownZ) > 2.5) {
+            route = {
+              goalX: actor.knownX,
+              goalZ: actor.knownZ,
+              points: findNavigationPath(
+                actor.x,
+                actor.z,
+                actor.knownX,
+                actor.knownZ,
+                (x, z) => !movementBlocked(x, z, 0, this.solids),
+                this.world.limit,
+              ),
+              index: 0,
+              retryIn: 1.2,
+            };
+            actor.navigation = route;
+          } else if (route.points === null) {
+            route.retryIn -= dt;
+            if (route.retryIn <= 0) {
+              route.points = findNavigationPath(
+                actor.x,
+                actor.z,
+                actor.knownX,
+                actor.knownZ,
+                (x, z) => !movementBlocked(x, z, 0, this.solids),
+                this.world.limit,
+              );
+              route.index = 0;
+              route.retryIn = 1.2;
+            }
+          }
+          while (route.points && route.index < route.points.length) {
+            const waypoint = route.points[route.index]!;
+            if (Math.hypot(waypoint.x - actor.x, waypoint.z - actor.z) > 0.85) break;
+            route.index++;
+          }
+          const waypoint = route.points?.[route.index];
+          tx = waypoint?.x ?? actor.x;
+          tz = waypoint?.z ?? actor.z;
         } else {
+          actor.navigation = null;
           tx = actor.x + Math.sin(this.time * 0.4 + actor.x) * 6;
           tz = actor.z + Math.cos(this.time * 0.35 + actor.z) * 6;
         }
@@ -4002,6 +4053,7 @@ declare global {
         z: number;
         lastKnownX: number;
         lastKnownZ: number;
+        waypoint: NavigationPoint | null;
       }>;
     };
   }
