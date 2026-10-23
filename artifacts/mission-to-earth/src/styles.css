@@ -91,6 +91,61 @@
   background: var(--color-gold);
 }
 
+#mte-damage [data-direction] {
+  position: absolute;
+  display: block;
+  opacity: 0;
+  transition: opacity 70ms linear;
+}
+
+#mte-damage [data-direction="front"] {
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 28%;
+  background: radial-gradient(
+    ellipse at 50% 0%,
+    rgba(226, 75, 75, 0.5),
+    transparent 72%
+  );
+}
+
+#mte-damage [data-direction="right"] {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 28%;
+  background: radial-gradient(
+    ellipse at 100% 50%,
+    rgba(226, 75, 75, 0.5),
+    transparent 72%
+  );
+}
+
+#mte-damage [data-direction="back"] {
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 28%;
+  background: radial-gradient(
+    ellipse at 50% 100%,
+    rgba(226, 75, 75, 0.5),
+    transparent 72%
+  );
+}
+
+#mte-damage [data-direction="left"] {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 28%;
+  background: radial-gradient(
+    ellipse at 0% 50%,
+    rgba(226, 75, 75, 0.5),
+    transparent 72%
+  );
+}
+
 #mte-vig {
   background: radial-gradient(ellipse at center, transparent 42%, rgba(226, 75, 75, 0.72) 100%);
 }

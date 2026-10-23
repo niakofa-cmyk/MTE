@@ -551,6 +551,16 @@ function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
       </div>
       <pre id="mte-feed" className="absolute top-48 right-4 text-right font-display text-xs tracking-widest whitespace-pre text-danger" />
       <div id="mte-marks" className="absolute inset-0" />
+      <div
+        id="mte-damage"
+        className="pointer-events-none absolute inset-0"
+        aria-hidden="true"
+      >
+        <span data-direction="front" />
+        <span data-direction="right" />
+        <span data-direction="back" />
+        <span data-direction="left" />
+      </div>
       <div id="mte-cross" className="absolute top-1/2 left-1/2">
         <span data-arm="l" />
         <span data-arm="r" />

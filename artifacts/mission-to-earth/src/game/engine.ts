@@ -15,6 +15,11 @@ import { applyAimAssist, AIM_ASSIST } from "@/game/aim-assist";
 import { canPerceiveTarget, stepEnemyMind, type Mind } from "@/game/enemy-ai";
 import { findNavigationPath, type NavigationPoint } from "@/game/navigation";
 import {
+  CombatFeedback,
+  damageDirection,
+  DAMAGE_DIRECTIONS,
+} from "@/game/combat-feedback";
+import {
   chooseFlankPosition,
   coordinatedCombatRole,
   findCoverPlans,
@@ -488,8 +493,7 @@ export class MissionEngine {
   private kick = 0;
   private hurtFlash = 0;
   private solarFlash = 0;
-  private hitMarker = 0;
-  private headMark = false;
+  private combatFeedback = new CombatFeedback();
   private bobPhase = 0;
   private mouseDX = 0;
   private mouseDY = 0;
@@ -2062,8 +2066,7 @@ export class MissionEngine {
     actor.aggro = 3;
     if (byPlayer) {
       this.audio.hit(head);
-      this.hitMarker = 1;
-      this.headMark = head;
+      this.combatFeedback.markHit(head);
       if (head || skill || leg) {
         this.floater(head ? "HEADSHOT" : skill ? "SKILLSHOT" : "LEG", actor.x, actor.y + 1.8, actor.z, head ? "#d4a24a" : "#e8e4d8");
       }
@@ -3560,6 +3563,11 @@ export class MissionEngine {
       if ((fx * dx + fz * dz) / len > 0.15) dmg = 0;
     }
     if (dmg <= 0) return;
+    this.combatFeedback.markDamage(
+      fromX == null || fromZ == null
+        ? null
+        : damageDirection(this.x, this.z, this.yaw, fromX, fromZ),
+    );
     if (this.armor > 0) {
       const soak = Math.min(this.armor, dmg * 0.65);
       this.armor -= soak;
@@ -3697,7 +3705,7 @@ export class MissionEngine {
     this.kick *= Math.exp(-14 * dt);
     this.hurtFlash = Math.max(0, this.hurtFlash - dt * 1.5);
     this.solarFlash = Math.max(0, this.solarFlash - dt * 0.85);
-    this.hitMarker = Math.max(0, this.hitMarker - dt * 3.2);
+    this.combatFeedback.update(dt);
     this.toastT = Math.max(0, this.toastT - dt);
     for (const item of this.feed) item.t -= dt;
     this.feed = this.feed.filter((item) => item.t > 0);
@@ -4054,8 +4062,18 @@ export class MissionEngine {
     }
     const hit = this.el("mte-hit");
     if (hit) {
-      hit.style.opacity = String(this.hitMarker);
-      hit.classList.toggle("is-head", this.headMark);
+      hit.style.opacity = String(this.combatFeedback.hitOpacity);
+      hit.classList.toggle("is-head", this.combatFeedback.headshot);
+    }
+    const damage = this.el("mte-damage");
+    if (damage) {
+      for (const direction of DAMAGE_DIRECTIONS) {
+        const indicator = damage.querySelector<HTMLElement>(`[data-direction="${direction}"]`);
+        if (indicator)
+          indicator.style.opacity = String(
+            this.combatFeedback.damageOpacity(direction),
+          );
+      }
     }
     const vig = this.el("mte-vig");
     if (vig) {
