@@ -717,6 +717,7 @@ function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
 function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
   const layer = useRef(new TouchControllerLayer());
   const timers = useRef(new Map<number, number[]>());
+  const pendingPulseTimers = useRef(new Set<number>());
   const readoutKey = useRef("");
   const [stick, setStick] = useState<{ x: number; y: number; nx: number; ny: number } | null>(null);
   const [wheel, setWheel] = useState<string | null>(null);
@@ -766,7 +767,11 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
       mission.aimAssist.adhesion = tune.magnet;
       mission.aimAssist.friction = tune.drag;
     }
-    localStorage.setItem("mte-touch-tune-v1", JSON.stringify(tune));
+    try {
+      localStorage.setItem("mte-touch-tune-v1", JSON.stringify(tune));
+    } catch {
+      // Keep the current layout tuning for this session when storage is unavailable.
+    }
   }, [tune, engineRef]);
 
   useEffect(() => {
@@ -796,18 +801,57 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
   const apply = (commands: TouchCommand[]) => {
     const live = engineRef.current;
     if (!live) return;
+    const later = (ms: number, run: () => void) => {
+      let timer = 0;
+      timer = window.setTimeout(() => {
+        pendingPulseTimers.current.delete(timer);
+        run();
+      }, ms);
+      pendingPulseTimers.current.add(timer);
+    };
     for (const command of commands) {
       if (command.type === "await-tap") {
-        window.setTimeout(() => apply(layer.current.flushDisc(performance.now())), layer.current.discDoubleTapMs());
+        later(layer.current.discDoubleTapMs(), () => apply(layer.current.flushDisc(performance.now())));
         continue;
       }
-      applyTouchCommand(live.virtual, command, (ms, run) => {
-        window.setTimeout(run, ms);
-      });
+      applyTouchCommand(live.virtual, command, later);
       if (command.type === "move") setStick((prev) => (prev ? { ...prev, nx: command.ax, ny: command.ay } : prev));
       if (command.type === "stop-move") setStick(null);
     }
   };
+
+  useEffect(() => {
+    const releaseInputs = (updateUi: boolean) => {
+      for (const pointerTimers of timers.current.values()) {
+        for (const timer of pointerTimers) window.clearTimeout(timer);
+      }
+      timers.current.clear();
+      for (const timer of pendingPulseTimers.current) window.clearTimeout(timer);
+      pendingPulseTimers.current.clear();
+
+      const commands = layer.current.cancelAll();
+      const live = engineRef.current;
+      if (live) {
+        for (const command of commands) applyTouchCommand(live.virtual, command);
+      }
+      if (updateUi) {
+        setStick(null);
+        setWheel(null);
+      }
+    };
+    const onBlur = () => releaseInputs(true);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") releaseInputs(true);
+    };
+
+    window.addEventListener("blur", onBlur);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", onBlur);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      releaseInputs(false);
+    };
+  }, [engineRef]);
 
   const arm = (id: number) => {
     for (const timer of timers.current.get(id) ?? []) window.clearTimeout(timer);
@@ -827,8 +871,13 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
 
   const start = (zone: TouchZone) => (event: PointerEvent<HTMLElement>) => {
     if (zone !== "MOVEMENT" && zone !== "LOOK_COMBAT") event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is optional; explicit pointer-up/cancel handlers still release the input.
+    }
     apply(layer.current.begin(event.pointerId, zone, event.clientX, event.clientY, performance.now()));
+    if (!layer.current.ownsPointer(event.pointerId)) return;
     if (zone === "MOVEMENT" || zone === "LOOK_COMBAT" || zone === "UTILITY") arm(event.pointerId);
     if (zone === "MOVEMENT") setStick({ x: event.clientX, y: event.clientY, nx: 0, ny: 0 });
     if (zone === "UTILITY") setWheel("Q");
@@ -842,7 +891,13 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
 
   const finish = (zone: TouchZone) => (event: PointerEvent<HTMLElement>) => {
     drop(event.pointerId);
-    apply(layer.current.end(event.pointerId, event.clientX, event.clientY, performance.now()));
+    if (!layer.current.ownsPointer(event.pointerId)) return;
+    const cancelled = event.type === "pointercancel" || event.type === "lostpointercapture";
+    apply(
+      cancelled
+        ? layer.current.cancel(event.pointerId)
+        : layer.current.end(event.pointerId, event.clientX, event.clientY, performance.now()),
+    );
     if (zone === "UTILITY") setWheel(null);
     if (zone === "MOVEMENT") setStick(null);
   };
@@ -852,16 +907,16 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
 
   return (
     <div className="touch-only touch-hud-overlay">
-      <div className="touch-zone-interactive zone-left-movement" onPointerDown={start("MOVEMENT")} onPointerMove={drag} onPointerUp={finish("MOVEMENT")} onPointerCancel={finish("MOVEMENT")} />
-      <div className="touch-zone-interactive zone-right-combat" onPointerDown={start("LOOK_COMBAT")} onPointerMove={drag} onPointerUp={finish("LOOK_COMBAT")} onPointerCancel={finish("LOOK_COMBAT")} />
+      <div className="touch-zone-interactive zone-left-movement" onPointerDown={start("MOVEMENT")} onPointerMove={drag} onPointerUp={finish("MOVEMENT")} onPointerCancel={finish("MOVEMENT")} onLostPointerCapture={finish("MOVEMENT")} />
+      <div className="touch-zone-interactive zone-right-combat" onPointerDown={start("LOOK_COMBAT")} onPointerMove={drag} onPointerUp={finish("LOOK_COMBAT")} onPointerCancel={finish("LOOK_COMBAT")} onLostPointerCapture={finish("LOOK_COMBAT")} />
       <div className="gold-disc-slot" style={{ right: tune.discRight, top: `${tune.discTop}%`, transform: `translateY(-50%) scale(${tune.disc})` }}>
         {layoutOpen ? <div className="gold-disc-bounding-box" /> : null}
-        <div className="gold-disc-utility is-placed" onPointerDown={start("UTILITY")} onPointerMove={drag} onPointerUp={finish("UTILITY")} onPointerCancel={finish("UTILITY")}>
+        <div className="gold-disc-utility is-placed" onPointerDown={start("UTILITY")} onPointerMove={drag} onPointerUp={finish("UTILITY")} onPointerCancel={finish("UTILITY")} onLostPointerCapture={finish("UTILITY")}>
           <span className="gold-disc-center-node" />
           <span className="pointer-events-none absolute inset-0 grid place-items-center font-display text-xs tracking-widest text-bg">{wheel ?? "Q"}</span>
         </div>
       </div>
-      <button type="button" className="touch-fire" onPointerDown={start("FIRE")} onPointerUp={finish("FIRE")} onPointerCancel={finish("FIRE")}>
+      <button type="button" className="touch-fire" onPointerDown={start("FIRE")} onPointerUp={finish("FIRE")} onPointerCancel={finish("FIRE")} onLostPointerCapture={finish("FIRE")}>
         RIGHT
       </button>
       {readout.weapons.length > 1 ? (
@@ -871,6 +926,7 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
           onPointerDown={start("FIRE_LEFT")}
           onPointerUp={finish("FIRE_LEFT")}
           onPointerCancel={finish("FIRE_LEFT")}
+          onLostPointerCapture={finish("FIRE_LEFT")}
           aria-label="Fire left-hand weapon"
         >
           LEFT
@@ -882,6 +938,7 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
         onPointerDown={start("FOCUS")}
         onPointerUp={finish("FOCUS")}
         onPointerCancel={finish("FOCUS")}
+        onLostPointerCapture={finish("FOCUS")}
         aria-pressed={readout.focused}
       >
         {readout.focused ? "FOCUS ON" : "FOCUS"}
@@ -915,6 +972,7 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
           }}
           onPointerUp={readout.action === "interact" ? finish("INTERACT") : undefined}
           onPointerCancel={readout.action === "interact" ? finish("INTERACT") : undefined}
+          onLostPointerCapture={readout.action === "interact" ? finish("INTERACT") : undefined}
         >
           {actionLabel}
         </button>

@@ -68,6 +68,14 @@ export class GoldDiscController {
     return [{ type: "await-tap" }];
   }
 
+  cancel(): DiscCommand[] {
+    const releaseInteract = this.frame?.held === true;
+    this.frame = null;
+    this.pendingTap = null;
+    this.swallow = false;
+    return releaseInteract ? [{ type: "interact", down: false }] : [];
+  }
+
   flush(now: number): DiscCommand[] {
     if (this.pendingTap == null || now - this.pendingTap < this.doubleTapMs) return [];
     this.pendingTap = null;

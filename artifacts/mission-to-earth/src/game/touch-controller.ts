@@ -34,6 +34,7 @@ export type TouchCommand =
   | { type: "aim" }
   | { type: "interact"; down: boolean }
   | { type: "look-held"; down: boolean }
+  | { type: "release-all" }
   | { type: "pulse"; key: PulseKey }
   | DiscCommand;
 
@@ -112,6 +113,26 @@ export function applyTouchCommand(sink: TouchSink, command: TouchCommand, later:
   else if (command.type === "aim") sink.aim = !sink.aim;
   else if (command.type === "interact") sink.interact = command.down;
   else if (command.type === "look-held") sink.lookHeld = command.down;
+  else if (command.type === "release-all") {
+    sink.ax = 0;
+    sink.ay = 0;
+    sink.lookX = 0;
+    sink.lookY = 0;
+    sink.fire = false;
+    sink.fireLeft = false;
+    sink.jump = false;
+    sink.sprint = false;
+    sink.crouch = false;
+    sink.reload = false;
+    sink.ability = false;
+    sink.ult = false;
+    sink.interact = false;
+    sink.slide = false;
+    sink.blood = false;
+    sink.mass = false;
+    sink.swap = false;
+    sink.lookHeld = false;
+  }
   else if (command.type === "await-tap" || command.type === "rearm") return;
   else if (command.type === "pulse") {
     sink[command.key] = true;
@@ -135,6 +156,18 @@ export class TouchControllerLayer {
   private lookTap = { t: 0, x: 0, y: 0, clean: false };
 
   begin(id: number, zone: TouchZone, x: number, y: number, now: number): TouchCommand[] {
+    if (this.tracks.has(id)) return [];
+    if (
+      (zone === "MOVEMENT" ||
+        zone === "PARKOUR" ||
+        zone === "LOOK_COMBAT" ||
+        zone === "UTILITY" ||
+        zone === "FOCUS") &&
+      this.hasZone(zone)
+    ) {
+      return [];
+    }
+
     let look: Track["look"] = "pending";
     const commands: TouchCommand[] = [];
     if (zone === "FIRE") commands.push({ type: "fire", down: true });
@@ -154,6 +187,10 @@ export class TouchControllerLayer {
     }
     this.tracks.set(id, { zone, x0: x, y0: y, x, y, t: now, look, firing: false, flicked: false, held: false, pick: null });
     return commands;
+  }
+
+  ownsPointer(id: number): boolean {
+    return this.tracks.has(id);
   }
 
   move(id: number, x: number, y: number, now: number, _force = 0): TouchCommand[] {
@@ -195,22 +232,59 @@ export class TouchControllerLayer {
     const dy = y - track.y0;
     const commands: TouchCommand[] = [];
     if (track.zone === "MOVEMENT" || track.zone === "PARKOUR") {
-      commands.push({ type: "stop-move" });
       const rapid = now - track.t <= this.flickWindowMs;
-      if (rapid && -dy > this.flickVelocityThreshold) commands.push({ type: "jump", down: true, latch: true });
-      else if (rapid && dy > this.flickVelocityThreshold) commands.push({ type: "pulse", key: "slide" });
-      else commands.push({ type: "jump", down: false });
+      const releasedLastMovement =
+        !this.hasZone("MOVEMENT") && !this.hasZone("PARKOUR");
+      if (releasedLastMovement) commands.push({ type: "stop-move" });
+      if (rapid && -dy > this.flickVelocityThreshold) {
+        commands.push({ type: "jump", down: true, latch: true });
+      } else if (rapid && dy > this.flickVelocityThreshold) {
+        commands.push({ type: "pulse", key: "slide" });
+      } else if (releasedLastMovement) {
+        commands.push({ type: "jump", down: false });
+      }
     }
     if (track.zone === "LOOK_COMBAT") {
       const clean = Math.hypot(dx, dy) < 18 && now - track.t < 240;
       this.lookTap = { t: now, x, y, clean };
-      commands.push({ type: "look-held", down: false });
+      if (!this.hasZone("LOOK_COMBAT")) commands.push({ type: "look-held", down: false });
     }
-    if (track.zone === "FIRE") commands.push({ type: "fire", down: false });
-    if (track.zone === "FIRE_LEFT") commands.push({ type: "fire-left", down: false });
-    if (track.zone === "INTERACT") commands.push({ type: "interact", down: false });
+    if (track.zone === "FIRE" && !this.hasZone("FIRE")) commands.push({ type: "fire", down: false });
+    if (track.zone === "FIRE_LEFT" && !this.hasZone("FIRE_LEFT")) commands.push({ type: "fire-left", down: false });
+    if (track.zone === "INTERACT" && !this.hasZone("INTERACT")) commands.push({ type: "interact", down: false });
     if (track.zone === "UTILITY") commands.push(...this.disc.end(x, y, now));
     return commands;
+  }
+
+  cancel(id: number): TouchCommand[] {
+    const track = this.tracks.get(id);
+    if (!track) return [];
+    this.tracks.delete(id);
+
+    const commands: TouchCommand[] = [];
+    if (
+      (track.zone === "MOVEMENT" || track.zone === "PARKOUR") &&
+      !this.hasZone("MOVEMENT") &&
+      !this.hasZone("PARKOUR")
+    ) {
+      commands.push({ type: "stop-move" }, { type: "jump", down: false }, { type: "crouch", down: false });
+    }
+    if (track.zone === "LOOK_COMBAT") {
+      this.lookTap.clean = false;
+      if (!this.hasZone("LOOK_COMBAT")) commands.push({ type: "look-held", down: false });
+    }
+    if (track.zone === "FIRE" && !this.hasZone("FIRE")) commands.push({ type: "fire", down: false });
+    if (track.zone === "FIRE_LEFT" && !this.hasZone("FIRE_LEFT")) commands.push({ type: "fire-left", down: false });
+    if (track.zone === "INTERACT" && !this.hasZone("INTERACT")) commands.push({ type: "interact", down: false });
+    if (track.zone === "UTILITY") commands.push(...this.disc.cancel());
+    return commands;
+  }
+
+  cancelAll(): TouchCommand[] {
+    this.tracks.clear();
+    this.lookTap.clean = false;
+    this.disc.cancel();
+    return [{ type: "release-all" }];
   }
 
   flushDisc(now: number) {
@@ -229,5 +303,12 @@ export class TouchControllerLayer {
     const track = this.tracks.get(id);
     if (!track || track.zone !== "UTILITY") return null;
     return this.disc.label();
+  }
+
+  private hasZone(zone: TouchZone): boolean {
+    for (const track of this.tracks.values()) {
+      if (track.zone === zone) return true;
+    }
+    return false;
   }
 }
