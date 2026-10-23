@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent, type ReactNode, type Re
 import { Crosshair, Radio, Shield, Volume2, VolumeX } from "lucide-react";
 import { BLOODLINES, DOSSIER, OPERATORS, OPERATOR_BY_ID, type OpId, type WeaponId } from "@/game/content";
 import { MissionEngine, type MissionEvent } from "@/game/engine";
+import { CityOfNodBackdrop } from "@/game/city-of-nod-backdrop";
 import { ATTACHMENT_BY_ID, type AttachSlot } from "@/game/loot";
 import { extractionEpilogue } from "@/game/mission-epilogue";
 import {
@@ -118,6 +119,7 @@ export function Mission() {
   return (
     <div ref={rootRef} className="fixed inset-0 select-none overflow-hidden bg-bg text-fg">
       <div ref={hostRef} className="absolute inset-0" />
+      {graphicsUnavailable ? <CityOfNodBackdrop /> : null}
       {graphicsUnavailable ? (
         <p
           role="status"
@@ -143,6 +145,7 @@ export function Mission() {
           record={record}
           mars={mars}
           lookSensitivity={lookSensitivity}
+          graphicsUnavailable={graphicsUnavailable}
           canStart={!graphicsUnavailable}
           onDossier={() => setScreen("dossier")}
           onArmory={() => setScreen("armory")}
@@ -236,6 +239,7 @@ function Menu({
   record,
   mars,
   lookSensitivity,
+  graphicsUnavailable,
   canStart,
   onDossier,
   onArmory,
@@ -251,6 +255,7 @@ function Menu({
   record: RecordBook | null;
   mars: MarsProfile | null;
   lookSensitivity: number;
+  graphicsUnavailable: boolean;
   canStart: boolean;
   onDossier: () => void;
   onArmory: () => void;
@@ -261,7 +266,7 @@ function Menu({
   onStart: () => void;
 }) {
   return (
-    <div className="absolute inset-0 overflow-y-auto bg-bg/80">
+    <div className={`absolute inset-0 overflow-y-auto ${graphicsUnavailable ? "bg-bg/65" : "bg-bg/80"}`}>
       <div className="mx-auto flex min-h-full max-w-6xl flex-col justify-end gap-8 px-5 py-10 md:justify-center md:px-10">
         <div className="max-w-xl">
           <p className="inline-flex items-center gap-2 font-display text-sm tracking-widest text-cyan">
