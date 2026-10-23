@@ -1968,9 +1968,9 @@ export class MissionEngine {
     let ox = this.camPos.x;
     let oy = this.camPos.y;
     let oz = this.camPos.z;
-    let dx = this.aim.x;
-    let dy = this.aim.y;
-    let dz = this.aim.z;
+    const dx = this.aim.x;
+    const dy = this.aim.y;
+    const dz = this.aim.z;
     const redirected = this.portalHop(ox, oy, oz, dx, dy, dz);
     ox = redirected.ox;
     oy = redirected.oy;
