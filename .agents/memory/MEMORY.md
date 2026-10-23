@@ -1,0 +1,1 @@
+- [WebGL game QA](webgl-game-qa.md) — the screenshot browser lacks WebGL, but workspace Chromium with SwiftShader can run the 3D game.
