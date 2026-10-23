@@ -12,6 +12,9 @@ import {
   type RegionLandmark,
   type RegionRoute,
 } from "@/game/region-layout";
+import { xzHit } from "@/game/world-physics";
+
+export { floorHeight, movementBlocked, RADIUS, STEP, xzHit } from "@/game/world-physics";
 
 export type Glow = "cyan" | "gold" | "red";
 
@@ -73,9 +76,6 @@ export type WorldData = {
   limit: number;
 };
 
-export const RADIUS = 0.42;
-export const STEP = 0.58;
-
 function rngSeed(seed: number) {
   let a = seed >>> 0;
   return () => {
@@ -112,29 +112,6 @@ function makeBox(
     glow,
     reinforced: false,
   };
-}
-
-export function xzHit(x: number, z: number, r: number, b: Box) {
-  return x + r > b.minX && x - r < b.maxX && z + r > b.minZ && z - r < b.maxZ;
-}
-
-export function movementBlocked(x: number, z: number, feetY: number, boxes: Box[]) {
-  for (const b of boxes) {
-    if (!b.alive) continue;
-    if (b.h <= feetY + STEP) continue;
-    if (xzHit(x, z, RADIUS, b)) return b;
-  }
-  return null;
-}
-
-export function floorHeight(x: number, z: number, feetY: number, boxes: Box[]) {
-  let floor = 0;
-  for (const b of boxes) {
-    if (!b.alive) continue;
-    if (b.h > feetY + STEP + 0.02) continue;
-    if (xzHit(x, z, 0.1, b)) floor = Math.max(floor, b.h);
-  }
-  return floor;
 }
 
 export function segmentHits(x0: number, z0: number, x1: number, z1: number, b: Box) {

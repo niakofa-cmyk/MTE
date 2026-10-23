@@ -46,6 +46,7 @@ import {
   type Site,
   type WorldData,
 } from "@/game/world";
+import { applyCoverDamage, separateAabbOverlap } from "@/game/world-physics";
 
 export type MissionEvent =
   | { type: "mode"; mode: "play" | "menu" }
@@ -1808,15 +1809,9 @@ export class MissionEngine {
           this.grounded = true;
           return;
         }
-        const left = this.x - (box.minX - RADIUS);
-        const right = box.maxX + RADIUS - this.x;
-        const south = this.z - (box.minZ - RADIUS);
-        const north = box.maxZ + RADIUS - this.z;
-        const m = Math.min(left, right, south, north);
-        if (m === left) this.x = box.minX - RADIUS - 0.02;
-        else if (m === right) this.x = box.maxX + RADIUS + 0.02;
-        else if (m === south) this.z = box.minZ - RADIUS - 0.02;
-        else this.z = box.maxZ + RADIUS + 0.02;
+        const separated = separateAabbOverlap(this.x, this.z, RADIUS, box);
+        this.x = separated.x;
+        this.z = separated.z;
       }
     }
   }
@@ -2016,8 +2011,8 @@ export class MissionEngine {
       }
       this.tracer(ox, oy, oz, dx, dy, dz, wallT, gold ? 0xd4a24a : 0x2ee0c8);
       if (wallBox?.destructible && hops > 0 && !wallBox.reinforced) {
-        wallBox.hp -= weapon.structure * 0.4 * (this.op === "nefret" ? 1.35 : 1);
-        if (wallBox.hp <= 0) this.breakBox(wallBox);
+        const damage = weapon.structure * 0.4 * (this.op === "nefret" ? 1.35 : 1);
+        if (applyCoverDamage(wallBox, damage)) this.breakBox(wallBox);
         else this.spark(ox + dx * wallT, oy + dy * wallT, oz + dz * wallT);
         ignored = wallBox;
         hops -= 1;
@@ -2029,8 +2024,8 @@ export class MissionEngine {
         continue;
       }
       if (wallBox?.destructible) {
-        wallBox.hp -= weapon.structure * (this.op === "nefret" ? 1.35 : 1);
-        if (wallBox.hp <= 0) this.breakBox(wallBox);
+        const damage = weapon.structure * (this.op === "nefret" ? 1.35 : 1);
+        if (applyCoverDamage(wallBox, damage)) this.breakBox(wallBox);
         else this.spark(ox + dx * wallT, oy + dy * wallT, oz + dz * wallT);
       } else this.spark(ox + dx * wallT, oy + dy * wallT, oz + dz * wallT);
       if (weapon.id === "slug") this.splash(ox + dx * wallT, oz + dz * wallT, 2.6, 12);
@@ -2407,9 +2402,13 @@ export class MissionEngine {
       const cz = (box.minZ + box.maxZ) / 2;
       if (!inBlastCone(x, z, fx, fz, cx, cz, 15)) continue;
       if (box.reinforced && !overcharge) {
-        box.hp -= 36;
+        if (applyCoverDamage(box, 36)) {
+          this.breakBox(box);
+          this.splash(cx, cz, 3.1, 16);
+          continue;
+        }
         this.spark(cx, box.h * 0.6, cz);
-        if (box.hp > 0) continue;
+        continue;
       }
       this.breakBox(box);
       this.splash(cx, cz, 3.1, 16);
@@ -2449,10 +2448,7 @@ export class MissionEngine {
       const t = rayBox(ox, oy, oz, this.aim.x, this.aim.y, this.aim.z, box, reach);
       if (t != null && t < end) {
         end = t;
-        if (box.destructible) {
-          box.hp -= bite;
-          if (box.hp <= 0) this.breakBox(box);
-        }
+        if (box.destructible && applyCoverDamage(box, bite)) this.breakBox(box);
       }
     }
     const px = ox + this.aim.x * end;
