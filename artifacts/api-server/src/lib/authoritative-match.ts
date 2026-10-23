@@ -8,6 +8,10 @@
  */
 
 import { SpatialHashGrid } from "./spatial-hash-grid.ts";
+import {
+  StaticWorldCollisionMap,
+  type StaticAabb,
+} from "./static-world-collision-map.ts";
 
 export const ClientInputFlags = {
   FIRE_RIGHT: 1 << 0,
@@ -313,6 +317,7 @@ export class AuthoritativeMatch {
   private readonly config: MatchConfig;
   private readonly players = new Map<string, InternalPlayer>();
   private readonly spatialGrid: SpatialHashGrid<InternalPlayer>;
+  private readonly collisionMap: StaticWorldCollisionMap;
   private readonly spatialQueryScratch: InternalPlayer[] = [];
   private phase: MatchPhase = "PRE_DROP";
   private phaseRemainingSeconds: number;
@@ -330,6 +335,9 @@ export class AuthoritativeMatch {
       safeZoneRings: config.safeZoneRings.map((ring) => ({ ...ring })),
     };
     this.spatialGrid = new SpatialHashGrid(this.config.spatialCellSize);
+    this.collisionMap = new StaticWorldCollisionMap(
+      this.config.worldHalfExtent,
+    );
     this.phaseRemainingSeconds = config.preDropSeconds;
     this.currentRadius = config.initialZoneRadius;
     this.targetRadius = config.initialZoneRadius;
@@ -358,6 +366,9 @@ export class AuthoritativeMatch {
     ) {
       throw new Error("Spawn position must be finite and inside world bounds.");
     }
+    if (!this.collisionMap.isPositionClear(serverSelectedSpawn)) {
+      throw new Error("Spawn position intersects static world geometry.");
+    }
 
     const player: InternalPlayer = {
       playerId,
@@ -384,6 +395,25 @@ export class AuthoritativeMatch {
     if (!player) return false;
     this.spatialGrid.remove(player);
     return this.players.delete(playerId);
+  }
+
+  /**
+   * Add immutable level geometry from trusted server-side map data. Never
+   * expose this method to raw client packets.
+   */
+  addStaticCollisionBounds(bounds: StaticAabb): void {
+    if (this.players.size > 0) {
+      throw new Error("Static collision geometry must load before players.");
+    }
+    this.collisionMap.addStaticBounds(bounds);
+  }
+
+  traceWorldOcclusion(
+    origin: Position3,
+    direction: Position3,
+    maxDistance: number,
+  ): number | null {
+    return this.collisionMap.traceRay(origin, direction, maxDistance);
   }
 
   /**
@@ -588,19 +618,25 @@ export class AuthoritativeMatch {
       this.config.moveSpeed *
       (player.isFocusAiming ? this.config.focusSpeedMultiplier : 1);
 
-    player.velocity = {
+    const velocity = {
       x: moveX * speed,
       y: 0,
       z: moveZ * speed,
     };
+    const resolvedMovement = this.collisionMap.resolveHorizontalMovement(
+      player.position,
+      velocity.x * deltaSeconds,
+      velocity.z * deltaSeconds,
+    );
+    player.velocity = {
+      x: resolvedMovement.blockedX ? 0 : velocity.x,
+      y: 0,
+      z: resolvedMovement.blockedZ ? 0 : velocity.z,
+    };
     player.position = {
-      x: this.clampWorldCoordinate(
-        player.position.x + player.velocity.x * deltaSeconds,
-      ),
+      x: this.clampWorldCoordinate(resolvedMovement.position.x),
       y: player.position.y,
-      z: this.clampWorldCoordinate(
-        player.position.z + player.velocity.z * deltaSeconds,
-      ),
+      z: this.clampWorldCoordinate(resolvedMovement.position.z),
     };
     this.spatialGrid.update(player);
 

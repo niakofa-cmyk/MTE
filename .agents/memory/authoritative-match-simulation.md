@@ -9,6 +9,8 @@ Use nested coordinate maps rather than 16-bit packed grid keys, and apply exact 
 
 Binary snapshots need a versioned, bounded wire format with explicit numeric ranges, complete IDs, malformed-packet rejection, and buffer ownership safe for asynchronous sends. Keep codecs separate from transport; do not reuse a shared mutable buffer across sends. If sequence fields are narrowed to 32-bit values, define session reset/wrap behavior before network integration.
 
+Static collision geometry must be copied, validated, bounded, and loaded before players join. Ray/AABB checks must handle zero direction components; movement must use swept checks rather than only testing the final point. Do not claim octree performance for a bounded linear scan.
+
 The current multiplayer core is transport-agnostic and not wired to the solo client. Do not imply that this provides live multiplayer, authoritative weapon hits, or a complete Battle Royale mode. Keep the existing solo mission usable while adding transport, prediction, raycasts, rewards, and extraction in tested stages.
 
 **Why:** The attached proposals identify the right server-authority direction but their examples trust client identity/time, use unbounded or unsafe structures, and omit the transport and gameplay authority needed for production.

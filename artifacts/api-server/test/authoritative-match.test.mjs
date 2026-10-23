@@ -52,6 +52,49 @@ test("identity and spawn position are server-owned", () => {
   );
 });
 
+test("server geometry rejects embedded spawns and blocks movement through cover", () => {
+  const match = new AuthoritativeMatch(
+    createConfig({ maxDeltaSeconds: 0.05, worldHalfExtent: 100 }),
+  );
+  match.addStaticCollisionBounds({
+    min: { x: 0.5, y: 0, z: -2 },
+    max: { x: 0.6, y: 2, z: 2 },
+  });
+  assert.throws(
+    () => match.registerPlayer("embedded", { x: 0.2, y: 0, z: 0 }),
+    /intersects static world geometry/,
+  );
+  match.registerPlayer("runner", { x: 0, y: 0, z: 0 });
+
+  assert.deepEqual(
+    match.submitInput(
+      "runner",
+      packet(1, 0, { forward: 1, strafe: 0 }, { yaw: 90 }),
+      1_000,
+    ),
+    { accepted: true },
+  );
+  const player = match.tick(0.05, 1_050).players[0];
+  assert.ok(player.position.x <= 0.15 + 1e-9);
+  assert.equal(player.velocity.x, 0);
+  assert.equal(
+    match.traceWorldOcclusion(
+      { x: 0, y: 1, z: 0 },
+      { x: 1, y: 0, z: 0 },
+      10,
+    ),
+    0.5,
+  );
+  assert.throws(
+    () =>
+      match.addStaticCollisionBounds({
+        min: { x: 3, y: 0, z: 0 },
+        max: { x: 4, y: 2, z: 1 },
+      }),
+    /load before players/,
+  );
+});
+
 test("valid sequenced input moves server state and keeps hand actions independent", () => {
   const match = createMatch({ maxDeltaSeconds: 0.25 });
   const flags =
