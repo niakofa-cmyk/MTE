@@ -1,6 +1,6 @@
 # Authoritative Multiplayer Architecture Reference
 
-This project reference captures the attached design brief, `Pasted-To-transition-this-project-from-isolated-sample-logic-i_1792770753052.txt`, and the implementation boundary chosen for Mission To Earth.
+The original attached design brief is preserved in [`authoritative-multiplayer-source.txt`](./authoritative-multiplayer-source.txt). This file records its implementation guidance and the safety boundary chosen for Mission To Earth.
 
 ## Core direction
 
