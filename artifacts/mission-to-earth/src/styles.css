@@ -146,6 +146,11 @@
   );
 }
 
+#mte-reload-fill {
+  box-shadow: 0 0 8px var(--color-gold);
+  transition: width 70ms linear;
+}
+
 #mte-vig {
   background: radial-gradient(ellipse at center, transparent 42%, rgba(226, 75, 75, 0.72) 100%);
 }

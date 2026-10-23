@@ -625,6 +625,31 @@ function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
             <span id="mte-res" className="text-muted" />
           </p>
         </div>
+        <div
+          id="mte-reload-wrap"
+          className="mb-2"
+          style={{ display: "none" }}
+        >
+          <div className="mb-1 flex items-center justify-between font-display text-[10px] tracking-widest text-gold">
+            <span>RELOAD</span>
+            <span id="mte-reload-pct">0%</span>
+          </div>
+          <div
+            id="mte-reload-progress"
+            className="h-1 overflow-hidden bg-surface-2"
+            role="progressbar"
+            aria-label="Reloading weapon"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={0}
+          >
+            <div
+              id="mte-reload-fill"
+              className="h-full bg-gold"
+              style={{ width: "0%" }}
+            />
+          </div>
+        </div>
         <div className="h-2 bg-surface-2">
           <div id="mte-hp" className="h-full bg-cyan" style={{ width: "100%" }} />
         </div>

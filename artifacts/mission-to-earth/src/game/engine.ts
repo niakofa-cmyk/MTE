@@ -19,6 +19,7 @@ import {
   damageDirection,
   DAMAGE_DIRECTIONS,
 } from "@/game/combat-feedback";
+import { WeaponCycle } from "@/game/weapon-cycle";
 import {
   chooseFlankPosition,
   coordinatedCombatRole,
@@ -451,11 +452,9 @@ export class MissionEngine {
   private touchingWall = false;
   private mouseAim = false;
   private fireHeld = false;
-  private fireWas = false;
   private slots: { id: WeaponId; mag: number; reserve: number; mods: string[] }[] = [];
   private slot = 0;
-  private nextShot = 0;
-  private reloadT = 0;
+  private weaponCycle = new WeaponCycle();
   private hp = 100;
   private armor = 0;
   private invuln = 0;
@@ -1136,7 +1135,7 @@ export class MissionEngine {
     this.feed = [];
     this.floaters = [];
     this.footprints = [];
-    this.reloadT = 0;
+    this.weaponCycle.cancelReload();
     this.slideT = 0;
     for (const loot of [...this.loots]) {
       if (loot.extra) {
@@ -1496,15 +1495,15 @@ export class MissionEngine {
   private readEdges() {
     if (this.edge("Digit1")) {
       this.slot = 0;
-      this.reloadT = 0;
+      this.weaponCycle.cancelReload();
     }
     if (this.edge("Digit2")) {
       this.slot = 1;
-      this.reloadT = 0;
+      this.weaponCycle.cancelReload();
     }
     if (this.virtual.swap && !this.swapPrev) {
       this.slot = this.slot === 0 ? 1 : 0;
-      this.reloadT = 0;
+      this.weaponCycle.cancelReload();
     }
     this.swapPrev = this.virtual.swap;
     const blood = this.held("KeyB") || this.virtual.blood;
@@ -1518,7 +1517,7 @@ export class MissionEngine {
   selectWeapon(index: number) {
     if (index < 0 || index >= this.slots.length || this.slot === index) return;
     this.slot = index;
-    this.reloadT = 0;
+    this.weaponCycle.cancelReload();
   }
 
   setLookSensitivity(scale: number) {
@@ -1889,21 +1888,28 @@ export class MissionEngine {
     const weapon = this.currentWeapon();
     const stats = this.gunStats();
     const slot = this.slots[this.slot];
-    if (!slot || this.reloadT > 0 || slot.mag >= stats.mag || slot.reserve <= 0) return;
-    this.reloadT = weapon.reload * (stats.perks.has("CAPACITY_DOUBLE") ? 1.15 : 1);
+    if (!slot) return;
+    this.weaponCycle.beginReload(
+      slot.mag,
+      stats.mag,
+      slot.reserve,
+      weapon.reload * (stats.perks.has("CAPACITY_DOUBLE") ? 1.15 : 1),
+    );
   }
 
   private tickReload(dt: number) {
-    if (this.reloadT <= 0) return;
-    this.reloadT -= dt;
-    if (this.reloadT > 0) return;
-    const weapon = this.currentWeapon();
     const stats = this.gunStats();
     const slot = this.slots[this.slot];
     if (!slot) return;
-    const take = Math.min(stats.mag - slot.mag, slot.reserve);
-    slot.mag += take;
-    slot.reserve -= take;
+    const ammo = this.weaponCycle.tickReload(
+      dt,
+      slot.mag,
+      slot.reserve,
+      stats.mag,
+    );
+    if (!ammo) return;
+    slot.mag = ammo.magazine;
+    slot.reserve = ammo.reserve;
   }
 
   private tryShoot() {
@@ -1912,16 +1918,19 @@ export class MissionEngine {
     const slot = this.slots[this.slot];
     if (!slot) return;
     const want = (this.fireHeld || this.virtual.fire) && (this.mode === "ground" || this.mode === "drop") && !this.paused;
-    const trigger = weapon.auto ? want : want && !this.fireWas;
-    this.fireWas = want;
-    if (!trigger || this.reloadT > 0) return;
-    if (slot.mag <= 0) {
+    const attempt = this.weaponCycle.attemptShot({
+      automatic: weapon.auto,
+      wanted: want,
+      now: this.time,
+      interval: (60 / stats.rpm) * (this.inUnravel(this.x, this.z) ? 0.67 : 1),
+      magazine: slot.mag,
+    });
+    if (attempt === "wait") return;
+    if (attempt === "empty") {
       this.audio.empty();
       this.beginReload();
       return;
     }
-    if (this.time < this.nextShot) return;
-    this.nextShot = this.time + (60 / stats.rpm) * (this.inUnravel(this.x, this.z) ? 0.67 : 1);
     slot.mag -= 1;
     const quiet = stats.perks.has("ACOUSTIC_STEALTH_MASK");
     this.shotEcho = this.op === "ananda" ? 0 : quiet ? 0.4 : 0.55;
@@ -2585,7 +2594,7 @@ export class MissionEngine {
       { id: "pistol", mag: WEAPONS.pistol.mag, reserve: WEAPONS.pistol.mag * 2, mods: [] },
     ];
     this.slot = 0;
-    this.reloadT = 0;
+    this.weaponCycle.cancelReload();
     this.qCd = 0.35;
     this.ultCd = 1;
     this.solar = id === "nefret" ? 20 : 0;
@@ -3454,7 +3463,7 @@ export class MissionEngine {
         this.slots[0] = { id, mag: WEAPONS[id].mag, reserve: WEAPONS[id].mag * 2, mods: [] };
         this.slot = 0;
         this.sealLoadout();
-        this.reloadT = 0;
+        this.weaponCycle.cancelReload();
       }
       if (loot.scrap) {
         this.toastMsg = `${loot.label}  +${loot.scrap}`;
@@ -3736,7 +3745,7 @@ export class MissionEngine {
     }
     const active = this.guns.get(this.slots[this.slot]?.id ?? "pistol");
     const muzzle = active?.userData.muzzle as THREE.Mesh | undefined;
-    if (muzzle && this.time > this.nextShot - 60 / this.currentWeapon().rpm + 0.045) muzzle.visible = false;
+    if (muzzle && this.time > this.weaponCycle.nextShotAt - 60 / this.currentWeapon().rpm + 0.045) muzzle.visible = false;
   }
 
   private floater(text: string, x: number, y: number, z: number, color: string) {
@@ -3930,9 +3939,18 @@ export class MissionEngine {
     if (hp) hp.style.width = `${clamp(this.hp, 0, 100)}%`;
     const ar = this.el("mte-ar");
     if (ar) ar.style.width = `${clamp(this.armor, 0, 80) / 80 * 100}%`;
-    set("mte-mag", this.reloadT > 0 ? "···" : `${slot?.mag ?? 0}`);
+    const reloading = this.weaponCycle.isReloading;
+    const reloadPercent = Math.round(this.weaponCycle.reloadProgress * 100);
+    set("mte-mag", reloading ? "···" : `${slot?.mag ?? 0}`);
     set("mte-res", `${slot?.reserve ?? 0}`);
-    set("mte-weapon", this.reloadT > 0 ? "RELOADING" : stats.modCount > 0 ? `${weapon.name}  +${stats.modCount}` : weapon.name);
+    set("mte-weapon", reloading ? "RELOADING" : stats.modCount > 0 ? `${weapon.name}  +${stats.modCount}` : weapon.name);
+    const reloadWrap = this.el("mte-reload-wrap");
+    if (reloadWrap) reloadWrap.style.display = reloading ? "block" : "none";
+    const reloadProgress = this.el("mte-reload-progress");
+    if (reloadProgress) reloadProgress.setAttribute("aria-valuenow", String(reloadPercent));
+    const reloadFill = this.el("mte-reload-fill");
+    if (reloadFill) reloadFill.style.width = `${reloadPercent}%`;
+    set("mte-reload-pct", `${reloadPercent}%`);
     const act =
       this.mode === "drop"
         ? "DESCENT"
@@ -4056,7 +4074,7 @@ export class MissionEngine {
     if (f) f.style.opacity = this.ultCd > 0 ? "0.45" : "1";
     const cross = this.el("mte-cross");
     if (cross) {
-      const gap = 6 + (this.aiming ? 2 : 8) + Math.hypot(this.vx, this.vz) * 0.7 + (this.reloadT > 0 ? 6 : 0);
+      const gap = 6 + (this.aiming ? 2 : 8) + Math.hypot(this.vx, this.vz) * 0.7 + (reloading ? 6 : 0);
       cross.style.setProperty("--gap", `${gap}px`);
       cross.classList.toggle("is-skill", this.aiming && stats.perks.has("SKILLSHOT_HIGHLIGHT"));
     }
