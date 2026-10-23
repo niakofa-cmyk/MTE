@@ -25,13 +25,32 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": [
         "warn",
-        { allowConstantExport: true },
+        {
+          allowConstantExport: true,
+          allowExportNames: [
+            "badgeVariants",
+            "buttonGroupVariants",
+            "buttonVariants",
+            "navigationMenuTriggerStyle",
+            "sidebarMenuButtonVariants",
+            "toggleVariants",
+            "useFormField",
+            "useSidebar",
+          ],
+        },
       ],
       "@typescript-eslint/no-unused-vars": [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/no-explicit-any": "off",
+    },
+  },
+  {
+    files: ["src/components/error-boundary.tsx"],
+    rules: {
+      // React error boundaries must be classes, which Fast Refresh cannot preserve.
+      "react-refresh/only-export-components": "off",
     },
   },
   prettier,

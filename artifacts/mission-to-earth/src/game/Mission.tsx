@@ -96,7 +96,6 @@ export function Mission() {
           if (event.type === "error") setScreen("menu");
         },
       });
-      engine.setLookSensitivity(lookSensitivity);
     } catch (error) {
       setGraphicsUnavailable(true);
       console.warn("Mission To Earth needs WebGL to render the game.", error);
@@ -109,6 +108,10 @@ export function Mission() {
       engineRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    engineRef.current?.setLookSensitivity(lookSensitivity);
+  }, [lookSensitivity]);
 
   const playing = screen === "play" || screen === "pause" || screen === "dead" || screen === "win";
 
@@ -148,7 +151,6 @@ export function Mission() {
           onLookSensitivityChange={(value) => {
             const next = normalizeLookSensitivity(value);
             setLookSensitivity(next);
-            engineRef.current?.setLookSensitivity(next);
             try {
               localStorage.setItem(LOOK_SENSITIVITY_STORAGE_KEY, String(next));
             } catch {
@@ -732,7 +734,7 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
       mission.aimAssist.friction = tune.drag;
     }
     localStorage.setItem("mte-touch-tune-v1", JSON.stringify(tune));
-  }, [tune]);
+  }, [tune, engineRef]);
 
   useEffect(() => {
     let frame = 0;
