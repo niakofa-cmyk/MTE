@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { stepEnemyMind, type MindInput } from "./enemy-ai.ts";
+import { canPerceiveTarget, stepEnemyMind, withinVisionCone, type MindInput } from "./enemy-ai.ts";
 
 const input = (overrides: Partial<MindInput> = {}): MindInput => ({
   state: "patrol",
@@ -16,6 +16,28 @@ const input = (overrides: Partial<MindInput> = {}): MindInput => ({
 });
 
 describe("enemy mind", () => {
+  it("limits visual detection to a 144-degree forward cone", () => {
+    assert.equal(withinVisionCone(0, 0, -10), true);
+    assert.equal(withinVisionCone(0, 0, 10), false);
+    assert.equal(withinVisionCone(-Math.PI / 2, 10, 0), true);
+  });
+
+  it("requires line of sight and range before confirming a visual contact", () => {
+    let checkedLineOfSight = false;
+    const blocked = canPerceiveTarget(0, 0, -10, 28, () => {
+      checkedLineOfSight = true;
+      return false;
+    });
+    assert.equal(checkedLineOfSight, true);
+    assert.equal(blocked, false);
+    checkedLineOfSight = false;
+    assert.equal(canPerceiveTarget(0, 0, 40, 28, () => {
+      checkedLineOfSight = true;
+      return true;
+    }), false);
+    assert.equal(checkedLineOfSight, false);
+  });
+
   it("does not shoot on the first glimpse", () => {
     const next = stepEnemyMind(input({ seen: true }));
     assert.equal(next.state, "suspicious");
@@ -125,7 +147,7 @@ describe("enemy mind", () => {
     const search = stepEnemyMind({ ...input(), ...investigate, dt: 4.1 });
     assert.equal(search.state, "search");
     assert.equal(search.age, 0);
-    const patrol = stepEnemyMind({ ...input(), ...search, dt: 3.6 });
+    const patrol = stepEnemyMind({ ...input(), ...search, dt: 10.9 });
     assert.equal(patrol.state, "patrol");
     assert.equal(patrol.age, 0);
   });
@@ -149,5 +171,34 @@ describe("enemy mind", () => {
     assert.equal(next.shoot, false);
     assert.equal(next.lastX, 15);
     assert.equal(next.lastZ, -8);
+  });
+
+  it("uses a communicated location rather than the listener's player coordinates", () => {
+    const next = stepEnemyMind(input({
+      heard: true,
+      actorX: 100,
+      actorZ: 100,
+      heardX: -12,
+      heardZ: 18,
+    }));
+    assert.equal(next.state, "suspicious");
+    assert.equal(next.lastX, -12);
+    assert.equal(next.lastZ, 18);
+  });
+
+  it("restarts an area search when a new sound supplies a newer location", () => {
+    const next = stepEnemyMind(input({
+      state: "search",
+      age: 7,
+      heard: true,
+      actorX: 80,
+      actorZ: 80,
+      heardX: 16,
+      heardZ: -22,
+    }));
+    assert.equal(next.state, "investigate");
+    assert.equal(next.age, 0);
+    assert.equal(next.lastX, 16);
+    assert.equal(next.lastZ, -22);
   });
 });

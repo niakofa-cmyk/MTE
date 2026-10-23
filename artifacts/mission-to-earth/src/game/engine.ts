@@ -12,8 +12,18 @@ import { ATTACHMENT_BY_ID, compileWeapon, rollLoot, sectorLabel, sectorTier, wea
 import { generateContainerDropArray, resolveExtractionDrop } from "@/game/extraction-loot";
 import { loadMars, modsForDrop, registryForLabel, solarCoilEmits, weaponIdForRegistry, COIL_EMISSION, type ExtractedPiece } from "@/game/mars-stash";
 import { applyAimAssist, AIM_ASSIST } from "@/game/aim-assist";
-import { stepEnemyMind, type Mind } from "@/game/enemy-ai";
+import { canPerceiveTarget, stepEnemyMind, type Mind } from "@/game/enemy-ai";
 import { findNavigationPath, type NavigationPoint } from "@/game/navigation";
+import {
+  chooseFlankPosition,
+  coordinatedCombatRole,
+  findCoverPlans,
+  searchWaypoint,
+  selectSquadSignal,
+  stepCoverExposure,
+  type CoverPlan,
+  type SquadSignal,
+} from "@/game/enemy-tactics";
 import { acceptDropTicket, readAttachment, sealedModIds } from "@/game/weapon-mod";
 import { MOD_CODE, deserializeGearPacket, modCodes, packHeldGear } from "@/game/gear-packet";
 import { normalizeLookSensitivity } from "@/game/settings";
@@ -72,6 +82,16 @@ type Actor = {
     points: NavigationPoint[] | null;
     index: number;
     retryIn: number;
+  } | null;
+  tactics: {
+    role: "anchor" | "flanker";
+    cover: CoverPlan | null;
+    coverPhase: "hide" | "peek";
+    coverHold: number;
+    flank: NavigationPoint | null;
+    flankSide: -1 | 1;
+    threatX: number;
+    threatZ: number;
   } | null;
   group: THREE.Group;
   bodyMat: THREE.MeshStandardMaterial;
@@ -809,6 +829,7 @@ export class MissionEngine {
         knownX: 0,
         knownZ: 0,
         navigation: null,
+        tactics: null,
         group: fig.group,
         bodyMat: fig.bodyMat,
         visorMat: fig.visorMat,
@@ -928,6 +949,10 @@ export class MissionEngine {
             lastKnownX: actor.knownX,
             lastKnownZ: actor.knownZ,
             waypoint: actor.navigation?.points?.[actor.navigation.index] ?? null,
+            role: actor.tactics?.role ?? null,
+            coverPhase: actor.tactics?.cover ? actor.tactics.coverPhase : null,
+            searchAge: actor.mind === "search" ? actor.mindStateAge : null,
+            flank: actor.tactics?.flank ?? null,
           })),
     };
 
@@ -1137,6 +1162,8 @@ export class MissionEngine {
       actor.deployed = false;
       actor.down = 0;
       actor.corpse = 0;
+      actor.navigation = null;
+      actor.tactics = null;
       actor.group.visible = false;
       actor.group.rotation.set(0, 0, 0);
       actor.bodyMat.opacity = 1;
@@ -1153,6 +1180,8 @@ export class MissionEngine {
       actor.deployed = false;
       actor.kind = "squad";
       actor.team = "accord";
+      actor.navigation = null;
+      actor.tactics = null;
       actor.opId = op.id;
       actor.name = op.name;
       actor.hp = 100;
@@ -1274,6 +1303,7 @@ export class MissionEngine {
     actor.knownX = x;
     actor.knownZ = z;
     actor.navigation = null;
+    actor.tactics = null;
     actor.cooldown = Math.random();
     actor.group.visible = true;
     actor.group.rotation.set(0, 0, 0);
@@ -1296,6 +1326,10 @@ export class MissionEngine {
     actor.down = 0;
     actor.corpse = 0;
     actor.aggro = 4;
+    actor.navigation = null;
+    actor.tactics = null;
+    actor.mind = "patrol";
+    actor.mindStateAge = 0;
     actor.blind = 0;
     actor.lift = 0;
     actor.cooldown = 0.4;
@@ -2125,6 +2159,8 @@ export class MissionEngine {
       actor.kind = "decoy";
       actor.team = "accord";
       actor.squad = false;
+      actor.navigation = null;
+      actor.tactics = null;
       actor.name = "HOLO";
       actor.hp = 40;
       actor.maxHp = 40;
@@ -2624,6 +2660,32 @@ export class MissionEngine {
 
   private updateActors(dt: number) {
     const noise = this.noiseRadius();
+    const perceptions = new Map<Actor, { seen: boolean; heard: boolean }>();
+    for (const actor of this.pool) {
+        if (!actor.alive || actor.down > 0 || actor.kind !== "guard" || actor.team !== "sec") continue;
+      perceptions.set(actor, {
+        seen: actor.blind <= 0 && this.playerVisible(actor),
+        heard: actor.blind <= 0 && Math.hypot(this.x - actor.x, this.z - actor.z) < noise * 0.7,
+      });
+    }
+    const signals: SquadSignal[] = [];
+    for (const actor of this.pool) {
+      if (!actor.alive || actor.down > 0 || actor.kind !== "guard" || actor.team !== "sec") continue;
+      const seenNow = perceptions.get(actor)?.seen ?? false;
+      const transmitting = seenNow || actor.mind === "suspicious" || actor.mind === "engage" ||
+        actor.mind === "investigate" || actor.mind === "search";
+      if (!transmitting) continue;
+      signals.push({
+        senderId: this.pool.indexOf(actor),
+        senderX: actor.x,
+        senderZ: actor.z,
+        targetX: seenNow ? this.x : actor.knownX,
+        targetZ: seenNow ? this.z : actor.knownZ,
+        state: seenNow && actor.mind === "patrol" ? "suspicious" : actor.mind as SquadSignal["state"],
+        seenNow,
+      });
+    }
+
     for (const actor of this.pool) {
       if (actor.corpse > 0) {
         actor.corpse -= dt;
@@ -2669,6 +2731,7 @@ export class MissionEngine {
       let tx = actor.x;
       let tz = actor.z;
       let target: { x: number; y: number; z: number } | null = null;
+      let canFire = true;
       if (actor.squad) {
         const mates = this.pool.filter((a) => a.squad);
         const index = Math.max(0, mates.indexOf(actor));
@@ -2682,17 +2745,25 @@ export class MissionEngine {
         tz = this.z - fz * back + rz * side;
         target = this.nearest(actor, "sec", 34);
       } else if (actor.team === "militia") {
+        actor.tactics = null;
         target = this.nearest(actor, "sec", 30);
         if (target) {
           tx = target.x;
           tz = target.z;
         }
       } else {
-        const seen = actor.blind <= 0 && this.playerVisible(actor, noise);
-        const heard = actor.blind <= 0 && Math.hypot(this.x - actor.x, this.z - actor.z) < noise * 0.7;
+        const perception = perceptions.get(actor) ?? { seen: false, heard: false };
+        const radio = selectSquadSignal(
+          this.pool.indexOf(actor),
+          actor.x,
+          actor.z,
+          signals,
+          34,
+        );
+        const heard = perception.heard || Boolean(radio);
         const mind = stepEnemyMind({
           state: actor.mind,
-          seen,
+          seen: perception.seen,
           heard,
           dt,
           age: actor.mindStateAge,
@@ -2700,6 +2771,8 @@ export class MissionEngine {
           lastZ: actor.knownZ,
           actorX: this.x,
           actorZ: this.z,
+          heardX: perception.heard ? this.x : radio?.targetX,
+          heardZ: perception.heard ? this.z : radio?.targetZ,
         });
         actor.mind = mind.state;
         actor.mindStateAge = mind.age;
@@ -2707,14 +2780,110 @@ export class MissionEngine {
         actor.knownZ = mind.lastZ;
         actor.aggro = mind.shoot ? 2.8 : mind.investigate ? 1.2 : Math.max(0, actor.aggro - dt);
         if (mind.shoot) {
-          actor.navigation = null;
           const victim = this.nearestThreat(actor);
           if (victim) {
             target = victim;
             const d = Math.hypot(victim.x - actor.x, victim.z - actor.z);
             const dx = victim.x - actor.x;
             const dz = victim.z - actor.z;
-            if (d > 16) {
+            const actorId = this.pool.indexOf(actor);
+            const participants = this.pool
+              .filter((mate) => {
+                if (mate === actor) return true;
+                if (!mate.alive || mate.down > 0 || mate.kind !== "guard" || mate.team !== "sec" || mate.mind !== "engage") return false;
+                return Math.hypot(mate.x - victim.x, mate.z - victim.z) < 28;
+              })
+              .map((mate) => ({ id: this.pool.indexOf(mate), x: mate.x, z: mate.z }));
+            const role = coordinatedCombatRole(actorId, victim.x, victim.z, participants);
+            let tactics = actor.tactics;
+            const targetMoved = !tactics || Math.hypot(tactics.threatX - victim.x, tactics.threatZ - victim.z) > 6;
+            if (!tactics || tactics.role !== role || targetMoved) {
+              const flankSide: -1 | 1 = actorId % 2 === 0 ? -1 : 1;
+              tactics = {
+                role,
+                cover: null,
+                coverPhase: "hide",
+                coverHold: 0,
+                flank: null,
+                flankSide,
+                threatX: victim.x,
+                threatZ: victim.z,
+              };
+              actor.tactics = tactics;
+              if (role === "flanker") {
+                tactics.flank = chooseFlankPosition(
+                  actor.x,
+                  actor.z,
+                  victim.x,
+                  victim.z,
+                  flankSide,
+                  (x, z) => !movementBlocked(x, z, 0, this.solids),
+                  (x, z) =>
+                    findNavigationPath(
+                      actor.x,
+                      actor.z,
+                      x,
+                      z,
+                      (px, pz) => !movementBlocked(px, pz, 0, this.solids),
+                      this.world.limit,
+                    ) !== null,
+                );
+              } else {
+                const coverPlans = findCoverPlans(
+                  actor.x,
+                  actor.z,
+                  victim.x,
+                  victim.z,
+                  this.world.covers,
+                  (x, z) => !movementBlocked(x, z, 0, this.solids),
+                );
+                for (const plan of coverPlans.slice(0, 8)) {
+                  const hidePath = findNavigationPath(
+                    actor.x,
+                    actor.z,
+                    plan.hide.x,
+                    plan.hide.z,
+                    (x, z) => !movementBlocked(x, z, 0, this.solids),
+                    this.world.limit,
+                  );
+                  const peekPath = findNavigationPath(
+                    plan.hide.x,
+                    plan.hide.z,
+                    plan.peek.x,
+                    plan.peek.z,
+                    (x, z) => !movementBlocked(x, z, 0, this.solids),
+                    this.world.limit,
+                  );
+                  if (hidePath && peekPath) {
+                    tactics.cover = plan;
+                    break;
+                  }
+                }
+              }
+            }
+
+            if (tactics.role === "flanker" && tactics.flank) {
+              const waypoint = this.navigateActor(actor, tactics.flank.x, tactics.flank.z, dt);
+              tx = waypoint.x;
+              tz = waypoint.z;
+              canFire = Math.hypot(tactics.flank.x - actor.x, tactics.flank.z - actor.z) < 1.3;
+            } else if (tactics.cover) {
+              const phaseGoal = tactics.coverPhase === "hide" ? tactics.cover.hide : tactics.cover.peek;
+              const distanceToPhaseGoal = Math.hypot(phaseGoal.x - actor.x, phaseGoal.z - actor.z);
+              if (distanceToPhaseGoal < 1.15) {
+                const nextPhase = stepCoverExposure(tactics.coverPhase, tactics.coverHold, dt);
+                tactics.coverPhase = nextPhase.phase;
+                tactics.coverHold = nextPhase.elapsed;
+              } else {
+                tactics.coverHold = 0;
+              }
+              const nextGoal = tactics.coverPhase === "hide" ? tactics.cover.hide : tactics.cover.peek;
+              const waypoint = this.navigateActor(actor, nextGoal.x, nextGoal.z, dt);
+              tx = waypoint.x;
+              tz = waypoint.z;
+              canFire = tactics.coverPhase === "peek" &&
+                Math.hypot(tactics.cover.peek.x - actor.x, tactics.cover.peek.z - actor.z) < 1.2;
+            } else if (d > 16) {
               tx = victim.x;
               tz = victim.z;
             } else if (d < 7) {
@@ -2726,48 +2895,17 @@ export class MissionEngine {
             }
           }
         } else if (mind.investigate) {
-          let route = actor.navigation;
-          if (!route || Math.hypot(route.goalX - actor.knownX, route.goalZ - actor.knownZ) > 2.5) {
-            route = {
-              goalX: actor.knownX,
-              goalZ: actor.knownZ,
-              points: findNavigationPath(
-                actor.x,
-                actor.z,
-                actor.knownX,
-                actor.knownZ,
-                (x, z) => !movementBlocked(x, z, 0, this.solids),
-                this.world.limit,
-              ),
-              index: 0,
-              retryIn: 1.2,
-            };
-            actor.navigation = route;
-          } else if (route.points === null) {
-            route.retryIn -= dt;
-            if (route.retryIn <= 0) {
-              route.points = findNavigationPath(
-                actor.x,
-                actor.z,
-                actor.knownX,
-                actor.knownZ,
-                (x, z) => !movementBlocked(x, z, 0, this.solids),
-                this.world.limit,
-              );
-              route.index = 0;
-              route.retryIn = 1.2;
-            }
-          }
-          while (route.points && route.index < route.points.length) {
-            const waypoint = route.points[route.index]!;
-            if (Math.hypot(waypoint.x - actor.x, waypoint.z - actor.z) > 0.85) break;
-            route.index++;
-          }
-          const waypoint = route.points?.[route.index];
-          tx = waypoint?.x ?? actor.x;
-          tz = waypoint?.z ?? actor.z;
+          actor.tactics = null;
+          const actorId = this.pool.indexOf(actor);
+          const goal = mind.state === "search"
+            ? searchWaypoint(actor.knownX, actor.knownZ, mind.age, actorId)
+            : { x: actor.knownX, z: actor.knownZ };
+          const waypoint = this.navigateActor(actor, goal.x, goal.z, dt);
+          tx = waypoint.x;
+          tz = waypoint.z;
         } else {
           actor.navigation = null;
+          actor.tactics = null;
           tx = actor.x + Math.sin(this.time * 0.4 + actor.x) * 6;
           tz = actor.z + Math.cos(this.time * 0.35 + actor.z) * 6;
         }
@@ -2791,7 +2929,7 @@ export class MissionEngine {
       if (target) this.face(actor, target.x, target.z);
       else this.face(actor, tx, tz);
 
-      if (target && actor.down <= 0) {
+      if (target && canFire && actor.down <= 0) {
         actor.cooldown -= dt;
         const dist = Math.hypot(target.x - actor.x, target.z - actor.z);
         const los = hasLos(actor.x, actor.z, target.x, target.z, this.solids);
@@ -2806,14 +2944,60 @@ export class MissionEngine {
     this.separate();
   }
 
-  private playerVisible(actor: Actor, noise: number) {
+  private navigateActor(actor: Actor, goalX: number, goalZ: number, dt: number): NavigationPoint {
+    let route = actor.navigation;
+    if (!route || Math.hypot(route.goalX - goalX, route.goalZ - goalZ) > 2.5) {
+      route = {
+        goalX,
+        goalZ,
+        points: findNavigationPath(
+          actor.x,
+          actor.z,
+          goalX,
+          goalZ,
+          (x, z) => !movementBlocked(x, z, 0, this.solids),
+          this.world.limit,
+        ),
+        index: 0,
+        retryIn: 1.2,
+      };
+      actor.navigation = route;
+    } else if (route.points === null) {
+      route.retryIn -= dt;
+      if (route.retryIn <= 0) {
+        route.points = findNavigationPath(
+          actor.x,
+          actor.z,
+          goalX,
+          goalZ,
+          (x, z) => !movementBlocked(x, z, 0, this.solids),
+          this.world.limit,
+        );
+        route.index = 0;
+        route.retryIn = 1.2;
+      }
+    }
+    while (route.points && route.index < route.points.length) {
+      const waypoint = route.points[route.index]!;
+      if (Math.hypot(waypoint.x - actor.x, waypoint.z - actor.z) > 0.85) break;
+      route.index++;
+    }
+    return route.points?.[route.index] ?? { x: actor.x, z: actor.z };
+  }
+
+  private playerVisible(actor: Actor) {
     const dx = this.x - actor.x;
     const dz = this.z - actor.z;
     const dist = Math.hypot(dx, dz);
     if (this.phaseT > 0 && dist > 4) return false;
-    if (dist < noise * (this.phaseT > 0 ? 0.25 : 1)) return true;
     const vision = this.phaseT > 0 ? 4 : 28;
-    return dist < vision && hasLos(actor.x, actor.z, this.x, this.z, this.solids);
+    return canPerceiveTarget(
+      actor.yaw,
+      dx,
+      dz,
+      vision,
+      () => hasLos(actor.x, actor.z, this.x, this.z, this.solids),
+    );
   }
 
   private nearest(actor: Actor, team: Team, radius: number) {
@@ -2870,6 +3054,9 @@ export class MissionEngine {
   }
 
   private face(actor: Actor, x: number, z: number) {
+    const dx = x - actor.x;
+    const dz = z - actor.z;
+    if (Math.hypot(dx, dz) > 1e-5) actor.yaw = Math.atan2(-dx, -dz);
     actor.group.position.set(actor.x, actor.y, actor.z);
     actor.group.lookAt(x, actor.y + 1.2, z);
   }
@@ -4054,6 +4241,10 @@ declare global {
         lastKnownX: number;
         lastKnownZ: number;
         waypoint: NavigationPoint | null;
+        role: "anchor" | "flanker" | null;
+        coverPhase: "hide" | "peek" | null;
+        searchAge: number | null;
+        flank: NavigationPoint | null;
       }>;
     };
   }
