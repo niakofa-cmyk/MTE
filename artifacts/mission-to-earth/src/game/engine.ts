@@ -1165,13 +1165,19 @@ export class MissionEngine {
 
   reinsert() {
     if (this.mode !== "dead") return;
+    this.resetInputState();
     this.hp = 100;
     this.armor = 25;
     this.invuln = 2.4;
     this.mode = "ground";
     const p = this.objectivePoint();
     this.placeNear(p.x, p.z);
+    this.vx = 0;
     this.vy = 0;
+    this.vz = 0;
+    this.slideT = 0;
+    this.wallRun = 0;
+    this.grounded = true;
     this.hooks.onEvent({ type: "mode", mode: "play" });
   }
 
@@ -1470,6 +1476,7 @@ export class MissionEngine {
   }
 
   private resetMission() {
+    this.resetInputState();
     for (const box of this.world.covers) {
       box.alive = true;
       box.hp = box.maxHp;
@@ -1550,6 +1557,54 @@ export class MissionEngine {
       actor.bodyMat.opacity = 1;
       actor.bodyMat.transparent = false;
     }
+  }
+
+  private resetInputState() {
+    this.keys.clear();
+    this.keyOverride = null;
+    Object.assign(this.virtual, {
+      ax: 0,
+      ay: 0,
+      lookX: 0,
+      lookY: 0,
+      fire: false,
+      fireLeft: false,
+      aim: false,
+      jump: false,
+      sprint: false,
+      crouch: false,
+      reload: false,
+      ability: false,
+      ult: false,
+      interact: false,
+      slide: false,
+      blood: false,
+      mass: false,
+      swap: false,
+      lookHeld: false,
+    });
+    this.gamepad = {
+      moveX: 0,
+      moveY: 0,
+      lookX: 0,
+      lookY: 0,
+      fireRight: false,
+      fireLeft: false,
+      focus: false,
+    };
+    this.aiming = false;
+    this.mouseFocus = false;
+    this.focusToggle = false;
+    this.fireHeld = false;
+    this.fireLeftHeld = false;
+    this.vPrev = { jump: false, ability: false, ult: false, reload: false, slide: false };
+    this.bloodPrev = false;
+    this.massPrev = false;
+    this.slidePrev = false;
+    this.swapPrev = false;
+    this.spacePrev = false;
+    this.reloadPrev = false;
+    this.interactPrev = false;
   }
 
   private configureSquad() {

@@ -109,8 +109,10 @@ describe("touch controller", () => {
     for (const command of layer.begin(32, "FIRE_LEFT", 40, 700, 0)) applyTouchCommand(pad, command);
     for (const command of layer.begin(33, "UTILITY", 300, 700, 0)) applyTouchCommand(pad, command);
     for (const command of layer.hold(33, 400)) applyTouchCommand(pad, command);
+    for (const command of layer.begin(34, "FOCUS", 350, 60, 10)) applyTouchCommand(pad, command);
     pad.ability = true;
     assert.equal(pad.interact, true);
+    assert.equal(pad.aim, true);
 
     const cancelled = layer.cancelAll();
     assert.equal(cancelled.some((command) => command.type === "pulse"), false);
@@ -125,6 +127,7 @@ describe("touch controller", () => {
     assert.equal(layer.ownsPointer(31), false);
     assert.equal(layer.ownsPointer(32), false);
     assert.equal(layer.ownsPointer(33), false);
+    assert.equal(layer.ownsPointer(34), false);
     assert.deepEqual(layer.flushDisc(500), []);
   });
 

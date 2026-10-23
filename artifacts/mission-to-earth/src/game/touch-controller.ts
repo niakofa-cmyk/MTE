@@ -120,6 +120,7 @@ export function applyTouchCommand(sink: TouchSink, command: TouchCommand, later:
     sink.lookY = 0;
     sink.fire = false;
     sink.fireLeft = false;
+    sink.aim = false;
     sink.jump = false;
     sink.sprint = false;
     sink.crouch = false;
