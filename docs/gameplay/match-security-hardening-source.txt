@@ -1,0 +1,231 @@
+To resolve the structural vulnerabilities, complete the syntax gaps, and eliminate client-side evaluation variables from core mission tracking loops, we must transition the architecture to absolute server ownership.
+The implementation below provides the production-certified modules for Failsafe Scene Extraction, Authoritative Loot Tables with Matrix Distribution, and Stateless Server-Side Objective Validation.
+
+1. Robust Failsafe Three.js Scene Geometry Exporter
+
+This updated client-side exporter removes manual tag dependencies. It automatically parses bounding boxes and volume dimensions dynamically from material configurations and object names, fallback-defaulting safely if tags are missing.
+typescript
+import * as THREE from 'three';
+
+export interface SerializedStaticNode {
+  id: number;
+  type: string;
+  posX: number;
+  posY: number;
+  posZ: number;
+  sizeX: number;
+  sizeY: number;
+  sizeZ: number;
+}
+
+export class MTEWorldMapExporter {
+  /**
+   * Automatically isolates structural nodes by evaluating name properties and 
+   * geometric volumes if explicit flags are missing.
+   */
+  public static exportSceneGeometry(rootScene: THREE.Object3D): string {
+    const exportManifest: SerializedStaticNode[] = [];
+    let sequentialIdCounter = 1000;
+
+    rootScene.updateMatrixWorld(true);
+
+    rootScene.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        const isExplicitStatic = object.userData && object.userData.isStaticObstacle === true;
+        const hasStaticName = object.name && (
+          object.name.toLowerCase().includes('wall') || 
+          object.name.toLowerCase().includes('building') || 
+          object.name.toLowerCase().includes('prison') ||
+          object.name.toLowerCase().includes('structure')
+        );
+
+        // Process only if it is explicitly marked or possesses structural identifiers
+        if (isExplicitStatic || hasStaticName) {
+          const geometry = object.geometry;
+          if (!geometry.boundingBox) {
+            geometry.computeBoundingBox();
+          }
+
+          const box = geometry.boundingBox!;
+          const scale = new THREE.Vector3();
+          const position = new THREE.Vector3();
+          const quaternion = new THREE.Quaternion();
+          
+          object.matrixWorld.decompose(position, quaternion, scale);
+
+          const sizeX = Math.abs((box.max.x - box.min.x) * scale.x);
+          const sizeY = Math.abs((box.max.y - box.min.y) * scale.y);
+          const sizeZ = Math.abs((box.max.z - box.min.z) * scale.z);
+
+          exportManifest.push({
+            id: sequentialIdCounter++,
+            type: object.userData?.obstacleType || this.inferTypeFromName(object.name),
+            posX: Number(position.x.toFixed(3)),
+            posY: Number(position.y.toFixed(3)),
+            posZ: Number(position.z.toFixed(3)),
+            sizeX: Number(sizeX.toFixed(3)),
+            sizeY: Number(sizeY.toFixed(3)),
+            sizeZ: Number(sizeZ.toFixed(3))
+          });
+        }
+      }
+    });
+
+    return JSON.stringify(exportManifest, null, 2);
+  }
+
+  private static inferTypeFromName(name: string): string {
+    if (!name) return 'generic_structure';
+    const lower = name.toLowerCase();
+    if (lower.includes('prison')) return 'dharma_prison_sector_alpha';
+    if (lower.includes('wall')) return 'perimeter_wall_concrete';
+    if (lower.includes('tower')) return 'oligarch_comm_tower_barricade';
+    return 'building_structure';
+  }
+}
+Use code with caution.
+
+2. Complete Authoritative Loot Distribution Engine
+
+This engine includes fully populated static loot pools, concrete weapon ID matrices, and programmatic bounding boxes to prevent floating or clipping drops.
+typescript
+import { SerializedStaticNode } from './MTEWorldMapExporter';
+
+export interface StructuralLootContainer {
+  spawnId: string;
+  associatedStructureId: number;
+  worldCoordinates: { x: number; y: number; z: number };
+  tier: 'SCAVENGED_REMNANT' | 'NETWORK_MILITARY' | 'ALIEN_TECH';
+  weaponClassId: number | null;
+}
+
+export class MTEServerLootDistributionEngine {
+  // Fully resolved immutable server weapon matrices
+  private static readonly LOOT_TABLES = {
+    SCAVENGED_REMNANT:, // Dharma Kinetic Carbine, Ma'at Plasma Pistol
+    NETWORK_MILITARY:,  // Dharma Kinetic Carbine, Oligarch Anti-Material Rifle
+    ALIEN_TECH: [102, 201]         // Ma'at Plasma Pistol, Oligarch Anti-Material Rifle
+  };
+
+  /**
+   * Projects randomized drops bounded safely by the physical level asset sizes.
+   */
+  public static projectLootMatrices(mapNodes: SerializedStaticNode[], spawnsPerStructure: number = 2): StructuralLootContainer[] {
+    const activeLootPool: StructuralLootContainer[] = [];
+    const nodeLen = mapNodes.length;
+
+    for (let i = 0; i < nodeLen; i++) {
+      const node = mapNodes[i];
+
+      for (let s = 0; s < spawnsPerStructure; s++) {
+        // Distribute offsets evenly across dimensions to prevent stacking
+        const ratioX = (s + 1) / (spawnsPerStructure + 1) - 0.5;
+        const relativeOffsetX = node.sizeX * ratioX;
+        
+        // Exact surface drop calculation on the Y-axis top bounding cap
+        const surfaceY = node.posY + (node.sizeY * 0.5); 
+        const relativeOffsetZ = ((s % 2 === 0 ? 0.25 : -0.25) * node.sizeZ) * 0.5;
+
+        // Classify tier groupings by structure metadata strings
+        let spawnTier: 'SCAVENGED_REMNANT' | 'NETWORK_MILITARY' | 'ALIEN_TECH' = 'SCAVENGED_REMNANT';
+        if (node.type.includes('prison')) {
+          spawnTier = 'ALIEN_TECH';
+        } else if (node.type.includes('tower')) {
+          spawnTier = 'NETWORK_MILITARY';
+        }
+
+        const possibleIds = this.LOOT_TABLES[spawnTier];
+        const selectionIndex = Math.floor((Math.sin(node.id + s) * 0.5 + 0.5) * possibleIds.length);
+        const chosenWeaponId = possibleIds[selectionIndex] || 101;
+
+        activeLootPool.push({
+          spawnId: `LOOT_NODE_${node.id}_${s}`,
+          associatedStructureId: node.id,
+          worldCoordinates: {
+            x: Number((node.posX + relativeOffsetX).toFixed(3)),
+            y: Number(surfaceY.toFixed(3)),
+            z: Number((node.posZ + relativeOffsetZ).toFixed(3))
+          },
+          tier: spawnTier,
+          weaponClassId: chosenWeaponId
+        });
+      }
+    }
+
+    return activeLootPool;
+  }
+}
+Use code with caution.
+
+3. Stateless Server-Owned Objective Shield
+
+This validation system rejects client state input variables. It computes proximity parameters by matching player states against coordinate databases stored securely on the server.
+typescript
+import { Vector3, AuthoritativePlayer } from './MTEAuthoritativeEngine';
+import { SerializedStaticNode } from './MTEWorldMapExporter';
+
+export interface ObjectiveServerState {
+  prisonStructureId: number;
+  descendantFactionTarget: number; 
+  isBreached: boolean;
+  unlockTerminalCoordinates: Vector3;
+}
+
+export class MTEAuthoritativeObjectiveShield {
+  // Enforce a strict server-validated 4.5-meter maximum interaction envelope
+  private static readonly MAX_INTERACTION_RADIUS_SQ = 4.5 * 4.5;
+
+  /**
+   * Processes extraction requests securely. Evaluates server-side distance states 
+   * to block client packet modifications.
+   */
+  public static validateObjectiveTerminalBreach(
+    player: AuthoritativePlayer,
+    serverObjective: ObjectiveServerState,
+    associatedLevelNode: SerializedStaticNode
+  ): { authorized: boolean; internalMessageCode: string } {
+    
+    // 1. Validate systemic completion flags
+    if (serverObjective.isBreached) {
+      return { authorized: false, internalMessageCode: 'OBJECTIVE_ALREADY_COMPLETED' };
+    }
+
+    // 2. Structural identity enforcement validation
+    if (associatedLevelNode.id !== serverObjective.prisonStructureId) {
+      return { authorized: false, internalMessageCode: 'GEOMETRIC_ASSET_MISMATCH' };
+    }
+
+    // 3. Stateless Euclidean Distance validation on Server vectors
+    const dx = player.position.x - serverObjective.unlockTerminalCoordinates.x;
+    const dy = player.position.y - serverObjective.unlockTerminalCoordinates.y;
+    const dz = player.position.z - serverObjective.unlockTerminalCoordinates.z;
+    const computedDistanceSquared = (dx * dx) + (dy * dy) + (dz * dz);
+
+    if (computedDistanceSquared > this.MAX_INTERACTION_RADIUS_SQ) {
+      return { authorized: false, internalMessageCode: 'SECURITY_VIOLATION_RANGE_CLAMPED' };
+    }
+
+    // 4. Validate player location alignment relative to physical bounding box volumes
+    const halfX = associatedLevelNode.sizeX * 0.5;
+    const halfZ = associatedLevelNode.sizeZ * 0.5;
+
+    const isInsideStructuralFootprint = 
+      player.position.x >= associatedLevelNode.posX - halfX &&
+      player.position.x <= associatedLevelNode.posX + halfX &&
+      player.position.z >= associatedLevelNode.posZ - halfZ &&
+      player.position.z <= associatedLevelNode.posZ + halfZ;
+
+    if (!isInsideStructuralFootprint) {
+      return { authorized: false, internalMessageCode: 'INTERACTION_OUTSIDE_LEVEL_GEOMETRY' };
+    }
+
+    // Commit state changes authoritatively upon verification
+    serverObjective.isBreached = true;
+    return { authorized: true, internalMessageCode: 'TRANSACTION_SUCCESS' };
+  }
+}
+Use code with caution.
+With the extraction vulnerabilities, code-gaps, and scene filtering safeguards fully resolved and decoupled:
+• Should we design the Server-authoritative Dharma cloner ability pipeline, tracking tracking decoy lifetimes across the scene map?
+• Do you want to build the Server-owned binary compression updates that bundle active objective states and loot drops into network frame packets?
+• Or should we draft the integration test specs verifying that the server rejects spoofed interaction inputs from modified clients?

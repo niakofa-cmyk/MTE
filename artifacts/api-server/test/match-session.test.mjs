@@ -101,6 +101,31 @@ test("match session routes load the map, assign server identity, and authorize a
     );
     assert.equal(spoofedInput.status, 400);
 
+    for (const clientClaim of [
+      { objectiveId: "mission-terminal", isBreached: true },
+      { weaponClassId: 201, rewardClaim: "extracted" },
+    ]) {
+      const forgedClaimResponse = await fetch(
+        `${baseUrl}/matches/${created.matchId}/input`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${joined.accessToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            sequenceNumber: 1,
+            inputFlags: 0,
+            pitch: 0,
+            yaw: 0,
+            movementVector: { forward: 0, strafe: 0 },
+            ...clientClaim,
+          }),
+        },
+      );
+      assert.equal(forgedClaimResponse.status, 400);
+    }
+
     const inputResponse = await fetch(
       `${baseUrl}/matches/${created.matchId}/input`,
       {

@@ -13,6 +13,8 @@ Static collision geometry must be copied, validated, bounded, and loaded before 
 
 The transport-neutral simulation now has a bounded HTTP match-session wrapper with short-lived bearer player tokens, but it is not an account system and is not wired to the solo client. It is a REST polling prototype, not production multiplayer. Do not imply authoritative weapon hits, rewards, or a complete Battle Royale mode. Keep the solo mission usable while adding client integration, prediction, raycasts, rewards, and extraction in tested stages.
 
+Do not add loot, objective, or reward claims based only on client-supplied geometry or event fields. Wait for server-owned spawn/objective registries and duplicate-claim-safe reward transactions.
+
 **Why:** The attached proposals identify the right server-authority direction but their examples trust client identity/time, use unbounded or unsafe structures, and omit the transport and gameplay authority needed for production.
 
-**How to apply:** Keep network/session ownership separate from the pure match simulator. The HTTP wrapper uses ephemeral bearer identity and bounded in-memory sessions; preserve those limits and do not treat them as persistent accounts. Before broad online use, add durable identity, abuse controls appropriate to deployment, client reconciliation, authoritative combat, load profiling, and multi-client verification.
+**How to apply:** Keep network/session ownership separate from the pure match simulator. The HTTP wrapper uses ephemeral bearer identity and bounded in-memory sessions; preserve those limits and do not treat them as persistent accounts. Before adding loot/objectives or broad online use, define trusted server-owned state and idempotent transactions, then add durable identity, abuse controls appropriate to deployment, client reconciliation, authoritative combat, load profiling, and multi-client verification.
