@@ -277,7 +277,7 @@ export const BLOODLINES: Operator[] = [
     faction: "Dharma",
     role: "Unstable",
     passiveName: "Frictionless",
-    passive: "Slides keep their speed into a wall-run. He makes no sound the corporate grid can hear.",
+    passive: "Slides keep their speed into a wall-run. He makes no sound Eon Dusk's signal grid can hear.",
     activeName: "Quantum Shift",
     active: "Blink forward. The vacuum yanks hostiles off their feet and blinds their optics.",
     ultName: "Cosmic Unraveling",
@@ -317,16 +317,16 @@ export const DOSSIER = [
   {
     kicker: "Act I",
     title: "The cradles",
-    body: "The Accord kept the Covenant on Mars for three centuries. On Earth the bloodline was choked out and locked up. Ananda, Dharma, is under Cradle Alpha — a flooded research cradle where they tried to bottle his void. Nefret, Ma'at, is under Cradle Omega, where they drained her to feed Eon Dusk. Neither of them is a soldier. Break the pod, and press B to wear what the technocrats could not finish.",
+    body: "For three centuries, the Accord kept Covenant-era technology under guard. Eon Dusk has seized Nod and imprisoned the Dharma and Ma'at bloodlines. Ananda is held beneath Cradle Alpha; Nefret is held beneath Cradle Omega. The cradles are draining them to power the technology. Break the pods, then press B to take up their unstable abilities.",
   },
   {
     kicker: "Act II",
     title: "The uprising",
-    body: "The moment a descendant breathes free air, the streets hear it. Corporate security flips to panic. Civilians who have been worked to the bone take up arms. Ananda blinks the squad through the killbox. Nefret powders the walls that were keeping you honest. Their kits are raw. They will not behave like the four who dropped with you.",
+    body: "The moment a descendant breathes free air, the streets hear it. Eon Dusk security turns to panic. Nod's residents begin to resist. Ananda can blink the squad through a killbox; Nefret can powder the walls that were keeping you honest. Their abilities are raw. They will not behave like the four who dropped with you.",
   },
   {
     kicker: "Act III",
-    title: "Eon Dusk",
-    body: "A resistance cell is already forming to stay behind. You still have to warn Mars. The oligarchs have launched a quiet mission — Eon Dusk — to colonize the red world. Raise the beacon. Then make the recovery pad before the zone erases the district.",
+    title: "The beacon",
+    body: "An Earth-side resistance cell is forming in Cinder Row. Free the captives, raise the Accord beacon, and reach the recovery pad before Eon Dusk's lockdown erases the district.",
   },
 ];

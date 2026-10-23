@@ -987,10 +987,11 @@ export class MissionEngine {
     const canvas = this.renderer.domElement;
     if (this.touch) return;
     try {
-      const ret = canvas.requestPointerLock({ unadjustedMovement: true });
-      void Promise.resolve(ret).catch(() => canvas.requestPointerLock());
+      void Promise.resolve(canvas.requestPointerLock()).catch(() => {
+        // Pointer lock is optional; some browsers and automation contexts reject it.
+      });
     } catch {
-      canvas.requestPointerLock();
+      // Keep keyboard controls available when pointer lock is unavailable.
     }
   }
 
@@ -1081,7 +1082,7 @@ export class MissionEngine {
     this.say("MA'AT", "Parachute in. Scavenge what the street gives you. Breach the cells.");
     this.say("DHARMA", "Free air lights the signal fires. When a bloodline is loose, B wears it. It will not feel trained.");
     this.say("TACTICAL", "Slums drop scrap guns. The monolith drops rails. A mod seats on the weapon in your hands.");
-    if (brought.length) this.say("MARS", "The bench sent your filed mods down with the gun.");
+    if (brought.length) this.say("ACCORD", "The field cache sent your filed mods with the weapon.");
     this.configureSquad();
     this.spawnInitial();
     this.sealLoadout();
@@ -3343,12 +3344,12 @@ export class MissionEngine {
           if (!this.beaconWave && this.channel > 1) {
             this.beaconWave = true;
             this.spawnWave(5, { x: 0, z: 0 });
-            this.say("TACTICAL", "Corporate counter-push. Hold the mast.");
+            this.say("TACTICAL", "Eon Dusk counter-push. Hold the beacon.");
           }
           if (this.channel >= 4.6) {
             this.beaconDone = true;
             this.channel = 0;
-            this.say("ACCORD", "Beacon live. Mars hears you. Eon Dusk has already launched — do not miss extraction.");
+            this.say("ACCORD", "Beacon live. Nod has the signal. Eon Dusk is locking down the district — reach extraction.");
             this.toastMsg = "Eon Dusk is inbound. Run.";
             this.toastT = 3;
             this.spawnWave(4, this.world.extract);
@@ -3476,7 +3477,7 @@ export class MissionEngine {
     const who = site.id === "alpha" ? "Ananda" : "Nefret";
     if (this.freedCount === 1) {
       this.say(who.toUpperCase(), site.id === "alpha" ? "The dampeners just failed. I am not staying in this room." : "Get the guns off my light.");
-      this.say("CIVNET", `${who} is loose. Corporate grid is in panic. The blocks are arming.`);
+      this.say("CIVNET", `${who} is loose. Eon Dusk's grid is in panic. The blocks are arming.`);
       this.say("TACTICAL", "They fight with you. Press B to wear the bloodline. It is not Accord doctrine.");
       this.spawnMilitia(site.x + 6, site.z + 4);
       this.spawnMilitia(site.x - 5, site.z + 2);

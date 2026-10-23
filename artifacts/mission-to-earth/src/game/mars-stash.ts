@@ -1,5 +1,6 @@
 import { readLocalItem, writeLocalItem } from "./local-storage.ts";
 
+// These names are part of the local-save compatibility contract; player-facing copy uses Earth-side terminology.
 const KEY = "mte-mars-v2";
 const BACKUP_KEY = "mte-mars-v2-backup";
 const LEGACY_KEY = "mte-mars-v1";

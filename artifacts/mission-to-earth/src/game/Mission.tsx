@@ -203,13 +203,13 @@ export function Mission() {
       ) : null}
       {screen === "win" && stats ? (
         <Overlay
-          kicker="Covenant"
+          kicker="Operation Shakuna"
           title="Going home"
-          body={`${OPERATOR_BY_ID[stats.op].name} got Ananda and Nefret off the pad in ${clock(stats.time)}. ${stats.kills} corporate guns went quiet. ${stats.scrap > 0 ? `Hauled ${stats.scrap} scrap off the pad.` : "The pad took no scrap this run."} ${stats.filed.length ? `Mars filed ${stats.filed.join(", ")}.` : ""} The resistance stays in Nod. Mars has the warning.`}
+          body={`${OPERATOR_BY_ID[stats.op].name} got Ananda and Nefret off the pad in ${clock(stats.time)}. ${stats.kills} Eon Dusk security officers went quiet. ${stats.scrap > 0 ? `Hauled ${stats.scrap} scrap off the pad.` : "The pad took no scrap this run."} ${stats.filed.length ? `The Nod field log records ${stats.filed.join(", ")}.` : ""} The resistance holds in Nod. The Accord has the signal.`}
         >
           <p className="font-display text-sm tracking-widest text-gold">
             {record
-              ? `${record.extractions} extractions · best ${record.best ? clock(record.best) : "—"} · ${mars?.martianCredits ?? record.scrap} Martian credits`
+              ? `${record.extractions} extractions · best ${record.best ? clock(record.best) : "—"} · ${mars?.martianCredits ?? record.scrap} salvage credits`
               : ""}
           </p>
           <button type="button" className="bg-gold px-5 py-3 font-display text-lg tracking-widest text-bg" onClick={() => engineRef.current?.abort()}>
@@ -275,7 +275,7 @@ function Menu({
           {record && record.extractions > 0 ? (
             <p className="mt-3 font-display text-sm tracking-widest text-gold">
               Service record · {record.extractions} extractions · {record.kills} confirmed
-              {record.scrap > 0 ? ` · ${mars?.martianCredits ?? record.scrap} Martian credits` : ""}
+              {record.scrap > 0 ? ` · ${mars?.martianCredits ?? record.scrap} salvage credits` : ""}
             </p>
           ) : null}
         </div>
@@ -307,7 +307,7 @@ function Menu({
                 >
                   <p className={`inline-flex items-center gap-2 font-display text-xs tracking-widest ${card.tone === "cyan" ? "text-cyan" : "text-gold"}`}>
                     {card.tone === "cyan" ? <Crosshair className="size-3.5" /> : <Shield className="size-3.5" />}
-                    {card.faction} · {card.role}
+                  {card.faction} lineage · {card.role}
                   </p>
                   <h2 className="mt-1 font-display text-3xl leading-none text-fg">{card.name}</h2>
                   <p className="text-sm text-muted">{card.title}</p>
@@ -433,7 +433,7 @@ function Armory({
   ];
   return (
     <div className="border border-line bg-surface p-5">
-      <p className="font-display text-xs tracking-widest text-gold">Mars bench · {bench.martianCredits} credits</p>
+      <p className="font-display text-xs tracking-widest text-gold">Accord field cache · {bench.martianCredits} salvage credits</p>
       <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
         What leaves the pad is filed here. Pick a preset before the drop. A mod only seats if this operator's gun can hold it. Progress is saved in this browser only; it is not cloud-synced or server-verified.
       </p>

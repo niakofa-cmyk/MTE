@@ -106,6 +106,25 @@ describe("mars stash", () => {
     }
   });
 
+  it("loads the legacy mte-mars-v1 browser save without changing its key contract", () => {
+    const oldStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    const profile = commitExtraction(emptyMars(), 315, []);
+    const values = new Map<string, string>([["mte-mars-v1", JSON.stringify(profile)]]);
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+      },
+    });
+    try {
+      assert.equal(loadMars().martianCredits, 315);
+    } finally {
+      if (oldStorage) Object.defineProperty(globalThis, "localStorage", oldStorage);
+      else delete (globalThis as typeof globalThis & { localStorage?: Storage }).localStorage;
+    }
+  });
+
   it("reports when browser storage rejects a profile write", () => {
     const oldStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
     Object.defineProperty(globalThis, "localStorage", {

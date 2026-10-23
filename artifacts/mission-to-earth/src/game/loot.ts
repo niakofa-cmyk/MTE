@@ -116,7 +116,7 @@ const DROPS: LootDrop[] = [
   { itemId: "wep_solar_sniper_04", itemName: "SOLAR RAIL", itemTier: "LEGENDARY", baseSpawnChance: 3.5, minSectorRequirement: 4, scrapValueCredit: 1200, grant: { type: "weapon", weaponId: "rail" } },
   { itemId: "wep_desc_void_05", itemName: "VOID PISTOL", itemTier: "ANOMALY", baseSpawnChance: 0.5, minSectorRequirement: 4, scrapValueCredit: 5000, grant: { type: "weapon", weaponId: "needles" } },
   { itemId: "res_nanite_inject_01", itemName: "NANITE SWARM", itemTier: "UNCOMMON", baseSpawnChance: 30, minSectorRequirement: 1, scrapValueCredit: 75, grant: { type: "med" } },
-  { itemId: "res_armor_plate_02", itemName: "MARTIAN PLATE", itemTier: "RARE", baseSpawnChance: 15, minSectorRequirement: 2, scrapValueCredit: 200, grant: { type: "armor" } },
+  { itemId: "res_armor_plate_02", itemName: "CERAMIC PLATE", itemTier: "RARE", baseSpawnChance: 15, minSectorRequirement: 2, scrapValueCredit: 200, grant: { type: "armor" } },
   { itemId: "res_emp_shield_03", itemName: "EMP INVERTER", itemTier: "LEGENDARY", baseSpawnChance: 5, minSectorRequirement: 3, scrapValueCredit: 800, grant: { type: "armor" } },
   { itemId: "intel_eon_dusk_schematic", itemName: "EON DUSK BLUEPRINTS", itemTier: "LEGENDARY", baseSpawnChance: 2, minSectorRequirement: 3, scrapValueCredit: 2500, grant: { type: "intel" } },
   { itemId: "intel_pure_blood_dna", itemName: "LINEAGE KEY", itemTier: "ANOMALY", baseSpawnChance: 1, minSectorRequirement: 4, scrapValueCredit: 10000, grant: { type: "intel" } },
