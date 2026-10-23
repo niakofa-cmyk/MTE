@@ -33,6 +33,13 @@ import {
 import { acceptDropTicket, readAttachment, sealedModIds } from "@/game/weapon-mod";
 import { MOD_CODE, deserializeGearPacket, modCodes, packHeldGear } from "@/game/gear-packet";
 import { normalizeLookSensitivity } from "@/game/settings";
+import { resolveHitDamage } from "@/game/combat-damage";
+import {
+  boostSlideVelocity,
+  maxMovementSpeed,
+  stepHorizontalVelocity,
+  stepVerticalVelocity,
+} from "@/game/player-kinematics";
 import {
   RADIUS,
   buildWorld,
@@ -1598,36 +1605,49 @@ export class MissionEngine {
     const speedNow = Math.hypot(this.vx, this.vz);
     if (this.consumeSlide() && this.mode === "ground" && this.grounded && speedNow > 5.2) {
       this.slideT = 0.72;
-      this.vx *= 1.3;
-      this.vz *= 1.3;
+      const boosted = boostSlideVelocity(this.vx, this.vz);
+      this.vx = boosted.vx;
+      this.vz = boosted.vz;
     }
     this.crouchHeld = this.held("ControlLeft") || this.held("ControlRight") || this.virtual.crouch || this.slideT > 0;
 
     const weapon = WEAPONS[this.slots[this.slot]?.id ?? "pistol"];
-    let max = 5.6 * weapon.move;
-    if (this.op === "bodhi") max *= 1.12;
-    if (this.op === "ananda") max *= 1.08;
-    if (this.op === "khensu" || this.op === "nefret") max *= 0.92;
-    if (this.inUnravel(this.x, this.z)) max *= 1.5;
-    if (this.raT > 0) max *= 0.55;
-    if (this.crouchHeld && this.slideT <= 0) max *= 0.56;
-    else if (sprinting) max *= 1.5;
-    if (this.aiming) max *= 0.62;
-    if (this.mode === "drop") max = 17;
-
-    if (this.slideT > 0 && this.mode === "ground") {
+    const max = maxMovementSpeed({
+      operator: this.op,
+      weaponMove: weapon.move,
+      inUnravel: this.inUnravel(this.x, this.z),
+      raActive: this.raT > 0,
+      crouched: this.crouchHeld,
+      sliding: this.slideT > 0,
+      sprinting,
+      aiming: this.aiming,
+      dropping: this.mode === "drop",
+    });
+    const sliding = this.slideT > 0 && this.mode === "ground";
+    const acceleration = this.mode === "drop" ? 7 : this.grounded ? 13 : 3;
+    let slideDrag = 0.85;
+    let slideSteer = 8;
+    if (sliding) {
       this.slideT -= dt;
-      const drag = this.op === "ananda" ? 0.18 : 0.85;
-      this.vx *= Math.exp(-drag * dt);
-      this.vz *= Math.exp(-drag * dt);
-      this.vx += wishX * (this.op === "ananda" ? 4 : 8) * dt;
-      this.vz += wishZ * (this.op === "ananda" ? 4 : 8) * dt;
-    } else {
-      const accel = this.mode === "drop" ? 7 : this.grounded ? 13 : 3;
-      const k = 1 - Math.exp(-accel * dt);
-      this.vx += (wishX * max - this.vx) * k;
-      this.vz += (wishZ * max - this.vz) * k;
+      if (this.op === "ananda") {
+        slideDrag = 0.18;
+        slideSteer = 4;
+      }
     }
+    const horizontal = stepHorizontalVelocity({
+      vx: this.vx,
+      vz: this.vz,
+      wishX,
+      wishZ,
+      maxSpeed: max,
+      acceleration,
+      dt,
+      sliding,
+      slideDrag,
+      slideSteer,
+    });
+    this.vx = horizontal.vx;
+    this.vz = horizontal.vz;
 
     this.touchingWall = false;
     const nx = this.x + this.vx * dt;
@@ -1661,15 +1681,18 @@ export class MissionEngine {
         this.vy = 5.4;
       }
       if (!this.grounded) {
-        let g = 30;
-        if (this.op === "bodhi" && this.vy < 0) g *= 0.68;
-        if (this.wallRun > 0 && (this.op === "bodhi" || this.op === "ananda")) {
+        const gravity = 30 * (this.op === "bodhi" && this.vy < 0 ? 0.68 : 1);
+        const wallRunning = this.wallRun > 0 && (this.op === "bodhi" || this.op === "ananda");
+        if (wallRunning) {
           this.wallRun -= dt;
-          g *= 0.3;
-          this.vy = Math.max(this.vy, -2);
         }
-        this.vy -= g * dt;
-        if ((this.held("Space") || this.virtual.jump) && this.vy < -11) this.vy = -11;
+        this.vy = stepVerticalVelocity(
+          this.vy,
+          dt,
+          gravity,
+          wallRunning,
+          this.held("Space") || this.virtual.jump,
+        );
         const nextY = this.y + this.vy * dt;
         if (!this.catchRoof(nextY)) {
           this.y = nextY;
@@ -2059,13 +2082,9 @@ export class MissionEngine {
   }
 
   private hurtActor(actor: Actor, dmg: number, head: boolean, leg: boolean, skill: boolean, byPlayer: boolean) {
-    if (head) dmg *= 2.15;
-    if (leg) {
-      dmg *= 0.72;
-      actor.slow = 2.5;
-    }
-    if (skill) dmg *= 1.35;
-    actor.hp -= dmg;
+    const hit = resolveHitDamage(dmg, head ? "head" : leg ? "leg" : "body", skill);
+    actor.hp -= hit.damage;
+    if (hit.slowsTarget) actor.slow = 2.5;
     actor.hurt = 0.1;
     actor.aggro = 3;
     if (byPlayer) {
