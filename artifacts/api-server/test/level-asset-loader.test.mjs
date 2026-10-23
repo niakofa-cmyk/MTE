@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import {
+  createNodAuthoritativeMatch,
+} from "../src/lib/match-bootstrap.ts";
+import { DEFAULT_MATCH_CONFIG } from "../src/lib/authoritative-match.ts";
 import { loadLevelGeometryAsset } from "../src/lib/level-asset-loader.ts";
 import { StaticWorldCollisionMap } from "../src/lib/static-world-collision-map.ts";
 
@@ -89,4 +95,29 @@ test("validates the entire asset before changing map state and enforces limits",
     () => loadLevelGeometryAsset(JSON.stringify(Array(4_097).fill(null)), map),
     /structure limit/,
   );
+});
+
+test("boots an authoritative match from the generated Nod geometry file", async () => {
+  const assetPath = fileURLToPath(
+    new URL("../src/data/generated/nod-level-geometry.json", import.meta.url),
+  );
+  const json = await readFile(assetPath, "utf8");
+  const structures = JSON.parse(json);
+  const { match, loadedGeometryCount } = await createNodAuthoritativeMatch(
+    DEFAULT_MATCH_CONFIG,
+    assetPath,
+  );
+
+  assert.equal(loadedGeometryCount, structures.length);
+  assert.ok(loadedGeometryCount > 0);
+  assert.throws(
+    () =>
+      match.registerPlayer("blocked-by-map", {
+        x: structures[0].posX,
+        y: 0,
+        z: structures[0].posZ,
+      }),
+    /intersects static world geometry/,
+  );
+  match.registerPlayer("clear-spawn", { x: 1_000, y: 0, z: 1_000 });
 });

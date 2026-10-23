@@ -1,0 +1,127 @@
+To bridge the gap between your world generation data and the authoritative server runtime, we must establish a canonical Level Map Exporter. In a production environment, the server cannot guess structural dimensions—it requires a standardized, bite-sized byte array or an exact coordinate registry file format matching your Three.js frontend asset arrays.
+Below is the production-grade Level Geometry Node Compiler and Exporter. It crawls the generated Three.js environment structure in your frontend client, normalizes world matrix offsets, and compresses them into a lightweight, standard JSON manifest that your server-side MTELevelAssetLoader can immediately ingest.
+
+1. Frontend Level Data Exporter Module
+
+Place this pipeline script inside your client-side map editor layout or level generation loop to capture structural scene coordinate maps:
+typescript
+import * as THREE from 'three';
+
+export interface SerializedStaticNode {
+  id: number;
+  type: string;
+  posX: number;
+  posY: number;
+  posZ: number;
+  sizeX: number;
+  sizeY: number;
+  sizeZ: number;
+}
+
+export class MTEWorldMapExporter {
+  /**
+   * Scans a root Three.js Object3D/Scene, extracts mesh bounding boxes,
+   * and normalizes transformed positions into canonical world space coordinate arrays.
+   */
+  public static exportSceneGeometry(rootScene: THREE.Object3D): string {
+    const exportManifest: SerializedStaticNode[] = [];
+    let sequentialIdCounter = 1000;
+
+    // Forces matrix updates across the graph to catch nested transformations accurately
+    rootScene.updateMatrixWorld(true);
+
+    rootScene.traverse((object) => {
+      // Isolate static structure layers (buildings, debris walls, prison complexes)
+      if (object instanceof THREE.Mesh && object.userData.isStaticObstacle) {
+        const geometry = object.geometry;
+        
+        // Ensure accurate geometry boundaries
+        if (!geometry.boundingBox) {
+          geometry.computeBoundingBox();
+        }
+
+        const box = geometry.boundingBox!;
+        
+        // Extract local scale variables to measure exact size differentials
+        const scale = new THREE.Vector3();
+        const position = new THREE.Vector3();
+        const quaternion = new THREE.Quaternion();
+        
+        object.matrixWorld.decompose(position, quaternion, scale);
+
+        const sizeX = (box.max.x - box.min.x) * scale.x;
+        const sizeY = (box.max.y - box.min.y) * scale.y;
+        const sizeZ = (box.max.z - box.min.z) * scale.z;
+
+        exportManifest.push({
+          id: sequentialIdCounter++,
+          type: object.userData.obstacleType || "building_structure",
+          posX: Number(position.x.toFixed(3)),
+          posY: Number(position.y.toFixed(3)),
+          posZ: Number(position.z.toFixed(3)),
+          sizeX: Number(sizeX.toFixed(3)),
+          sizeY: Number(sizeY.toFixed(3)),
+          sizeZ: Number(sizeZ.toFixed(3))
+        });
+      }
+    });
+
+    return JSON.stringify(exportManifest);
+  }
+}
+Use code with caution.
+
+2. Operational Ingestion Flow Checklist
+
+To safely wire this exported geometric file into your matching loops, establish this startup pipeline on your server instance before opening network sockets:
+[Three.js Scene Creation] ──> [MTEWorldMapExporter] ──> [Save to assets/nod_map_export.json]
+                                                                     │
+[Match Server Start Execution] <── [MTELevelAssetLoader] <───────────┘
+               │
+               ▼
+[Populate Authoritative Bounded Octree Map]
+               │
+               ▼
+[Live Multi-Player Matches Start: Cover Occlusion Engine Active]
+
+3. Canonical Sandbox Data Generation Template
+
+For localized isolated environment unit tests or immediate structural configuration mocks prior to a client file dump execution, pass this verified layout text matrix string directly down to your server-side loader:
+json
+[
+  {
+    "id": 1001,
+    "type": "dharma_prison_sector_alpha",
+    "posX": 120.000,
+    "posY": 15.000,
+    "posZ": -450.500,
+    "sizeX": 40.000,
+    "sizeY": 30.000,
+    "sizeZ": 80.000
+  },
+  {
+    "id": 1002,
+    "type": "oligarch_comm_tower_barricade",
+    "posX": -5.500,
+    "posY": 2.000,
+    "posZ": 12.000,
+    "sizeX": 15.000,
+    "sizeY": 4.000,
+    "sizeZ": 3.500
+  },
+  {
+    "id": 1003,
+    "type": "maat_descendant_holding_vault",
+    "posX": -620.000,
+    "posY": 10.000,
+    "posZ": -890.000,
+    "sizeX": 50.000,
+    "sizeY": 20.000,
+    "sizeZ": 50.000
+  }
+]
+Use code with caution.
+Now that the server-to-client pipeline for exporting the world coordinates is standardized:
+• Do you want to build the automated Node.js script worker loop that writes this map output file to disk upon every map edit modification?
+• Should we integrate the Server-authoritative loot pool vector engine to align randomized weapon spawning coordinates with the floor layout vectors of these exported buildings?
+• Or would you prefer to engineer the Server snapshot state validation logic that checks player distance limits against these exported prison wall coordinates during a prison break event loop?

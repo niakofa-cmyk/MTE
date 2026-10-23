@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
+    "export:level": "tsx --tsconfig ../artifacts/mission-to-earth/tsconfig.json ../artifacts/mission-to-earth/src/game/export-level-geometry-cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
