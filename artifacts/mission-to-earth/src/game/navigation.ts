@@ -2,6 +2,12 @@ export type NavigationPoint = { x: number; z: number };
 export type CanStand = (x: number, z: number) => boolean;
 export type RelativeTargetDirection = "AHEAD" | "RIGHT" | "BEHIND" | "LEFT" | "UNKNOWN";
 
+export function compassHeadingDegrees(yaw: number): number | null {
+  if (!Number.isFinite(yaw)) return null;
+  const degrees = (-yaw * 180) / Math.PI;
+  return ((degrees % 360) + 360) % 360;
+}
+
 export function relativeTargetDirection(
   playerX: number,
   playerZ: number,

@@ -10,10 +10,12 @@ import {
 import { CRITICAL_MASS, dischargeReady, inBlastCone, paceMission, seededDebris, type MissionPhase } from "@/game/prison-break";
 import { ATTACHMENT_BY_ID, compileWeapon, rollLoot, sectorLabel, sectorTier, weaponClass } from "@/game/loot";
 import { generateContainerDropArray, resolveExtractionDrop } from "@/game/extraction-loot";
-import { loadMars, modsForDrop, registryForLabel, solarCoilEmits, weaponIdForRegistry, COIL_EMISSION, type ExtractedPiece } from "@/game/mars-stash";
+import { getExtractionHudState } from "@/game/extraction-hud";
+import { loadMars, modsForDrop, registryForLabel, registryForWeaponId, solarCoilEmits, weaponIdForRegistry, COIL_EMISSION, type ExtractedPiece } from "@/game/mars-stash";
 import { applyAimAssist, AIM_ASSIST } from "@/game/aim-assist";
 import { canPerceiveTarget, stepEnemyMind, type Mind } from "@/game/enemy-ai";
 import {
+  compassHeadingDegrees,
   findNavigationPath,
   relativeTargetDirection,
   type NavigationPoint,
@@ -46,6 +48,7 @@ import { acceptDropTicket, readAttachment, sealedModIds } from "@/game/weapon-mo
 import { MOD_CODE, deserializeGearPacket, modCodes, packHeldGear } from "@/game/gear-packet";
 import { normalizeLookSensitivity } from "@/game/settings";
 import { resolveHitDamage } from "@/game/combat-damage";
+import { advanceSafeZoneCenter, shouldCollapseSafeZone } from "@/game/safe-zone";
 import {
   boostSlideVelocity,
   maxMovementSpeed,
@@ -3797,19 +3800,17 @@ export class MissionEngine {
 
   private updateZone(dt: number) {
     const target = this.objectivePoint();
-    const dx = target.x - this.zoneX;
-    const dz = target.z - this.zoneZ;
-    const d = Math.hypot(dx, dz) || 1;
-    const step = Math.min(d, 10 * dt);
-    this.zoneX += (dx / d) * step;
-    this.zoneZ += (dz / d) * step;
-    if (this.landed) {
-      const grace = this.time - this.landTime;
-      if (grace > 18) {
-        const rate = this.beaconDone ? 3.6 : 1.65;
-        const minR = this.beaconDone ? 20 : 46;
-        this.zoneR = Math.max(minR, this.zoneR - rate * dt);
-      }
+    const nextZone = advanceSafeZoneCenter(
+      { x: this.zoneX, z: this.zoneZ },
+      { x: target.x, z: target.z },
+      { x: this.vx, z: this.vz },
+      dt,
+    );
+    this.zoneX = nextZone.x;
+    this.zoneZ = nextZone.z;
+    const elapsedSinceLanding = this.time - this.landTime;
+    if (shouldCollapseSafeZone(this.landed, this.beaconDone, elapsedSinceLanding)) {
+      this.zoneR = Math.max(20, this.zoneR - 3.6 * dt);
     }
     const dist = Math.hypot(this.x - this.zoneX, this.z - this.zoneZ);
     this.outside = dist - this.zoneR;
@@ -4103,7 +4104,7 @@ export class MissionEngine {
         this.toastMsg = `${loot.label}  +${loot.scrap}`;
         this.toastT = 1.8;
       }
-      const weaponRegistry = registryForLabel(loot.label);
+      const weaponRegistry = registryForLabel(loot.label) ?? registryForWeaponId(id, loot.label);
       if (weaponRegistry) this.noteRecovered(weaponRegistry, loot.x, loot.z);
     }
   }
@@ -4636,7 +4637,9 @@ export class MissionEngine {
     set(
       "mte-obj-sub",
       this.mode === "drop"
-        ? "Shift dives. Space flares. Land soft if you can."
+        ? this.touch
+          ? "Steer toward the landing marker with the left stick. Dive to drop faster; flare to slow down."
+          : "WASD steers toward the landing marker. Shift dives; Space flares to slow your descent."
         : this.mode === "ground" && !this.world.sites[0]!.freed
           ? "Breach the gate or drop into the courtyard."
           : this.beaconDone
@@ -4653,9 +4656,12 @@ export class MissionEngine {
     set("mte-sector", `· ${this.sectorName()}`);
     const secs = Math.floor(this.missionClock);
     set("mte-kills", `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, "0")}   ${this.kills} DOWN`);
-    const heading = ((-this.yaw * 180) / Math.PI + 360) % 360;
+    const heading = compassHeadingDegrees(this.yaw);
     const cards = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-    set("mte-compass", `${cards[Math.round(heading / 45) % 8]}  ${heading.toFixed(0)}`);
+    set(
+      "mte-compass",
+      heading === null ? "—" : `${cards[Math.round(heading / 45) % 8]}  ${heading.toFixed(0)}`,
+    );
     const noise = this.el("mte-noise");
     if (noise) noise.style.width = `${clamp(this.noiseRadius() / 36, 0, 1) * 100}%`;
     set("mte-zone", this.outside > 0 ? `OUTSIDE  ${this.outside.toFixed(0)}m` : `ZONE  ${this.zoneR.toFixed(0)}m`);
@@ -4790,13 +4796,51 @@ export class MissionEngine {
       rows.push(mark("ananda", !!this.world.sites[0]?.freed), mark("nefret", !!this.world.sites[1]?.freed));
       squad.textContent = rows.join("\n");
     }
-    const channel = this.el("mte-channel");
-    const wrap = this.el("mte-channel-wrap");
-    if (channel && wrap) {
-      const active = this.channel > 0.05 || (this.beaconDone && this.extractT > 0.05);
-      wrap.style.opacity = active ? "1" : "0";
-      const p = this.beaconDone ? this.extractT / 6 : this.channel / 4.6;
-      channel.style.width = `${clamp(p, 0, 1) * 100}%`;
+    const descendantsRescued = !!this.world.sites[0]?.freed && !!this.world.sites[1]?.freed;
+    const beaconDistance = Math.hypot(this.world.beacon.x - this.x, this.world.beacon.z - this.z);
+    const extractionDistance = Math.hypot(this.world.extract.x - this.x, this.world.extract.z - this.z);
+    const hostiles = this.pool.filter(
+      (actor) =>
+        actor.alive &&
+        actor.deployed &&
+        actor.team === "sec" &&
+        !actor.squad &&
+        actor.down <= 0,
+    ).length;
+    const extractionHud = getExtractionHudState({
+      missionActive: this.mode === "ground",
+      descendantsRescued,
+      beaconRaised: this.beaconDone,
+      beaconChannelSeconds: this.channel,
+      inBeaconRadius: beaconDistance < 3.1,
+      recoveryLockSeconds: this.extractT,
+      inRecoveryRadius: extractionDistance < 6.4,
+      counterPushStarted: this.beaconWave,
+      activeHostileCount: hostiles,
+    });
+    const channelWrap = this.el("mte-channel-wrap");
+    if (channelWrap) {
+      channelWrap.style.opacity = extractionHud.visible ? "1" : "0";
+      channelWrap.style.visibility = extractionHud.visible ? "visible" : "hidden";
+      channelWrap.setAttribute("aria-hidden", String(!extractionHud.visible));
+    }
+    set("mte-channel-title", extractionHud.title);
+    set("mte-channel-timer", extractionHud.countdown);
+    set("mte-channel-status", extractionHud.status);
+    const threatLabel = this.el("mte-channel-threats");
+    if (threatLabel) {
+      if (threatLabel.textContent !== extractionHud.threats) {
+        threatLabel.textContent = extractionHud.threats;
+      }
+      threatLabel.classList.toggle("text-danger", extractionHud.hasThreats || extractionHud.boundaryWarning);
+      threatLabel.classList.toggle("text-cyan", !extractionHud.hasThreats && !extractionHud.boundaryWarning);
+    }
+    const channelProgress = this.el("mte-channel");
+    if (channelProgress) channelProgress.style.width = `${extractionHud.percent}%`;
+    const channelProgressBar = this.el("mte-channel-progress");
+    if (channelProgressBar) {
+      channelProgressBar.setAttribute("aria-valuenow", String(Math.round(extractionHud.percent)));
+      channelProgressBar.setAttribute("aria-valuetext", `${extractionHud.countdown} remaining`);
     }
     const lock = this.el("mte-lock");
     if (lock) {

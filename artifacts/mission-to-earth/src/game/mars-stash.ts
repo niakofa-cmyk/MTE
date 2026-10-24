@@ -196,6 +196,18 @@ export function registryForLabel(label: string | undefined) {
   return hit?.[0] ?? null;
 }
 
+export function registryForWeaponId(weaponId: string, label?: string) {
+  const matches = Object.entries(WEAPON_OF)
+    .filter(([, id]) => id === weaponId)
+    .map(([registryId]) => registryId);
+  if (label) {
+    const normalizedLabel = label.trim().toUpperCase();
+    const namedMatch = matches.find((id) => NAMES[id]?.toUpperCase() === normalizedLabel);
+    if (namedMatch) return namedMatch;
+  }
+  return matches.length === 1 ? matches[0]! : null;
+}
+
 export function weaponIdForRegistry(id: string) {
   return WEAPON_OF[id] ?? null;
 }

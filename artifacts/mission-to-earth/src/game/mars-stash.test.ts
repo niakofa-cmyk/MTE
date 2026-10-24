@@ -7,6 +7,7 @@ import {
   loadMars,
   modsForDrop,
   parseMarsProfile,
+  registryForWeaponId,
   saveMars,
   serializeMarsProfile,
   setPresetMod,
@@ -28,6 +29,17 @@ describe("mars stash", () => {
     const next = commitExtraction(emptyMars(), 0, [{ itemRegistryId: "intel_pure_blood_dna", sectorTier: 4 }]);
     assert.deepEqual(next.unlockedBlueprints, []);
     assert.equal(next.stash[0]?.itemRegistryId, "intel_pure_blood_dna");
+  });
+
+  it("files a static weapon pickup by weapon ID and disambiguates shared weapon classes", () => {
+    const rifleId = registryForWeaponId("rifle");
+    assert.equal(rifleId, "wep_inf_rifle_02");
+    assert.equal(registryForWeaponId("rail"), null);
+    assert.equal(registryForWeaponId("rail", "TACTICAL RAIL"), "wep_ussf_rail_03");
+
+    const saved = commitExtraction(emptyMars(), 0, [{ itemRegistryId: rifleId!, sectorTier: 2 }]);
+    assert.equal(saved.stash[0]?.itemRegistryId, "wep_inf_rifle_02");
+    assert.equal(saved.stash[0]?.quantity, 1);
   });
 
   it("sends only class-legal filed mods down with the gun", () => {

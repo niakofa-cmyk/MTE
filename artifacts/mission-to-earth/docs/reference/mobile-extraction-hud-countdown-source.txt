@@ -1,0 +1,213 @@
+
+1. Client-Side Mobile HUD Countdown Overlay
+
+This module renders the real-time 45-second extraction countdown timer, capture boundary alerts, and incoming hostile threat wave notifications directly onto the mobile overlay viewport layout.
+typescript
+export interface HUDDisplayState {
+  timeRemainingSec: number;
+  extractionPhase: number; // 0 = Inactive, 1 = Initialized, 2 = Engaged, 3 = Completed
+  activeThreatCount: number;
+  isWithinZoneBoundary: boolean;
+}
+
+export class MTEClientHUDOverlayManager {
+  private containerElement: HTMLDivElement;
+  private timerElement!: HTMLDivElement;
+  private threatElement!: HTMLDivElement;
+  private statusElement!: HTMLDivElement;
+
+  constructor(parentContainer: HTMLDivElement) {
+    this.containerElement = parentContainer;
+    this.initializeHUDDomStructure();
+  }
+
+  private initializeHUDDomStructure(): void {
+    // Create unbuffered UI housing container block
+    const hudWrapper = document.createElement('div');
+    hudWrapper.id = 'mte-hud-overlay';
+    hudWrapper.style.position = 'absolute';
+    hudWrapper.style.top = '10px';
+    hudWrapper.style.left = '50%';
+    hudWrapper.style.transform = 'translateX(-50%)';
+    hudWrapper.style.fontFamily = 'monospace';
+    hudWrapper.style.pointerEvents = 'none';
+    hudWrapper.style.textAlign = 'center';
+    hudWrapper.style.color = '#00ffcc';
+    hudWrapper.style.textShadow = '0 0 4px #00ffcc';
+
+    this.timerElement = document.createElement('div');
+    this.timerElement.style.fontSize = '28px';
+    this.timerElement.style.fontWeight = 'bold';
+
+    this.threatElement = document.createElement('div');
+    this.threatElement.style.fontSize = '14px';
+    this.threatElement.style.marginTop = '4px';
+
+    this.statusElement = document.createElement('div');
+    this.statusElement.style.fontSize = '16px';
+    this.statusElement.style.marginTop = '4px';
+
+    hudWrapper.appendChild(this.timerElement);
+    hudWrapper.appendChild(this.threatElement);
+    hudWrapper.appendChild(this.statusElement);
+    this.containerElement.appendChild(hudWrapper);
+  }
+
+  /**
+   * Refreshes UI text indicators dynamically from snapshot state inputs.
+   */
+  public updateHUDDisplay(state: HUDDisplayState): void {
+    // 1. Process Countdown Rendering
+    if (state.extractionPhase === 2) { // SURVIVAL_ENGAGED
+      this.timerElement.innerText = `EXTRACTION TIME: ${state.timeRemainingSec.toFixed(1)}s`;
+      this.timerElement.style.color = '#ff3300';
+      this.timerElement.style.textShadow = '0 0 4px #ff3300';
+    } else if (state.extractionPhase === 3) { // COMPLETED
+      this.timerElement.innerText = 'EXTRACTION SUCCESSFUL';
+      this.timerElement.style.color = '#00ff00';
+      this.timerElement.style.textShadow = '0 0 4px #00ff00';
+    } else {
+      this.timerElement.innerText = 'BEACON SIGNAL ACQUIRED';
+      this.timerElement.style.color = '#00ffcc';
+    }
+
+    // 2. Process Threat Tracking
+    this.threatElement.innerText = state.activeThreatCount > 0 
+      ? `HOSTILE NETWORK SIGNALS DETECTED: ${state.activeThreatCount}`
+      : 'AIRSPACE CLEAR - SECURE PERIMETER';
+
+    // 3. Boundary Alert Indicator Clamps
+    if (!state.isWithinZoneBoundary && state.extractionPhase === 2) {
+      this.statusElement.innerText = 'WARNING: OUTSIDE HOLD ENVELOPE - RETURNING TO BEACON';
+      this.statusElement.style.backgroundColor = 'rgba(255,0,0,0.4)';
+    } else {
+      this.statusElement.innerText = state.extractionPhase === 2 ? 'HOLDING ZONE CORES' : 'APPROACH BEACON ORIGIN';
+      this.statusElement.style.backgroundColor = 'transparent';
+    }
+  }
+}
+Use code with caution.
+
+2. Disconnect Simulation & Failsafe Log Resolution
+
+This worker script simulates abrupt client disconnection events mid-transaction frame during the critical survival phase. It tests the atomic staging logs to confirm that uncommitted data records cleanly reconcile upon system recovery.
+typescript
+import { MTEWriteAheadPersistenceEngine, AuthoritativeProfileState } from '../persistence/wal';
+import { MTEPersistenceRecoveryManager } from '../persistence/recovery';
+import * as fs from 'fs';
+import * as path from 'path';
+
+export class MTEDisconnectFailsafeSimulator {
+  private static readonly STAGING_DIR = path.resolve(process.cwd(), 'data/wal_staging');
+
+  /**
+   * Drops an uncommitted mock transaction file into the server's WAL directory,
+   * simulating a hardware crash or network cut precisely during an extraction save frame.
+   */
+  public static async injectAndVerifySimulatedCrashRecoveryAsync(mockPlayerId: string): Promise<boolean> {
+    const uncommittedProfile: AuthoritativeProfileState = {
+      playerId: mockPlayerId,
+      extractedWeaponIds:,
+      liberatedDharmaDescendants: 1,
+      liberatedMaatDescendants: 0,
+      matchSequenceCheckpoint: 9942,
+      timestamp: Date.now()
+    };
+
+    if (!fs.existsSync(this.STAGING_DIR)) {
+      fs.mkdirSync(this.STAGING_DIR, { recursive: true });
+    }
+
+    const crashFileTarget = path.join(this.STAGING_DIR, `${mockPlayerId}_CRASH_MOCK.wal`);
+    
+    // Write directly to raw WAL directory bypass-injecting normal resolution processes
+    fs.writeFileSync(crashFileTarget, JSON.stringify(uncommittedProfile, null, 2), 'utf-8');
+    console.log(`SIMULATION: Simulated connection drop recorded. Stale log dumped to: ${crashFileTarget}`);
+
+    // Trigger the Recovery Core Engine to reconcile unverified transactions
+    const fixedRecordsCount = await MTEPersistenceRecoveryManager.recoverDanglingTransactionsAsync();
+    const fileClearedCleanly = !fs.existsSync(crashFileTarget);
+
+    return fixedRecordsCount === 1 && fileClearedCleanly;
+  }
+}
+Use code with caution.
+
+3. Integrated Close-Quarters Encounter Unit Test Suite
+
+This unit test suite profiles proximity player damage updates, verification boundaries, and threat generation iterations inside the 6-meter extraction radius.
+typescript
+import { AuthoritativePlayer } from '../multiplayer/MTEAuthoritativeEngine';
+import { MTEAuthoritativeExtractionManager, ExtractionPhase, ExtractionMatchState } from '../systems/extraction';
+import { MTETacticalEncounterSpawner, AutomatedThreatNPC } from '../systems/ai_combat';
+
+export class MTEEncounterUnitTestSuite {
+  public static runEncounterVerificationMatrix(): void {
+    console.log('--- STARTING MTE CLOSE-QUARTERS ENCOUNTER TEST MATRIX ---');
+
+    const mockMatchId = 'TEST_REST_MATCH_77';
+    const beaconVector = { x: 250.0, y: 0.0, z: -380.0 };
+    
+    const mockPlayer: AuthoritativePlayer = {
+      id: 'PL_ACCORD_LEAD',
+      faction: 1, classId: 2,
+      position: { x: 251.0, y: 0.0, z: -379.0 }, // Directly inside the 6m tracking perimeter
+      velocity: { x: 0, y: 0, z: 0 },
+      rotationYaw: 0, rotationPitch: 0, health: 100, maxHealth: 100,
+      rightHand: { weaponId: 101, ammoCurrent: 30, ammoMax: 30, state: 0, cooldownTimer: 0 },
+      leftHand: { weaponId: 0, ammoCurrent: 0, ammoMax: 0, state: 0, cooldownTimer: 0 },
+      isFocusAiming: false, lastProcessedSeq: 42, isActive: true
+    };
+
+    const state = MTEAuthoritativeExtractionManager.initializeExtraction(mockMatchId, beaconVector);
+    const threats: AutomatedThreatNPC[] = [];
+
+    this.verifySurvivalEngagementTriggers(state, mockPlayer, threats);
+    this.verifyOutofBoundsResetMechanisms(state, mockPlayer);
+
+    console.log('--- ENCOUNTER CONTEXT TEST MATRIX MATRIX SUCCESS ---');
+  }
+
+  private static verifySurvivalEngagementTriggers(
+    state: ExtractionMatchState, 
+    player: AuthoritativePlayer, 
+    threats: AutomatedThreatNPC[]
+  ): void {
+    // Tick initial pass frame engagement step
+    MTEAuthoritativeExtractionManager.tickExtractionSequence(state, player, 0.1)
+      .then((res) => {
+        if (state.currentPhase === ExtractionPhase.SURVIVAL_ENGAGED && res.triggeredWave) {
+          console.log('PASS: Initial survival phase engagement registered.');
+          
+          // Generate threat wave based on validation flag markers
+          MTETacticalEncounterSpawner.generateHostileEncounterWave(state.beaconPosition, 1, threats);
+          if (threats.length === 3) {
+             console.log('PASS: Network State combat wave spawned accurately at coordinate vectors.');
+          } else {
+            throw new Error('FAIL: AI Encounter pool distribution calculation error.');
+          }
+        } else {
+          throw new Error('FAIL: Extraction state core missed entrance phase checks.');
+        }
+      });
+  }
+
+  private static verifyOutofBoundsResetMechanisms(state: ExtractionMatchState, player: AuthoritativePlayer): void {
+    // Relocate player coordinates way outside the capture zone limits (e.g., 500m out)
+    player.position.x = 750.0;
+    
+    MTEAuthoritativeExtractionManager.tickExtractionSequence(state, player, 0.1)
+      .then((res) => {
+        if (state.currentPhase === ExtractionPhase.BEACON_INITIALIZED && state.holdTimeRemainingSec === state.requiredHoldDurationSec) {
+          console.log('PASS: Perimeter boundary retreat penalty verified. State reverted to baseline.');
+        } else {
+          throw new Error('FAIL: Server failed to process distance retreat boundaries.');
+        }
+      });
+  }
+}
+Use code with caution.
+With the HUD overlay interfaces, disconnect recovery simulations, and encounter unit tests complete:
+• Should we integrate these functions directly into your project's main Express/Fastify REST HTTP POST testing workflow route?
+• Do you want to build the Server calculation logic for processing weapon damage dealt by incoming automated NPCs during survival waves?
+• Or should we focus on designing client-side asset pre-caching modules to prevent frame-hiccups on high-resolution mobile devices?

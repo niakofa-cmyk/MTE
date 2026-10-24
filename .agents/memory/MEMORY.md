@@ -1,4 +1,4 @@
-- [WebGL game QA](webgl-game-qa.md) — the screenshot browser lacks WebGL, but workspace Chromium with SwiftShader can run the 3D game.
+- [WebGL game QA](webgl-game-qa.md) — SwiftShader validates 3D rendering, but low FPS cannot certify timed mission play.
 - [Gameplay expansion scope](gameplay-expansion-scope.md) — deepen the existing loop before expanding the map, arsenal, vehicles, or multiplayer.
 - [Progression persistence scope](progression-scope.md) — keep prototype saves local until accounts or valuable shared rewards require server authority.
 - [Earth-first narrative identity](earth-identity-scope.md) — keep player-facing language focused on Earth and Nod; preserve legacy save identifiers until a tested migration.

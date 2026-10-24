@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { findNavigationPath, relativeTargetDirection } from "./navigation.ts";
+import { compassHeadingDegrees, findNavigationPath, relativeTargetDirection } from "./navigation.ts";
 
 const worldLimit = 30;
 
@@ -57,6 +57,18 @@ describe("guard navigation", () => {
 });
 
 describe("player objective guidance", () => {
+  it("normalizes compass headings across repeated full rotations", () => {
+    assert.equal(compassHeadingDegrees(0), 0);
+    assert.equal(compassHeadingDegrees(-Math.PI / 2), 90);
+    assert.equal(compassHeadingDegrees((5 * Math.PI) / 2), 270);
+    assert.equal(compassHeadingDegrees((-5 * Math.PI) / 2), 90);
+  });
+
+  it("marks a non-finite compass heading as unavailable", () => {
+    assert.equal(compassHeadingDegrees(Number.NaN), null);
+    assert.equal(compassHeadingDegrees(Number.POSITIVE_INFINITY), null);
+  });
+
   it("reports cardinal directions relative to a north-facing player", () => {
     assert.equal(relativeTargetDirection(0, 0, 0, -10, 0), "AHEAD");
     assert.equal(relativeTargetDirection(0, 0, 10, 0, 0), "RIGHT");

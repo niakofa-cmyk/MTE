@@ -757,8 +757,27 @@ function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
         </div>
       </div>
       <p id="mte-toast" className="absolute bottom-36 left-1/2 -translate-x-1/2 font-display text-sm tracking-widest text-gold opacity-0" />
-      <div id="mte-channel-wrap" className="absolute bottom-28 left-1/2 w-48 -translate-x-1/2 opacity-0">
-        <div className="h-1 bg-surface-2">
+      <div
+        id="mte-channel-wrap"
+        className="pointer-events-none absolute top-[18%] left-1/2 z-10 w-[min(88vw,24rem)] -translate-x-1/2 border border-gold/40 bg-bg/85 px-3 py-2 text-center opacity-0 shadow-lg backdrop-blur-sm"
+        role="group"
+        aria-label="Mission extraction status"
+      >
+        <div className="flex items-center justify-between gap-3 font-display tracking-widest">
+          <p id="mte-channel-title" className="text-[10px] text-gold sm:text-xs" />
+          <p id="mte-channel-timer" className="shrink-0 text-lg text-fg sm:text-xl" />
+        </div>
+        <p id="mte-channel-status" className="mt-1 text-[10px] tracking-wide text-muted sm:text-xs" role="status" aria-live="polite" />
+        <p id="mte-channel-threats" className="mt-1 font-display text-[9px] tracking-widest text-danger sm:text-[10px]" />
+        <div
+          id="mte-channel-progress"
+          className="mt-2 h-1 overflow-hidden bg-surface-2"
+          role="progressbar"
+          aria-label="Extraction interaction progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={0}
+        >
           <div id="mte-channel" className="h-full bg-gold" style={{ width: "0%" }} />
         </div>
       </div>

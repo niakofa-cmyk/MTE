@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { emptyMars, loadMars, saveMars } from "./mars-stash.ts";
+import { emptyMars, loadMars, registryForWeaponId, saveMars } from "./mars-stash.ts";
 import { persistExtractionWin, recoverPendingExtraction } from "./mission-progress.ts";
 import { emptyRecord, loadRecord, saveRecord } from "./progress-record.ts";
 
@@ -68,6 +68,26 @@ describe("extraction progress persistence", () => {
       assert.equal(result.mars.martianCredits, 185);
       assert.deepEqual(loadRecord(), result.record);
       assert.deepEqual(loadMars(), result.mars);
+      assert.equal(recoverPendingExtraction().pending, false);
+    });
+  });
+
+  it("persists a recovered static rifle in the stash with the extraction record", () => {
+    withLocalStorage(() => {
+      const rifleRegistryId = registryForWeaponId("rifle");
+      assert.equal(rifleRegistryId, "wep_inf_rifle_02");
+
+      const result = persistExtractionWin({
+        time: 850,
+        kills: 0,
+        scrap: 0,
+        manifest: [{ itemRegistryId: rifleRegistryId!, sectorTier: 2 }],
+      });
+
+      assert.equal(result.saved, true);
+      assert.equal(loadRecord().extractions, 1);
+      assert.equal(loadMars().stash[0]?.itemRegistryId, "wep_inf_rifle_02");
+      assert.equal(loadMars().stash[0]?.quantity, 1);
       assert.equal(recoverPendingExtraction().pending, false);
     });
   });
