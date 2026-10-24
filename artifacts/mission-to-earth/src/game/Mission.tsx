@@ -15,7 +15,6 @@ import {
   parseLookSensitivity,
 } from "@/game/settings";
 import {
-  commitExtraction,
   ensureCredits,
   labelForRegistry,
   loadMars,
@@ -25,7 +24,8 @@ import {
   type MarsProfile,
   type ModField,
 } from "@/game/mars-stash";
-import { loadRecord, recordExtraction, saveRecord, type RecordBook } from "@/game/progress-record";
+import { persistExtractionWin } from "@/game/mission-progress";
+import { loadRecord, type RecordBook } from "@/game/progress-record";
 import { applyTouchCommand, TouchControllerLayer, type TouchCommand, type TouchZone } from "@/game/touch-controller";
 import {
   ServerMatchClient,
@@ -94,13 +94,10 @@ export function Mission() {
               hasEonDuskPlans: event.manifest.some((piece) => piece.itemRegistryId === "intel_eon_dusk_schematic"),
             });
             setScreen("win");
-            const nextMars = commitExtraction(loadMars(), event.scrap, event.manifest);
-            const marsSaved = saveMars(nextMars);
-            setMars(nextMars);
-            const nextRecord = recordExtraction(loadRecord(), event);
-            const recordSaved = saveRecord(nextRecord);
-            setRecord(nextRecord);
-            setSaveWarning(marsSaved && recordSaved ? null : LOCAL_SAVE_WARNING);
+            const progress = persistExtractionWin(event);
+            setMars(progress.mars);
+            setRecord(progress.record);
+            setSaveWarning(progress.saved ? null : LOCAL_SAVE_WARNING);
           }
           if (event.type === "error") setScreen("menu");
         },

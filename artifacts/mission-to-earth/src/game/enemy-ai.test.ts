@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { canPerceiveTarget, stepEnemyMind, withinVisionCone, type MindInput } from "./enemy-ai.ts";
+import { canPerceiveTarget, SEARCH_SECONDS, stepEnemyMind, withinVisionCone, type MindInput } from "./enemy-ai.ts";
 
 const input = (overrides: Partial<MindInput> = {}): MindInput => ({
   state: "patrol",
@@ -73,6 +73,105 @@ describe("enemy mind", () => {
     assert.equal(engaged.shoot, true);
     assert.equal(engaged.lastX, 8);
     assert.equal(engaged.lastZ, -3);
+  });
+
+  it("follows patrol, suspicion, engagement, investigation, search, and patrol with LOS", () => {
+    let mind = stepEnemyMind(input({ dt: 30, age: 0 }));
+    assert.equal(mind.state, "patrol");
+    assert.equal(mind.age, 30);
+
+    const hasLineOfSight = canPerceiveTarget(0, 0, -8, 28, () => true);
+    mind = stepEnemyMind({ ...input(), ...mind, seen: hasLineOfSight, dt: 0.1 });
+    assert.equal(mind.state, "suspicious");
+    assert.equal(mind.age, 0);
+    assert.equal(mind.shoot, false);
+
+    mind = stepEnemyMind({ ...input(), ...mind, seen: hasLineOfSight, dt: 0.2 });
+    assert.equal(mind.state, "suspicious");
+    assert.equal(mind.age, 0.2);
+    assert.equal(mind.shoot, false);
+
+    mind = stepEnemyMind({ ...input(), ...mind, seen: hasLineOfSight, dt: 0.26 });
+    assert.equal(mind.state, "engage");
+    assert.equal(mind.age, 0);
+    assert.equal(mind.shoot, true);
+    assert.deepEqual([mind.lastX, mind.lastZ], [4, 2]);
+
+    const wallBlocksSight = canPerceiveTarget(0, 0, -8, 28, () => false);
+    mind = stepEnemyMind({ ...input(), ...mind, seen: wallBlocksSight, dt: 0.05 });
+    assert.equal(mind.state, "investigate");
+    assert.equal(mind.age, 0);
+    assert.equal(mind.shoot, false);
+    assert.deepEqual([mind.lastX, mind.lastZ], [4, 2]);
+
+    mind = stepEnemyMind({ ...input(), ...mind, dt: 4.01 });
+    assert.equal(mind.state, "search");
+    assert.equal(mind.age, 0);
+    assert.deepEqual([mind.lastX, mind.lastZ], [4, 2]);
+
+    mind = stepEnemyMind({ ...input(), ...mind, dt: SEARCH_SECONDS + 0.01 });
+    assert.equal(mind.state, "patrol");
+    assert.equal(mind.age, 0);
+    assert.equal(mind.shoot, false);
+  });
+
+  it("reacquires the player during a search without skipping suspicion", () => {
+    const reacquired = stepEnemyMind(input({
+      state: "search",
+      age: 7,
+      seen: canPerceiveTarget(0, 0, -8, 28, () => true),
+      actorX: 9,
+      actorZ: -5,
+      lastX: 2,
+      lastZ: 3,
+    }));
+    assert.equal(reacquired.state, "suspicious");
+    assert.equal(reacquired.age, 0);
+    assert.equal(reacquired.shoot, false);
+    assert.deepEqual([reacquired.lastX, reacquired.lastZ], [9, -5]);
+  });
+
+  it("advances only one state per update after an unusually large frame delta", () => {
+    const firstSight = stepEnemyMind(input({ seen: true, age: 30, dt: 60 }));
+    assert.equal(firstSight.state, "suspicious");
+    assert.equal(firstSight.age, 0);
+    assert.equal(firstSight.shoot, false);
+
+    const engaged = stepEnemyMind({ ...input(), ...firstSight, seen: true, dt: 60 });
+    assert.equal(engaged.state, "engage");
+    assert.equal(engaged.age, 0);
+
+    const investigating = stepEnemyMind({ ...input(), ...engaged, seen: false, dt: 60 });
+    assert.equal(investigating.state, "investigate");
+    assert.equal(investigating.age, 0);
+
+    const searching = stepEnemyMind({ ...input(), ...investigating, dt: 60 });
+    assert.equal(searching.state, "search");
+    assert.equal(searching.age, 0);
+
+    const patrolling = stepEnemyMind({ ...input(), ...searching, dt: 60 });
+    assert.equal(patrolling.state, "patrol");
+    assert.equal(patrolling.age, 0);
+  });
+
+  it("normalizes invalid and negative timing inputs to finite non-negative time", () => {
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      const mind = stepEnemyMind(input({
+        state: "suspicious",
+        seen: true,
+        age: value,
+        dt: value,
+      }));
+      assert.equal(mind.state, "suspicious");
+      assert.equal(mind.age, 0);
+      assert.equal(Number.isFinite(mind.age), true);
+      assert.equal(mind.shoot, false);
+    }
+
+    const negative = stepEnemyMind(input({ age: -30, dt: -1 }));
+    assert.equal(negative.state, "patrol");
+    assert.equal(negative.age, 0);
+    assert.equal(Number.isFinite(negative.age), true);
   });
 
   it("resets suspicion after cover loss and reacquisition, while preserving and refreshing the last known point", () => {

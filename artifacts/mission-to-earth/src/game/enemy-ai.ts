@@ -27,6 +27,10 @@ const SUSPICION_SECONDS = 0.45;
 const INVESTIGATION_SECONDS = 4;
 export const SEARCH_SECONDS = 10.8;
 
+function elapsedSeconds(value: number) {
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
 export function withinVisionCone(yaw: number, dx: number, dz: number, halfAngleDegrees = 72) {
   const distance = Math.hypot(dx, dz);
   if (distance < 1e-6) return true;
@@ -51,8 +55,8 @@ export function canPerceiveTarget(
 
 export function stepEnemyMind(input: MindInput): MindOutput {
   let state = input.state;
-  let age = Math.max(0, input.age);
-  const dt = Math.max(0, input.dt);
+  let age = elapsedSeconds(input.age);
+  const dt = elapsedSeconds(input.dt);
   const alertX = input.heardX ?? input.actorX;
   const alertZ = input.heardZ ?? input.actorZ;
   const lastX = input.seen ? input.actorX : input.heard ? alertX : input.lastX;
