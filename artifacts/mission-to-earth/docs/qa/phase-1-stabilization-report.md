@@ -4,7 +4,7 @@
 **Repository:** `niakofa-cmyk/MTE`<br>
 **Branch:** `main`<br>
 **Reviewed commit:** `716d50eb8036463a2ff611e7a83313a143cfc616`<br>
-**Overall result:** **PARTIAL** — automated checks and core controls passed. A real-input mission run reached the win screen, but the game’s own reinsert checkpoints skipped parts of the route. That run also exposed a missing saved extraction record; the win-save path has since been hardened and covered by focused storage integration tests, but has not yet been re-run through a complete browser mission.
+**Overall result:** **PARTIAL** — automated checks and core controls passed. A real-input mission run reached the win screen using the game’s Reinsert checkpoints, but skipped parts of the route and exposed a missing saved extraction record. The win-save path was hardened and covered by focused storage integration tests. A post-fix browser attempt was started on the current commit but did not free Ananda or reach extraction, so live post-win persistence remains unverified.
 
 The reviewed commit is the repository baseline. The AI timing and extraction-persistence changes described below are follow-up changes built against that baseline.
 
@@ -79,6 +79,12 @@ The player later died during the beacon counter-wave. Reinsert placed the player
 
 The browser save before that win held 2 extractions, 160 scrap, 160 credits, and one stash item. After the win and File the report action, those values were unchanged. The expected new extraction was not recorded in this run. No test code altered player coordinates, health, actors, or objective flags; the jumps came from the game’s Reinsert mechanic.
 
+### Post-fix browser attempt
+
+The post-fix attempt ran on commit `3df435ac1b10296c3f97dc08613fa55591cd865f` in workspace Chromium with WebGL2. The game launched from its normal menu and entered the mission. Pointer lock, camera look, movement, solid-geometry blocking, separate left/right firing, ammo pickup, and reload behavior were exercised with real browser input. The player moved around the Red Veil Compound, but remained on the CRADLE ALPHA objective with Ananda and Nefret still caged. Firing toward the apparent gate and repeated interaction attempts did not produce an observed breach or rescue transition; the correct gate/line of sight was not conclusively identified. The player could move away and strafe, so a global movement lock was not reproduced; objective navigation at the compound remains unclear.
+
+This attempt did not reach the win screen. Once-only extraction rewards, saved progression after a post-fix win, reload persistence, death/restart, and the remaining mission objectives are **NOT TESTED** in this run. No coordinates, health, actors, objective flags, or saves were injected or modified. Browser console output contained only Vite reconnect messages; no game runtime exception was observed.
+
 The save remains client-local and uses compatibility identifiers such as `mte-mars-v2` and `martianCredits`.
 
 ### AI timing and combat behavior
@@ -111,7 +117,7 @@ The built-app Chromium run had no JavaScript exceptions or console errors. The s
 
 ## Remaining blockers and recommended next phase
 
-1. Re-run a real browser extraction after the save-path hardening, then verify a repeated win is blocked and progress survives reload.
+1. Complete a post-fix browser extraction. This attempt reached the Alpha area but did not free a descendant or win; verify a once-only reward and saved progression after a real win, then confirm persistence across reload.
 2. Run a fresh, uninterrupted browser mission through both rescues, beacon, and extraction without using Reinsert after death. Assert follower spacing, objective progression, once-only rewards, and saved progression.
 3. Profile representative desktop and low-end mobile hardware. The SwiftShader measurements above are software-rendering diagnostics, not device certification.
 4. Keep progression local for the prototype. If accounts or valuable shared rewards are introduced, move reward validation and inventory authority to the server with duplicate-claim protection.
