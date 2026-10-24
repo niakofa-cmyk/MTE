@@ -4,7 +4,8 @@
 **Repository:** `niakofa-cmyk/MTE`<br>
 **Branch:** `main`<br>
 **Reviewed commit:** `716d50eb8036463a2ff611e7a83313a143cfc616`<br>
-**Overall result:** **PARTIAL** — automated checks and core controls passed. A real-input mission run reached the win screen using the game’s Reinsert checkpoints, but skipped parts of the route and exposed a missing saved extraction record. The win-save path was hardened and covered by focused storage integration tests. A post-fix browser attempt was started on the current commit but did not free Ananda or reach extraction, so live post-win persistence remains unverified.
+**Follow-up gameplay/UI commit:** `d37dbce5ae98e80d4c8bba11ffe04b5111578878`<br>
+**Overall result:** **PARTIAL** — automated checks and core controls passed. A real-input mission run reached the win screen using the game’s Reinsert checkpoints, but skipped parts of the route and exposed a missing saved extraction record. The win-save path was hardened and covered by focused storage integration tests. A post-fix browser attempt did not free Ananda or reach extraction. A clearer target-bearing HUD cue has since been added and verified, but live post-win persistence remains unverified.
 
 The reviewed commit is the repository baseline. The AI timing and extraction-persistence changes described below are follow-up changes built against that baseline.
 
@@ -48,7 +49,7 @@ The latest mission-app checks were run after the extraction-persistence change. 
 |---|---|
 | `pnpm --filter @workspace/mission-to-earth run typecheck` | **PASS** |
 | `pnpm --filter @workspace/mission-to-earth run lint` | **PASS** |
-| `pnpm --filter @workspace/mission-to-earth run test` | **PASS** — 125 tests, 27 suites, 0 failures |
+| `pnpm --filter @workspace/mission-to-earth run test` | **PASS** — 129 tests, 28 suites, 0 failures |
 | `PORT=4173 BASE_PATH=/ pnpm --filter @workspace/mission-to-earth run build` | **PASS** — production build completed; Vite emitted the documented large-chunk warning |
 | `pnpm --filter @workspace/mission-to-earth run build` | **FAIL (environment)** — required `PORT` was not provided |
 | `PORT=4173 pnpm --filter @workspace/mission-to-earth run build` | **FAIL (environment)** — required `BASE_PATH` was not provided |
@@ -71,6 +72,8 @@ The desktop player moved from `z=86` to `z=83.815` during movement input. A soli
 
 The successful mobile pass used Chrome device emulation and pointer events sent to the game's rendered touch controls. The player moved from approximately `z=-62` to `z=-63.9`; yaw and pitch both changed; right- and left-hand ammunition each decreased by one; focus activated. This verifies the UI-to-engine path in emulation, not native touch behavior on a physical device.
 
+The follow-up objective cue was also checked at 402×874 CSS pixels. Its objective, relative-bearing, and sector text occupied a 257px row inside the HUD without horizontal overflow. This was browser device emulation, not physical-device testing.
+
 ### Mission, extraction, and persistence
 
 The no-test-teleport attempt began at the normal drop. Real WASD/sprint and mouse inputs moved the player to the Alpha gate; mouse fire destroyed it and a held E interaction freed Ananda. Enemy fire killed the player shortly after. Reinsert preserved Ananda and placed the player at Omega. The Omega gate was destroyed with real fire and Nefret was freed with a held E interaction.
@@ -84,6 +87,8 @@ The browser save before that win held 2 extractions, 160 scrap, 160 credits, and
 The post-fix attempt ran on commit `3df435ac1b10296c3f97dc08613fa55591cd865f` in workspace Chromium with WebGL2. The game launched from its normal menu and entered the mission. Pointer lock, camera look, movement, solid-geometry blocking, separate left/right firing, ammo pickup, and reload behavior were exercised with real browser input. The player moved around the Red Veil Compound, but remained on the CRADLE ALPHA objective with Ananda and Nefret still caged. Firing toward the apparent gate and repeated interaction attempts did not produce an observed breach or rescue transition; the correct gate/line of sight was not conclusively identified. The player could move away and strafe, so a global movement lock was not reproduced; objective navigation at the compound remains unclear.
 
 This attempt did not reach the win screen. Once-only extraction rewards, saved progression after a post-fix win, reload persistence, death/restart, and the remaining mission objectives are **NOT TESTED** in this run. No coordinates, health, actors, objective flags, or saves were injected or modified. Browser console output contained only Vite reconnect messages; no game runtime exception was observed.
+
+On commit `d37dbce5ae98e80d4c8bba11ffe04b5111578878`, the objective HUD now labels the actual target type and relative bearing instead of showing an unlabeled distance beside the sector. A normal Start and descent in WebGL2 workspace Chromium showed `LANDING 168 m · RIGHT`; after landing, the cue updated to `GATE 168 m · RIGHT` for CRADLE ALPHA. The canvas retained pointer lock. Unit tests cover cardinal directions, yaw-relative direction, north-angle wrap, a coincident target, and non-finite inputs. This verifies the cue, not the full gate/rescue/extraction route.
 
 The save remains client-local and uses compatibility identifiers such as `mte-mars-v2` and `martianCredits`.
 
@@ -110,7 +115,10 @@ The built-app Chromium run had no JavaScript exceptions or console errors. The s
 
 - `artifacts/mission-to-earth/src/game/enemy-ai.ts` — normalize invalid and negative age/delta values.
 - `artifacts/mission-to-earth/src/game/enemy-ai.test.ts` — add state-sequence, reacquisition, large-delta, and invalid-time regression coverage.
-- `artifacts/mission-to-earth/src/game/Mission.tsx` — route win events through independently verified local persistence.
+- `artifacts/mission-to-earth/src/game/Mission.tsx` — route win events through independently verified local persistence and show objective bearing in the HUD.
+- `artifacts/mission-to-earth/src/game/engine.ts` — display objective type, range, and relative direction.
+- `artifacts/mission-to-earth/src/game/navigation.ts` — calculate safe, yaw-relative objective direction.
+- `artifacts/mission-to-earth/src/game/navigation.test.ts` — cover objective direction math and invalid inputs.
 - `artifacts/mission-to-earth/src/game/mission-progress.ts` — save the service record first and verify both local save readbacks.
 - `artifacts/mission-to-earth/src/game/mission-progress.test.ts` — cover successful persistence and profile-write failure isolation.
 - `artifacts/mission-to-earth/docs/qa/phase-1-stabilization-report.md` — this report.
