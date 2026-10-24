@@ -5,7 +5,8 @@
 **Branch:** `main`<br>
 **Reviewed commit:** `716d50eb8036463a2ff611e7a83313a143cfc616`<br>
 **Follow-up gameplay/UI commit:** `d37dbce5ae98e80d4c8bba11ffe04b5111578878`<br>
-**Overall result:** **PARTIAL** — automated checks and core controls passed. A real-input mission run reached the win screen using the game’s Reinsert checkpoints, but skipped parts of the route and exposed a missing saved extraction record. The win-save path was hardened and covered by focused storage integration tests. A post-fix browser attempt did not free Ananda or reach extraction. A clearer target-bearing HUD cue has since been added and verified, but live post-win persistence remains unverified.
+**Follow-up persistence commit:** `e758857393e16c51a7c486c2c0635b4d9c7755b7`<br>
+**Overall result:** **PARTIAL** — automated checks and core controls passed. A real-input mission run reached the win screen using the game’s Reinsert checkpoints, but skipped parts of the route and exposed a missing saved extraction record. The win-save path now stages and replays local snapshots, with focused interruption tests. A post-fix browser attempt did not free Ananda or reach extraction, so live post-win persistence remains unverified.
 
 The reviewed commit is the repository baseline. The AI timing and extraction-persistence changes described below are follow-up changes built against that baseline.
 
@@ -49,7 +50,7 @@ The latest mission-app checks were run after the extraction-persistence change. 
 |---|---|
 | `pnpm --filter @workspace/mission-to-earth run typecheck` | **PASS** |
 | `pnpm --filter @workspace/mission-to-earth run lint` | **PASS** |
-| `pnpm --filter @workspace/mission-to-earth run test` | **PASS** — 129 tests, 28 suites, 0 failures |
+| `pnpm --filter @workspace/mission-to-earth run test` | **PASS** — 132 tests, 28 suites, 0 failures |
 | `PORT=4173 BASE_PATH=/ pnpm --filter @workspace/mission-to-earth run build` | **PASS** — production build completed; Vite emitted the documented large-chunk warning |
 | `pnpm --filter @workspace/mission-to-earth run build` | **FAIL (environment)** — required `PORT` was not provided |
 | `PORT=4173 pnpm --filter @workspace/mission-to-earth run build` | **FAIL (environment)** — required `BASE_PATH` was not provided |
@@ -92,6 +93,8 @@ On commit `d37dbce5ae98e80d4c8bba11ffe04b5111578878`, the objective HUD now labe
 
 The save remains client-local and uses compatibility identifiers such as `mte-mars-v2` and `martianCredits`.
 
+The follow-up persistence implementation stages the complete next service-record and reward-profile snapshots in a versioned browser-local journal before updating either save. Startup replays a valid pending snapshot before loading progression; failed or invalid journals remain in place and raise the existing save warning. Unit tests cover partial writes, replay, staging failure, and invalid journals. This is a best-effort local recovery layer, not a server WAL, database transaction, anti-cheat boundary, or cross-device save. A complete browser extraction after this change has not yet been verified.
+
 ### AI timing and combat behavior
 
 The integrated check began with a patrol age of 30 seconds and a visible player. The guard entered `suspicious` with age reset, progressed to `engage` only after sustained sight, and changed to `investigate` behind a wall while retaining the last-known location. A shot heard behind cover also caused investigation. The unit suite covers the full patrol → suspicious → engage → investigate → search → patrol sequence, reacquisition, sound-only alerts, large frame deltas, and invalid timing values.
@@ -115,12 +118,14 @@ The built-app Chromium run had no JavaScript exceptions or console errors. The s
 
 - `artifacts/mission-to-earth/src/game/enemy-ai.ts` — normalize invalid and negative age/delta values.
 - `artifacts/mission-to-earth/src/game/enemy-ai.test.ts` — add state-sequence, reacquisition, large-delta, and invalid-time regression coverage.
-- `artifacts/mission-to-earth/src/game/Mission.tsx` — route win events through independently verified local persistence and show objective bearing in the HUD.
+- `artifacts/mission-to-earth/src/game/Mission.tsx` — recover pending local extraction saves before loading progression; retain verified win writes and objective bearing.
 - `artifacts/mission-to-earth/src/game/engine.ts` — display objective type, range, and relative direction.
 - `artifacts/mission-to-earth/src/game/navigation.ts` — calculate safe, yaw-relative objective direction.
 - `artifacts/mission-to-earth/src/game/navigation.test.ts` — cover objective direction math and invalid inputs.
-- `artifacts/mission-to-earth/src/game/mission-progress.ts` — save the service record first and verify both local save readbacks.
-- `artifacts/mission-to-earth/src/game/mission-progress.test.ts` — cover successful persistence and profile-write failure isolation.
+- `artifacts/mission-to-earth/src/game/local-storage.ts` — safely remove a local staging journal.
+- `artifacts/mission-to-earth/src/game/mission-progress.ts` — stage, replay, and verify complete local extraction snapshots.
+- `artifacts/mission-to-earth/src/game/mission-progress.test.ts` — cover interruption recovery, staging failure, invalid journals, and readback verification.
+- `artifacts/mission-to-earth/docs/architecture/persistence-reliability-reference.md` — record the adapted persistence design and server-authority boundary.
 - `artifacts/mission-to-earth/docs/qa/phase-1-stabilization-report.md` — this report.
 
 ## Remaining blockers and recommended next phase
