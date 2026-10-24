@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   TouchControllerLayer,
+  SPRINT_SHOVE_PX,
   applyTouchCommand,
   classifyZone,
   stickFromDrag,
@@ -43,6 +44,16 @@ describe("touch controller", () => {
   it("sprints only when the stick is shoved past the pixel gate", () => {
     assert.equal(stickFromDrag(0, -80).sprint, true);
     assert.equal(stickFromDrag(0, -40).sprint, false);
+  });
+
+  it("starts sprint at 85% of the movement stick radius", () => {
+    const layer = new TouchControllerLayer();
+    layer.begin(1, "MOVEMENT", 40, 400, 0);
+    const justBelow = layer.move(1, 40, 400 - (SPRINT_SHOVE_PX - 1), 20);
+    assert.equal(justBelow.some((command) => command.type === "move" && command.sprint), false);
+
+    const sprint = layer.move(1, 40, 400 - SPRINT_SHOVE_PX, 20);
+    assert.equal(sprint.some((command) => command.type === "move" && command.sprint), true);
   });
 
   it("looks without firing, even if the thumb stops or presses hard", () => {
@@ -98,6 +109,38 @@ describe("touch controller", () => {
     assert.equal(layer.ownsPointer(22), false);
     assert.equal(layer.ownsPointer(23), false);
     assert.deepEqual(layer.move(22, 60, 430, 20), []);
+  });
+
+  it("routes simultaneous movement and full two-axis look through separate pointers", () => {
+    const layer = new TouchControllerLayer();
+    const pad = sink();
+
+    for (const command of layer.begin(24, "MOVEMENT", 40, 400, 0)) applyTouchCommand(pad, command);
+    for (const command of layer.begin(25, "LOOK_COMBAT", 300, 400, 0)) applyTouchCommand(pad, command);
+    for (const command of layer.move(24, 40, 340, 80)) applyTouchCommand(pad, command);
+    for (const command of layer.move(25, 360, 370, 80)) applyTouchCommand(pad, command);
+
+    assert.equal(pad.ay, 1);
+    assert.equal(pad.ax, 0);
+    assert.equal(pad.lookX, 60 * layer.lookSensitivity);
+    assert.equal(pad.lookY, -30 * layer.lookSensitivity);
+    assert.equal(pad.lookHeld, true);
+
+    for (const command of layer.end(24, 40, 340, 120)) applyTouchCommand(pad, command);
+    assert.equal(pad.ay, 0);
+    assert.equal(pad.lookHeld, true);
+    for (const command of layer.end(25, 360, 370, 120)) applyTouchCommand(pad, command);
+    assert.equal(pad.lookHeld, false);
+  });
+
+  it("holds and releases interaction through the extraction action control", () => {
+    const layer = new TouchControllerLayer();
+    const pad = sink();
+
+    for (const command of layer.begin(26, "INTERACT", 190, 600, 0)) applyTouchCommand(pad, command);
+    assert.equal(pad.interact, true);
+    for (const command of layer.end(26, 190, 600, 600)) applyTouchCommand(pad, command);
+    assert.equal(pad.interact, false);
   });
 
   it("cancels all touch input without triggering flick actions", () => {

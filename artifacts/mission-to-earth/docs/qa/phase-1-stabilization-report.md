@@ -30,8 +30,10 @@ The current QA results are authoritative for this pass. The dated verification r
 | Service record persistence | **PASS** | The second win advanced the record from 1 to 2 extractions. After a full page reload, it remained at 2 and the extraction journal was clear. |
 | Saved recovered weapon reward | **PASS** | After the post-fix win, the stash contained one `wep_inf_rifle_02` item (`quantity: 1`, durability 100). The item and record survived page reload; no pending extraction journal remained. |
 | Death/restart behavior | **PARTIAL** | Death and the native Reinsert-at-objective flow were exercised; reinsert preserved mission objectives and carried equipment. Repeated full mission restarts were not tested. |
-| Uninterrupted post-fix extraction route | **PARTIAL** | The player stopped moving at a solid obstruction around `(x=22.5, z=-19.2)` while following the extraction bearing. The safe zone collapsed; the player died after the HUD reported `OUTSIDE 3m`. A native reinsert was required to finish. |
-| Mobile touch controls | **PARTIAL** | At 390×844, the menu Start touch entered the game. The test browser reported no coarse pointer and raw touch events arrived at `(0,0)`; a QA-only CSS override exposed the overlay. Right-zone pointer look changed yaw, but movement did not move the player. No physical device was tested. |
+| Uninterrupted post-fix extraction route | **PARTIAL** | Collision-aware objective guidance now routes around the obstructing cover. The generated-world check found a clear next waypoint at `(20, -18)` from the reported stuck position, and regression tests cover route progression and off-route recovery. A full post-fix on-foot mission has not yet been replayed. |
+| Mobile movement and simultaneous look | **PASS (browser-emulated)** | At 390×844 with Chromium touch emulation and coarse-pointer media enabled, separate movement/look touches moved the player about 1.59 m in X and 7.75 m in Z while changing yaw by −0.256 rad and pitch by +0.219 rad. |
+| Mobile touch firing | **PASS (browser-emulated)** | Holding the on-screen right-fire control changed the live right-hand magazine from 34 to 31. No browser runtime exceptions were observed. |
+| Mobile extraction interaction | **PARTIAL** | Controller tests verify the touch interaction command holds and releases; a complete extraction prompt and reward flow was not reached using touch in this pass. |
 | Resource cleanup | **PARTIAL** | Cleanup paths were reviewed, but renderer teardown/remount and GPU-memory behavior were not retested in this pass. |
 | Performance | **PARTIAL** | Prior SwiftShader measurements were low and variable, including about 2.8 FPS at 800×450. This run was not an FPS benchmark; it cannot certify normal-device mission pacing. |
 | Physical-device and production certification | **NOT TESTED** | No physical device or production deployment was tested. |
@@ -63,6 +65,25 @@ The Replit screenshot browser displayed the application’s WebGL-unavailable fa
 - After that win, the record contained two extractions and the stash contained one `wep_inf_rifle_02` item at durability 100. A full page reload preserved both; the extraction journal was clear. The post-fix reward path is therefore verified in the running game.
 - The Replit screenshot browser still cannot create WebGL. The full run was performed in separate workspace Chromium with SwiftShader. No physical phone or production deployment was tested.
 
+### Collision-aware extraction guidance — 2026-10-24
+
+- The generated level places a low cover object directly across the straight extraction bearing from the previously observed stuck position. Player collision was behaving consistently; the HUD was pointing through the obstacle instead of around it.
+- Added `ObjectiveNavigator`, which uses the same `movementBlocked` collision test as player movement and caches a waypoint path until a waypoint, objective, or route obstruction changes. The compass now points to the next safe waypoint, the minimap draws detours, and the objective copy tells the player to follow the route line.
+- Verified against the actual deterministic `buildWorld()` geometry: the direct segment from `(22.5, -19.2)` to extraction `(0, -138)` is blocked; the path is reachable, its first waypoint is `(20, -18)`, the first leg is clear, and the full route contains 63 waypoints.
+- A code-level traversal of the generated route reached extraction in 62 waypoint legs; every segment was clear under the live movement-collision predicate. This verifies geometry and route progression, not a full real-input mission run or safe-zone timing.
+- Regression tests cover the obstructed bearing, safe waypoint advancement, re-routing after leaving the path, and changing mission objectives. Current validation: workspace typecheck **PASS**, lint **PASS**, Mission To Earth tests **156/156 PASS**, production build **PASS** with the existing Three.js chunk warning, and `git diff --check` **PASS**.
+- Workspace Chromium created WebGL2 and reloaded the updated app at the menu. The screenshot browser still cannot create WebGL, and a full real-input extraction run after this routing change remains unverified.
+
+### Mobile touch-input verification — 2026-10-24
+
+- Reproduced the mission in workspace Chromium at a 390×844 viewport with five touch points and `(pointer: coarse)` enabled before the game engine was constructed. The menu Start button entered a live mission through a touch event.
+- Two simultaneous pointer contacts in clear movement/look regions moved the player and changed yaw and pitch in the same run. Pointer events carried non-zero viewport coordinates and were received by the expected overlay zones. The first exploratory gesture had landed on the off-hand fire and weapon-selection buttons, so it did not represent a movement/look-zone test.
+- Pressing the visible right-fire button reduced the right-hand magazine from 34 to 31. The browser reported no JavaScript exceptions.
+- Added controller regression tests for concurrent move/look pointer independence and interaction hold/release. The touch interaction uses the same virtual `interact` input consumed by mission objectives, but the final extraction prompt/reward was not exercised through touch in a full mission.
+- This is browser-emulated evidence only. No physical phone or tablet was tested; the earlier 0,0 coordinates from the screenshot browser are not physical-device evidence.
+- Current checks for this pass: workspace typecheck **PASS**, lint **PASS**, Mission To Earth tests **158/158 PASS**, production build **PASS** with the existing Three.js chunk warning, dev workflow **RUNNING** with HTTP 200, and no browser JavaScript exceptions during the touch run.
+- Mobile-pass files: `src/game/engine.ts` (pitch diagnostic hook), `src/game/touch-controller.test.ts` (simultaneous input and interaction regressions), and `docs/architecture/references/` (both supplied documents plus adaptation notes).
+
 ### Follow-up after rescue-phase zone change — 2026-10-24
 
 - A fresh mission was started through the real menu, with Khensu selected by a mouse click. The player steered the chute, landed, and moved through the generated city using keyboard input.
@@ -79,7 +100,7 @@ The Replit screenshot browser displayed the application’s WebGL-unavailable fa
 - **Beacon pressure:** Repeated channel interruptions were observed, but this pass did not establish whether the cause is a defect or intended encounter difficulty. Treat it as an unresolved gameplay blocker, not a confirmed code bug.
 - **Rescue-phase zone collapse:** The safe zone previously shrank before both rescue objectives and the beacon were complete, exposing the long cross-map objective route to damage. Collapse now begins only after the beacon is raised; unit tests cover rescue-phase gating, grace timing, and invalid inputs.
 - **Recovered static weapon omitted from extraction manifest:** Confirmed in the first full run. `applyLoot` used an optional label for registry lookup even though static world weapon pickups identify themselves by weapon ID. The engine now resolves the registry from that stable ID; tests and the second live extraction verify that one rifle stash item is persisted with the service record.
-- **Extraction path obstruction under a shrinking zone:** Confirmed in the post-fix run. Forward movement at approximately `(22.5, -19.2)` produced no displacement, while the safe zone continued shrinking and the player died. This is a verified route/collision blocker; a detour or safer objective-routing behavior needs testing before calling the overland extraction route reliable.
+- **Extraction path obstruction under a shrinking zone:** Confirmed in the post-fix run. Forward movement at approximately `(22.5, -19.2)` produced no displacement, while the safe zone continued shrinking and the player died. Collision-aware objective guidance now identifies a traversable detour in the generated world; an uninterrupted live mission is still required before calling the overland extraction route reliable.
 
 ### Files changed in this pass
 
@@ -91,6 +112,7 @@ The Replit screenshot browser displayed the application’s WebGL-unavailable fa
 - `artifacts/mission-to-earth/src/game/mars-stash.ts` — map unique weapon IDs to registry items and disambiguate shared classes by label.
 - `artifacts/mission-to-earth/src/game/mars-stash.test.ts` — cover static weapon registry mapping and stash filing.
 - `artifacts/mission-to-earth/src/game/mission-progress.test.ts` — verify weapon rewards persist with the extraction service record.
+- `artifacts/mission-to-earth/src/game/touch-controller.test.ts` — verify simultaneous mobile movement/look and extraction interaction hold/release.
 - `artifacts/mission-to-earth/docs/qa/phase-1-stabilization-report.md` — current results and historical record.
 
 An unrelated `.replit` module change is present in the working tree and was not included in this pass. No commit or push was made during this QA pass.
@@ -211,12 +233,37 @@ The built-app Chromium run had no JavaScript exceptions or console errors. The s
 - `artifacts/mission-to-earth/src/game/mission-progress.ts` — stage, replay, and verify complete local extraction snapshots.
 - `artifacts/mission-to-earth/src/game/mission-progress.test.ts` — cover interruption recovery, staging failure, invalid journals, and readback verification.
 - `artifacts/mission-to-earth/docs/architecture/persistence-reliability-reference.md` — record the adapted persistence design and server-authority boundary.
+- `artifacts/mission-to-earth/src/game/touch-controller.ts` and `touch-controller.test.ts` — use and test an 85%-of-stick-radius sprint threshold.
+- `artifacts/mission-to-earth/src/game/player-kinematics.ts` and `player-kinematics.test.ts` — cap touch sprint at 2.2× while retaining the standard 1.5× sprint multiplier.
+- `artifacts/mission-to-earth/src/game/Mission.tsx` — use the new touch sprint default and migrate the previous default threshold.
+- `artifacts/mission-to-earth/src/game/engine.ts` — apply the mobile-only sprint multiplier through existing engine movement.
+- `artifacts/mission-to-earth/src/game/touch-overlay.css` — add pressed feedback to the existing touch fire buttons.
+- `artifacts/mission-to-earth/docs/architecture/references/mobile-threejs-controls-demo.html` and `references/README.md` — preserve the supplied HTML and document safe adaptation boundaries.
 - `artifacts/mission-to-earth/docs/qa/phase-1-stabilization-report.md` — this report.
 
 ## Remaining blockers and recommended next phase
 
-1. Identify and resolve the extraction-route obstruction around `(22.5, -19.2)`, or provide a tested safe detour. Do not rely on the straight-line bearing being traversable.
-2. Run a fresh, uninterrupted browser mission through both rescues, beacon, and extraction without Reinsert after death. The post-fix reward has been verified after native reinsertion; uninterrupted traversal and follower spacing remain open.
+1. Replay the mission with the new collision-aware objective guidance and verify an uninterrupted on-foot extraction without Reinsert. The generated-world path test passes, but full live traversal remains unverified.
+2. Complete a mobile touch run through rescue, beacon, and extraction; verify the on-screen interact hold and reward confirmation on the extraction pad.
+3. Verify companion/follower spacing during the uninterrupted run and certify controls on a physical mobile device.
 3. Profile representative desktop and low-end mobile hardware. The SwiftShader measurements above are software-rendering diagnostics, not device certification.
 4. Keep progression local for the prototype. If accounts or valuable shared rewards are introduced, move reward validation and inventory authority to the server with duplicate-claim protection.
 5. Do not claim an open-world campaign or production readiness until streaming, world persistence, device performance, and the complete campaign flow are implemented and verified.
+
+## Attached Three.js HTML reference follow-up (2026-10-24)
+
+The supplied HTML was read in full and saved as `docs/architecture/references/mobile-threejs-controls-demo.html`. It is a standalone scene/demo, not the running game's implementation.
+
+The mobile movement/look input, muzzle mesh, recoil, audio, ACES tone mapping, fog, bloom, and reduced touch-device pixel ratio already existed in the game. I retained those systems and added only the missing 85%-of-stick sprint threshold (48px for the game's 56px input radius), a 2.2× touch sprint cap, legacy-default migration, and pressed-state feedback on the fire buttons. Keyboard sprint remains 1.5×.
+
+The demo's immediate camera-position AABB extraction was deliberately not copied: it would skip rescue/beacon requirements, the existing recovery lock, and the mission reward flow. Its additional point lights and full-screen muzzle flash were also not added to the mobile render path without measured need.
+
+### Follow-up verification
+
+- `pnpm run typecheck`: **PASS**.
+- `pnpm run lint`: **PASS**.
+- `pnpm run test`: **PASS** — 160 game tests and 50 API tests. A first run caught an invalid test pointer sequence; the regression was corrected and the full suite passed.
+- Bare `pnpm run build`: **FAIL** because the artifact requires `PORT`; rerun with `PORT=24152 BASE_PATH=/ pnpm run build`: **PASS**. The existing Three.js bundle-size warning remains.
+- 390×844 browser touch emulation in the WebGL-enabled workspace Chromium: **PASS** — after landing, a 47px drag moved from `z=86` to `z=84.539` at 4.883 horizontal units/s; a 48px drag moved to `z=79.393` at 11.056 units/s (2.26× observed, including the small input-distance difference).
+- Physical mobile-device certification and FPS profiling: **NOT TESTED**.
+- The separate screenshot browser could not create WebGL and showed the game's WebGL-unavailable fallback; the workspace Chromium/SwiftShader session successfully ran the real mission engine and touch input.

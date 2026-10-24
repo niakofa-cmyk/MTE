@@ -63,6 +63,16 @@ function segmentIsClear(
   return true;
 }
 
+export function isNavigationSegmentClear(
+  x0: number,
+  z0: number,
+  x1: number,
+  z1: number,
+  canStand: CanStand,
+) {
+  return segmentIsClear(x0, z0, x1, z1, canStand);
+}
+
 function nearestOpenCell(
   x: number,
   z: number,

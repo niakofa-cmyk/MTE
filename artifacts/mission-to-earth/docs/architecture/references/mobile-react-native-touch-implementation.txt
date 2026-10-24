@@ -1,0 +1,157 @@
+Here is the complete, modular React Native implementation leveraging react-native-three (Expo Three) or standard WebGL bindings for 3D physics meshes. This architecture addresses the collision mesh bug, guarantees the extraction event fires, and injects optimized dynamic graphics rendering variables.
+
+🛠️ ExtractionZone.js (Mesh & Script Fix)
+
+javascript
+import React, { useRef, useEffect } from 'react';
+import { Box3, Vector3 } from 'three';
+
+/**
+ * Handles precise mathematical boundary calculations 
+ * to prevent collision bypass and secure event firing.
+ */
+export default function ExtractionZone({ playerRef, onExtractSuccess, extractionCoords, isMobile }) {
+  const zoneBox = useRef(new Box3());
+  const playerBox = useRef(new Box3());
+  
+  // Set up static, unbreachable boundary box for the extraction zone
+  useEffect(() => {
+    const { minX, maxX, minY, maxY, minZ, maxZ } = extractionCoords;
+    zoneBox.current.set(
+      new Vector3(minX, minY, minZ),
+      new Vector3(maxX, maxY, maxZ)
+    );
+  }, [extractionCoords]);
+
+  // High-frequency physics tick to bypass standard buggy mesh intersections
+  useEffect(() => {
+    let animationFrameId;
+
+    const checkExtractionCollision = () => {
+      if (playerRef.current && zoneBox.current) {
+        // Build an explicit bounding box around the player's current position vector
+        playerBox.current.setFromObject(playerRef.current);
+
+        // Core Fix: Direct mathematical AABB bounding intersection test
+        if (zoneBox.current.intersectsBox(playerBox.current)) {
+          // Event Safeguard: Prevent double-firing or script hangs
+          cancelAnimationFrame(animationFrameId);
+          onExtractSuccess();
+          return;
+        }
+      }
+      animationFrameId = requestAnimationFrame(checkExtractionCollision);
+    };
+
+    animationFrameId = requestAnimationFrame(checkExtractionCollision);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [playerRef, onExtractSuccess]);
+
+  return (
+    <mesh position={[extractionCoords.x, extractionCoords.y, extractionCoords.z]}>
+      <boxGeometry args={[extractionCoords.width, extractionCoords.height, extractionCoords.depth]} />
+      <meshStandardMaterial 
+        color={0x00ffcc} 
+        transparent 
+        opacity={0.3} 
+        wireframe={isMobile} // Performance Graphic Enhancement: Drop heavy shaders on mobile
+      />
+    </mesh>
+  );
+}
+Use code with caution.
+
+📱 GameViewport.js (Graphics & Input Management)
+
+javascript
+import React, { useState, useRef } from 'react';
+import { StyleSheet, View, Dimensions, PanResponder } from 'react-native';
+import { Canvas } from 'react-native-three';
+import ExtractionZone from './ExtractionZone';
+
+const { width, height } = Dimensions.get('window');
+
+export default function GameViewport() {
+  const playerMesh = useRef(null);
+  const [hasExtracted, setHasExtracted] = useState(false);
+  const [isMobileDevice] = useState(width < 768); // Auto-detect scale for LOD adjustments
+
+  // Ergonomic Mobile Touch Mapping
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: (evt, gestureState) => {
+        if (!playerMesh.current) return;
+        // Scaled movement vectors based on device form factor
+        const sensitivityModifier = isMobileDevice ? 0.05 : 0.02;
+        playerMesh.current.position.x += gestureState.dx * sensitivityModifier;
+        playerMesh.current.position.z += gestureState.dy * sensitivityModifier;
+      },
+    })
+  ).current;
+
+  const handleExtraction = () => {
+    if (hasExtracted) return;
+    setHasExtracted(true);
+    alert("Extraction Sequence Terminated Successfully!");
+    // Inject downstream data persistence triggers below
+  };
+
+  return (
+    <View style={styles.container} {...panResponder.panHandlers}>
+      <Canvas 
+        style={styles.canvas}
+        camera={{ position:, fov: isMobileDevice ? 65 : 50 }} // Graphic Optimization: Wider FOV for compact mobile viewports
+      >
+        {/* Recommended Graphics Implementation: Low-overhead Dynamic Lighting */}
+        <ambientLight intensity={isMobileDevice ? 0.6 : 0.4} />
+        <directionalLight 
+          position={[5, 15, 5]} 
+          intensity={1.2} 
+          castShadow={!isMobileDevice} // Performance Fix: Disable hardware shadows on mobile devices
+        />
+
+        {/* Player Entity */}
+        <mesh ref={playerMesh} position={[0, 1, 0]}>
+          <boxGeometry args={[1, 2, 1]} />
+          <meshStandardMaterial color={0xff0055} roughness={0.4} metalness={0.1} />
+        </mesh>
+
+        {/* Robust Extraction Boundary Instantiation */}
+        <ExtractionZone 
+          playerRef={playerMesh}
+          onExtractSuccess={handleExtraction}
+          isMobile={isMobileDevice}
+          extractionCoords={{
+            x: 0, y: 1, z: -10,
+            width: 4, height: 3, depth: 4,
+            minX: -2, maxX: 2,
+            minY: 0, maxY: 4,
+            minZ: -12, maxZ: -8
+          }}
+        />
+      </Canvas>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#05050a',
+  },
+  canvas: {
+    width: width,
+    height: height,
+  },
+});
+Use code with caution.
+
+🧠 Strategic Fix Overview
+
+1. Mathematical Isolation (AABB): Instead of relying on native framework engine physics triggers which can drop frames or miscalculate overlapping meshes on high-velocity frames, this relies on a precise three-dimensional bounding box intersection check computed at frame rate.
+2. Double-Trigger Prevention: The event state is cleanly severed immediately when execution criteria match, preventing cascading engine freezes during state transitions.
+3. Adaptive Rendering Scales: Shading complexity, lighting calculations, shadow generation passes, and view fields adjust programmatically based on the detected hardware profile.
+Now that the core engine logic and extraction bugs are addressed, let me know:
+• Are you aiming to implement a third-person or top-down isometric visual layout?
+• Should we integrate a touch joystick UI overlay to refine the mobile look and feel?

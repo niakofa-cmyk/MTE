@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTE - Extraordinary Browser FPS</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #020205;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        /* Crosshair Enhancement */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(0, 255, 204, 0.85);
+            box-shadow: 0 0 4px rgba(0, 255, 204, 0.6);
+        }
+        #crosshair::before { width: 14px; height: 2px; }
+        #crosshair::after { width: 2px; height: 14px; }
+
+        /* UI Mobile Dual Joystick Controls Layer */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5;
+            pointer-events: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            box-sizing: border-box;
+            padding: 40px;
+        }
+
+        .joystick-zone {
+            width: 150px;
+            height: 150px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            position: relative;
+        }
+
+        .joystick-outer {
+            width: 110px;
+            height: 110px;
+            border-radius: 55px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            transition: border-color 0.2s;
+        }
+
+        .joystick-handle {
+            width: 46px;
+            height: 46px;
+            border-radius: 23px;
+            background: rgba(255, 255, 255, 0.7);
+            position: absolute;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            pointer-events: none;
+        }
+
+        #aim-zone .joystick-outer {
+            border-color: rgba(0, 255, 204, 0.3);
+            background: rgba(0, 255, 204, 0.02);
+        }
+
+        #aim-zone .joystick-handle {
+            background: rgba(0, 255, 204, 0.8);
+            box-shadow: 0 0 8px rgba(0, 255, 204, 0.5);
+        }
+
+        .joystick-label {
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            margin-top: 10px;
+            opacity: 0.5;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+        }
+
+        /* Action Buttons */
+        #action-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 6;
+            pointer-events: none;
+        }
+
+        .fire-button {
+            position: absolute;
+            bottom: 50px;
+            right: 210px;
+            width: 70px;
+            height: 70px;
+            border-radius: 35px;
+            background: radial-gradient(circle, rgba(255, 60, 100, 0.9) 0%, rgba(200, 20, 50, 0.9) 100%);
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            box-shadow: 0 0 15px rgba(255, 30, 80, 0.4);
+            pointer-events: auto;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 12px;
+            letter-spacing: 1px;
+            transform: scale(1);
+            transition: transform 0.05s;
+        }
+
+        .fire-button:active {
+            transform: scale(0.92);
+            background: radial-gradient(circle, rgba(255, 20, 50, 1) 0%, rgba(150, 10, 30, 1) 100%);
+        }
+
+        /* Top Bar Diagnostics & Status info */
+        #hud-container {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            width: 100%;
+            padding: 0 30px;
+            box-sizing: border-box;
+            display: flex;
+            justify-content: space-between;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .hud-card {
+            background: rgba(5, 5, 15, 0.65);
+            border-left: 3px solid #00ffcc;
+            padding: 10px 20px;
+            color: #fff;
+            border-radius: 0 6px 6px 0;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+
+        .hud-title {
+            font-size: 10px;
+            color: #00ffcc;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+
+        .hud-value {
+            font-size: 18px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+        }
+
+        /* Screen Flash for Muzzle Flare and Events */
+        #screen-flash {
+            position: absolute;
+            top:0; left:0; width:100%; height:100%;
+            background-color: rgba(255, 255, 255, 0.8);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 2;
+        }
+    </style>
+    <!-- Include Direct Fixed CDN versions of Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+    <div id="crosshair"></div>
+    <div id="screen-flash"></div>
+
+    <div id="hud-container">
+        <div class="hud-card">
+            <div class="hud-title">Status Matrix</div>
+            <div id="status-val" class="hud-value">LOCATING ROUTE</div>
+        </div>
+        <div class="hud-card" style="border-left-color: #ff3c64;">
+            <div class="hud-title">Engine Velocity</div>
+            <div id="speed-val" class="hud-value">1.00x (WALK)</div>
+        </div>
+    </div>
+
+    <div id="ui-layer">
+        <!-- Movement Control -->
+        <div class="joystick-zone" id="move-zone">
+            <div class="joystick-outer" id="move-outer">
+                <div class="joystick-handle" id="move-handle"></div>
+            </div>
+            <div class="joystick-label">MOVE</div>
+        </div>
+
+        <!-- Aiming Control -->
+        <div class="joystick-zone" id="aim-zone">
+            <div class="joystick-outer" id="aim-outer">
+                <div class="joystick-handle" id="aim-handle"></div>
+            </div>
+            <div class="joystick-label">AIM</div>
+        </div>
+    </div>
+
+    <div id="action-layer">
+        <div class="fire-button" id="btn-fire">FIRE</div>
+    </div>
+
+    <script>
+        // Core Globals
+        let scene, camera, renderer, clock;
+        let weaponGroup, weaponMesh, muzzleFlashLight;
+        let extractionMesh, gridFloor;
+        
+        // Touch State Framework Tracking
+        const moveData = { touchId: null, startX: 0, startY: 0, curX: 0, curY: 0, deltaX: 0, deltaY: 0 };
+        const aimData = { touchId: null, startX: 0, startY: 0, curX: 0, curY: 0, deltaX: 0, deltaY: 0 };
+        
+        // Locomotion Metrics
+        let yaw = 0;
+        let pitch = 0;
+        let moveSpeedMultiplier = 1.0;
+        let isExtracted = false;
+
+        // AABB Boundary setup for Extraction Route Correction Fix
+        const extractionBounds = {
+            minX: -4, maxX: 4,
+            minY: -0.5, maxY: 5,
+            minZ: -29, maxZ: -21
+        };
+
+        const container = document.getElementById('canvas-container');
+        const moveOuter = document.getElementById('move-outer');
+        const moveHandle = document.getElementById('move-handle');
+        const aimOuter = document.getElementById('aim-outer');
+        const aimHandle = document.getElementById('aim-handle');
+
+        init();
+        animate();
+
+        function init() {
+            // 1. Scene Setup & Advanced Graphics Environment Settings
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x020206);
+            scene.fog = new THREE.FogExp2(0x020206, 0.025); // Volumetric environmental distance layout
+
+            // 2. Camera Viewport Init
+            camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 1.6, 0); // Absolute human target height stance
+
+            // 3. High Performance Rendering Config Pass
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limit scaling to prevent mobile frame drop
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.0;
+            container.appendChild(renderer.domElement);
+
+            clock = new THREE.Clock();
+
+            // 4. Graphics Enhancement: Ambient & Directional Realtime Shader Passes
+            const ambientLight = new THREE.AmbientLight(0x0a0f24, 0.6);
+            scene.add(ambientLight);
+
+            const hemiLight = new THREE.HemisphereLight(0x00ffcc, 0xff0055, 0.2);
+            hemiLight.position.set(0, 50, 0);
+            scene.add(hemiLight);
+
+            // Dynamic core floor indicator grid line systems
+            const gridHelper = new THREE.GridHelper(200, 100, 0xff0055, 0x111622);
+            gridHelper.position.y = 0;
+            scene.add(gridHelper);
+
+            // 5. Solid Correction: Unbreachable Extraction Target Node
+            const zoneGeo = new THREE.BoxGeometry(8, 6, 8);
+            const zoneMat = new THREE.MeshBasicMaterial({
+                color: 0x00ffcc,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.2
+            });
+            extractionMesh = new THREE.Mesh(zoneGeo, zoneMat);
+            extractionMesh.position.set(0, 2.5, -25);
+            scene.add(extractionMesh);
+
+            // Visual target marker pulse ring
+            const ringGeo = new THREE.RingGeometry(3.8, 4, 32);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, side: THREE.DoubleSide });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.rotation.x = Math.PI / 2;
+            ring.position.set(0, 0.05, -25);
+            scene.add(ring);
+
+            // 6. View Model FPS Weapon Matrix Attachment
+            weaponGroup = new THREE.Group();
+            scene.add(weaponGroup);
+
+            // Modern Matte Industrial Finish View Model Gun Barrel
+            const barrelGeo = new THREE.BoxGeometry(0.08, 0.08, 0.6);
+            const barrelMat = new THREE.MeshStandardMaterial({
+                color: 0x181a1f,
+                metalness: 0.8,
+                roughness: 0.2
+            });
+            weaponMesh = new THREE.Mesh(barrelGeo, barrelMat);
+            weaponMesh.position.set(0.25, -0.35, -0.6); // Corner positioning alignment
+            weaponGroup.add(weaponMesh);
+
+            // Muzzle flash spotlight link tracker node
+            muzzleFlashLight = new THREE.PointLight(0xffaa44, 0, 8);
+            muzzleFlashLight.position.set(0.25, -0.35, -0.9);
+            weaponGroup.add(muzzleFlashLight);
+
+            // Setup Touch Context Input Event Listeners
+            setupTouchControls();
+
+            // Resize viewport handler hook
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function setupTouchControls() {
+            // Left Zone Event Setup
+            moveOuter.addEventListener('touchstart', (e) => {
+                const t = e.changedTouches[0];
+                moveData.touchId = t.identifier;
+                const rect = moveOuter.getBoundingClientRect();
+                moveData.startX = rect.left + rect.width / 2;
+                moveData.startY = rect.top + rect.height / 2;
+            }, { passive: true });
+
+            window.addEventListener('touchmove', (e) => {
+                for (let i = 0; i < e.touches.length; i++) {
+                    const t = e.touches[i];
+                    if (t.identifier === moveData.touchId) {
+                        moveData.curX = t.clientX;
+                        moveData.curY = t.clientY;
+                        
+                        let dx = moveData.curX - moveData.startX;
+                        let dy = moveData.curY - moveData.startY;
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+                        const maxDist = 45;
+
+                        if (dist > maxDist) {
+                            dx = (dx / dist) * maxDist;
+                            dy = (dy / dist) * maxDist;
+                        }
+
+                        moveHandle.style.transform = `translate(${dx}px, ${dy}px)`;
+                        
+                        // Extract normalized locomotion metrics
+                        moveData.deltaX = dx / maxDist;
+                        moveData.deltaY = dy / maxDist;
+
+                        // Follow-up Feature: High Thumb Offset enables Sprint Multiplier Vector
+                        if (dist > maxDist * 0.85) {
+                            moveSpeedMultiplier = 2.2;
+                            document.getElementById('speed-val').innerText = "2.20x (SPRINT)";
+                            document.getElementById('speed-val').style.color = "#00ffcc";
+                        } else {
+                            moveSpeedMultiplier = 1.0;
+                            document.getElementById('speed-val').innerText = "1.00x (WALK)";
+                            document.getElementById('speed-val').style.color = "#fff";
+                        }
+                    }
+                    if (t.identifier === aimData.touchId) {
+                        aimData.curX = t.clientX;
+                        aimData.curY = t.clientY;
+                        
+                        let dx = aimData.curX - aimData.startX;
+                        let dy = aimData.curY - aimData.startY;
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+                        const maxDist = 45;
+
+                        if (dist > maxDist) {
+                            dx = (dx / dist) * maxDist;
+                            dy = (dy / dist) * maxDist;
+                        }
+
+                        aimHandle.style.transform = `translate(${dx}px, ${dy}px)`;
+                        
+                        // Direct look camera velocity adjustment mapping
+                        aimData.deltaX = dx * 0.0008;
+                        aimData.deltaY = dy * 0.0008;
+                    }
+                }
+            }, { passive: true });
+
+            const endTouchMove = (e) => {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const t = e.changedTouches[i];
+                    if (t.identifier === moveData.touchId) {
+                        moveData.touchId = null;
+                        moveData.deltaX = 0;
+                        moveData.deltaY = 0;
+                        moveHandle.style.transform = 'translate(0px, 0px)';
+                        moveSpeedMultiplier = 1.0;
+                        document.getElementById('speed-val').innerText = "1.00x (WALK)";
+                        document.getElementById('speed-val').style.color = "#fff";
+                    }
+                    if (t.identifier === aimData.touchId) {
+                        aimData.touchId = null;
+                        aimData.deltaX = 0;
+                        aimData.deltaY = 0;
+                        aimHandle.style.transform = 'translate(0px, 0px)';
+                    }
+                }
+            };
+
+            window.addEventListener('touchend', endTouchMove);
+            window.addEventListener('touchcancel', endTouchMove);
+
+            // Right Zone Aim Trigger Event Setup
+            aimOuter.addEventListener('touchstart', (e) => {
+                const t = e.changedTouches[0];
+                aimData.touchId = t.identifier;
+                const rect = aimOuter.getBoundingClientRect();
+                aimData.startX = rect.left + rect.width / 2;
+                aimData.startY = rect.top + rect.height / 2;
+            }, { passive: true });
+
+            // On Screen Fire Overlay Button Click Bindings
+            document.getElementById('btn-fire').addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                fireWeapon();
+            });
+        }
+
+        function fireWeapon() {
+            // Muzzle flare dynamic intensity kick
+            muzzleFlashLight.intensity = 4.0;
+            
+            // Render UI Screen flash canvas effect
+            const flash = document.getElementById('screen-flash');
+            flash.style.opacity = '0.4';
+            
+            // Recoil linear position shift animation
+            weaponMesh.position.z = -0.52;
+
+            setTimeout(() => {
+                muzzleFlashLight.intensity = 0;
+                flash.style.opacity = '0';
+                weaponMesh.position.z = -0.6;
+            }, 45);
+        }
+
+        function checkExtractionCollision() {
+            if (isExtracted) return;
+
+            const pX = camera.position.x;
+            const pY = camera.position.y;
+            const pZ = camera.position.z;
+
+            // Direct mathematical AABB bounding calculation framework bypasses missing system listeners
+            if (pX >= extractionBounds.minX && pX <= extractionBounds.maxX &&
+                pY >= extractionBounds.minY && pY <= extractionBounds.maxY &&
+                pZ >= extractionBounds.minZ && pZ <= extractionBounds.maxZ) {
+                
+                isExtracted = true;
+                document.getElementById('status-val').innerText = "OBJECTIVE SECURED";
+                document.getElementById('status-val').style.color = "#00ffcc";
+                alert("💥 Extraction Sequence Terminated Successfully! Vector Secured.");
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+
+            // Continuous look camera rotation angle update matching right thumb vectors
+            if (aimData.touchId !== null) {
+                yaw -= aimData.deltaX;
+                pitch -= aimData.deltaY;
+                pitch = Math.max(-Math.PI/2.4, Math.min(Math.PI/2.4, pitch)); // Prevent structural camera flips
+            }
+
+            camera.rotation.set(pitch, yaw, 0, 'YXZ');
+
+            // Continuous position vector translation matching left thumb vectors
+            if (moveData.touchId !== null) {
+                const baseSpeed = 4.5 * delta * moveSpeedMultiplier;
+                // Deconstruct target movement direction vectors from current view orientation angle
+                const forwardX = Math.sin(yaw) * moveData.deltaY * baseSpeed;
+                const forwardZ = Math.cos(yaw) * moveData.deltaY * baseSpeed;
+                const strafeX = Math.cos(yaw) * moveData.deltaX * baseSpeed;
+                const strafeZ = -Math.sin(yaw) * moveData.deltaX * baseSpeed;
+
+                camera.position.x -= (forwardX + strafeX);
+                camera.position.z -= (forwardZ + strafeZ);
+            }
+
+            // Sync View Model gun group transforms exactly to tracking view layout matrix
+            weaponGroup.position.copy(camera.position);
+            weaponGroup.rotation.copy(camera.rotation);
+
+            // Pulse extraction geometry layout glowing animation loop
+            if (extractionMesh) {
+                extractionMesh.rotation.y += 0.005;
+                const pulse = 0.15 + Math.sin(clock.getElapsedTime() * 4) * 0.05;
+                extractionMesh.material.opacity = pulse;
+            }
+
+            // High Frequency Collision Bounds Sweep Pass
+            checkExtractionCollision();
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    </script>
+</body>
+</html>

@@ -20,6 +20,7 @@ import {
   relativeTargetDirection,
   type NavigationPoint,
 } from "@/game/navigation";
+import { ObjectiveNavigator } from "@/game/objective-navigation";
 import {
   CombatFeedback,
   damageDirection,
@@ -50,6 +51,8 @@ import { normalizeLookSensitivity } from "@/game/settings";
 import { resolveHitDamage } from "@/game/combat-damage";
 import { advanceSafeZoneCenter, shouldCollapseSafeZone } from "@/game/safe-zone";
 import {
+  STANDARD_SPRINT_MULTIPLIER,
+  TOUCH_SPRINT_MULTIPLIER,
   boostSlideVelocity,
   maxMovementSpeed,
   stepHorizontalVelocity,
@@ -447,6 +450,7 @@ export class MissionEngine {
   };
   private world: WorldData;
   private solids: Box[];
+  private objectiveNavigator = new ObjectiveNavigator();
   private audio = new AudioBus();
   private pool: Actor[] = [];
   private loots: Loot[] = [];
@@ -1068,6 +1072,7 @@ export class MissionEngine {
 
     window.__controlsTest = {
       getYaw: () => this.yaw,
+      getPitch: () => this.pitch,
       getSpeed: () => Math.hypot(this.vx, this.vz),
       getPos: () => ({ x: this.x, y: this.y, z: this.z }),
       setKeys: (codes: string[]) => {
@@ -1496,6 +1501,7 @@ export class MissionEngine {
     this.phase = "INFILTRATION";
     this.panic = false;
     this.beaconDone = false;
+    this.objectiveNavigator.reset();
     this.beaconWave = false;
     this.channel = 0;
     this.extractT = 0;
@@ -2069,6 +2075,9 @@ export class MissionEngine {
       crouched: this.crouchHeld,
       sliding: this.slideT > 0,
       sprinting,
+      sprintMultiplier: this.touch && this.virtual.sprint
+        ? TOUCH_SPRINT_MULTIPLIER
+        : STANDARD_SPRINT_MULTIPLIER,
       aiming: this.aiming,
       dropping: this.mode === "drop",
     });
@@ -3854,6 +3863,23 @@ export class MissionEngine {
     return { x: this.world.extract.x, z: this.world.extract.z, label: "EXTRACT" };
   }
 
+  private objectiveGuidance(objective = this.objectivePoint()) {
+    if (this.mode !== "ground") {
+      return {
+        target: { x: objective.x, z: objective.z },
+        points: [] as NavigationPoint[],
+        reachable: true,
+        requiresDetour: false,
+      };
+    }
+    return this.objectiveNavigator.update(
+      { x: this.x, z: this.z },
+      { x: objective.x, z: objective.z },
+      (x, z) => !movementBlocked(x, z, 0, this.solids),
+      this.world.limit,
+    );
+  }
+
   private objectives(dt: number) {
     this.prompt = "";
     const alpha = this.world.sites[0]!;
@@ -4591,6 +4617,7 @@ export class MissionEngine {
     const stats = this.gunStats();
     const op = OPERATOR_BY_ID[this.op];
     const obj = this.objectivePoint();
+    const guidance = this.objectiveGuidance(obj);
     const dist = Math.hypot(obj.x - this.x, obj.z - this.z);
     const set = (id: string, text: string) => {
       const node = this.el(id);
@@ -4642,6 +4669,10 @@ export class MissionEngine {
           : "WASD steers toward the landing marker. Shift dives; Space flares to slow your descent."
         : this.mode === "ground" && !this.world.sites[0]!.freed
           ? "Breach the gate or drop into the courtyard."
+          : guidance.requiresDetour && this.beaconDone
+            ? "Follow the route line around cover. Hold E on the recovery pad."
+            : guidance.requiresDetour
+              ? "Follow the route line around cover to the objective."
           : this.beaconDone
             ? "Stand on the recovery pad. Keep both bloodlines inside the ring."
             : this.worn
@@ -4650,7 +4681,13 @@ export class MissionEngine {
     );
     const objectiveName = obj.label.startsWith("CRADLE ") ? "GATE" : obj.label;
     const targetName = this.mode === "drop" ? "LANDING" : objectiveName;
-    const direction = relativeTargetDirection(this.x, this.z, obj.x, obj.z, this.yaw);
+    const direction = relativeTargetDirection(
+      this.x,
+      this.z,
+      guidance.target.x,
+      guidance.target.z,
+      this.yaw,
+    );
     set("mte-dist", `${targetName} ${Math.round(dist)} m`);
     set("mte-bearing", `· ${direction}`);
     set("mte-sector", `· ${this.sectorName()}`);
@@ -4953,6 +4990,22 @@ export class MissionEngine {
       ctx.stroke();
     }
     ctx.setLineDash([]);
+    const objective = this.objectivePoint();
+    const guidance = this.objectiveGuidance(objective);
+    if (this.mode === "ground" && guidance.requiresDetour) {
+      ctx.beginPath();
+      const [startX, startY] = proj(this.x, this.z);
+      ctx.moveTo(startX, startY);
+      for (const point of guidance.points) {
+        const [routeX, routeY] = proj(point.x, point.z);
+        ctx.lineTo(routeX, routeY);
+      }
+      ctx.strokeStyle = "rgba(46,224,200,0.95)";
+      ctx.lineWidth = 2.4;
+      ctx.setLineDash([4, 2]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     ctx.textAlign = "left";
     ctx.font = "7px monospace";
     for (const place of this.world.landmarks) {
@@ -4986,8 +5039,7 @@ export class MissionEngine {
       else ctx.lineTo(sx, sy);
     }
     ctx.stroke();
-    const obj = this.objectivePoint();
-    const [ox, oy] = proj(obj.x, obj.z);
+    const [ox, oy] = proj(objective.x, objective.z);
     ctx.fillStyle = "#d4a24a";
     ctx.fillRect(ox - 2, oy - 2, 4, 4);
     for (const loot of this.loots) {
@@ -5028,6 +5080,7 @@ declare global {
   interface Window {
     __controlsTest?: {
       getYaw: () => number;
+      getPitch: () => number;
       getSpeed: () => number;
       getPos: () => { x: number; y: number; z: number };
       setKeys: (codes: string[]) => void;

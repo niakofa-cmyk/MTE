@@ -26,7 +26,14 @@ import {
 } from "@/game/mars-stash";
 import { persistExtractionWin, recoverPendingExtraction } from "@/game/mission-progress";
 import { type RecordBook } from "@/game/progress-record";
-import { applyTouchCommand, TouchControllerLayer, type TouchCommand, type TouchZone } from "@/game/touch-controller";
+import {
+  applyTouchCommand,
+  LEGACY_SPRINT_SHOVE_PX,
+  SPRINT_SHOVE_PX,
+  TouchControllerLayer,
+  type TouchCommand,
+  type TouchZone,
+} from "@/game/touch-controller";
 import {
   ServerMatchClient,
   type ServerInventoryItem,
@@ -881,7 +888,7 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
   const readoutKey = useRef("");
   const [stick, setStick] = useState<{ x: number; y: number; nx: number; ny: number } | null>(null);
   const [wheel, setWheel] = useState<string | null>(null);
-  const [tune, setTune] = useState({ flick: 15, shove: 75, look: 1.7, disc: 1, discRight: 24, discTop: 55, cone: 8, magnet: 0.25, drag: 0.6 });
+  const [tune, setTune] = useState({ flick: 15, shove: SPRINT_SHOVE_PX, look: 1.7, disc: 1, discRight: 24, discTop: 55, cone: 8, magnet: 0.25, drag: 0.6 });
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [readout, setReadout] = useState<{
     prompt: string;
@@ -902,7 +909,7 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
       const saved = JSON.parse(raw) as Partial<typeof tune>;
       setTune((prev) => ({
         flick: saved.flick ?? prev.flick,
-        shove: saved.shove ?? prev.shove,
+        shove: saved.shove === LEGACY_SPRINT_SHOVE_PX ? SPRINT_SHOVE_PX : saved.shove ?? prev.shove,
         look: saved.look ?? prev.look,
         disc: saved.disc ?? prev.disc,
         discRight: saved.discRight ?? prev.discRight,

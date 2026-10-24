@@ -11,12 +11,14 @@ export type TouchZone =
   | "INTERACT";
 
 export const STICK_RADIUS = 56;
+export const SPRINT_SHOVE_RATIO = 0.85;
+export const SPRINT_SHOVE_PX = Math.round(STICK_RADIUS * SPRINT_SHOVE_RATIO);
+export const LEGACY_SPRINT_SHOVE_PX = 75;
 export const FLICK_PX = 15;
 export const FLICK_MS = 220;
 export const STILL_FIRE_MS = 180;
 export const LOOK_BREAK_PX = 4;
 export const LOOK_GAIN = 1.7;
-export const SPRINT_SHOVE_PX = 75;
 export const DOUBLE_TAP_MS = 250;
 
 export type PulseKey = "ability" | "ult" | "reload" | "slide" | "blood" | "mass" | "swap";

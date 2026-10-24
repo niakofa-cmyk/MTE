@@ -1,5 +1,8 @@
 import type { OpId } from "@/game/content";
 
+export const STANDARD_SPRINT_MULTIPLIER = 1.5;
+export const TOUCH_SPRINT_MULTIPLIER = 2.2;
+
 export type MovementSpeedInput = {
   operator: OpId;
   weaponMove: number;
@@ -8,6 +11,7 @@ export type MovementSpeedInput = {
   crouched: boolean;
   sliding: boolean;
   sprinting: boolean;
+  sprintMultiplier?: number;
   aiming: boolean;
   dropping: boolean;
 };
@@ -20,7 +24,14 @@ export function maxMovementSpeed(input: MovementSpeedInput) {
   if (input.inUnravel) max *= 1.5;
   if (input.raActive) max *= 0.55;
   if (input.crouched && !input.sliding) max *= 0.56;
-  else if (input.sprinting) max *= 1.5;
+  else if (input.sprinting) {
+    const requestedMultiplier = input.sprintMultiplier;
+    const sprintMultiplier =
+      typeof requestedMultiplier === "number" && Number.isFinite(requestedMultiplier)
+        ? Math.min(TOUCH_SPRINT_MULTIPLIER, Math.max(1, requestedMultiplier))
+        : STANDARD_SPRINT_MULTIPLIER;
+    max *= sprintMultiplier;
+  }
   if (input.aiming) max *= 0.62;
   if (input.dropping) max = 17;
   return max;

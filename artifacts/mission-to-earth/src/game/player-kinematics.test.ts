@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  STANDARD_SPRINT_MULTIPLIER,
+  TOUCH_SPRINT_MULTIPLIER,
   boostSlideVelocity,
   maxMovementSpeed,
   stepHorizontalVelocity,
@@ -54,6 +56,27 @@ describe("player kinematics", () => {
       }),
       17,
     );
+  });
+
+  it("uses the standard sprint speed by default and a bounded mobile sprint multiplier when requested", () => {
+    const base = {
+      operator: "jaya" as const,
+      weaponMove: 1,
+      inUnravel: false,
+      raActive: false,
+      crouched: false,
+      sliding: false,
+      sprinting: true,
+      aiming: false,
+      dropping: false,
+    };
+    assert.equal(maxMovementSpeed(base), 5.6 * STANDARD_SPRINT_MULTIPLIER);
+    assert.equal(
+      maxMovementSpeed({ ...base, sprintMultiplier: TOUCH_SPRINT_MULTIPLIER }),
+      5.6 * TOUCH_SPRINT_MULTIPLIER,
+    );
+    assert.equal(maxMovementSpeed({ ...base, sprintMultiplier: 99 }), 5.6 * TOUCH_SPRINT_MULTIPLIER);
+    assert.equal(maxMovementSpeed({ ...base, sprintMultiplier: 0.5 }), 5.6);
   });
 
   it("boosts slide momentum without changing its direction", () => {
