@@ -2565,6 +2565,30 @@ export class MissionEngine {
           wallBox = box;
         }
       }
+
+      // Prison gates are small, high-contrast objectives. Give shots a modest
+      // forgiving hit volume, but only when that volume is the first solid hit;
+      // nearby walls still block the shot and the gate still takes normal weapon
+      // structure damage. This prevents tiny crosshair/visual alignment errors
+      // from consuming ammunition without any gate feedback.
+      for (const site of this.world.sites) {
+        const gate = site.door;
+        if (site.freed || !gate.alive || gate === ignored) continue;
+        const assistedGate: Box = {
+          ...gate,
+          minX: gate.minX - 0.7,
+          maxX: gate.maxX + 0.7,
+          minZ: gate.minZ - 0.7,
+          maxZ: gate.maxZ + 0.7,
+          h: gate.h + 0.55,
+        };
+        const gateT = rayBox(ox, oy, oz, dx, dy, dz, assistedGate, left);
+        if (gateT != null && gateT < wallT) {
+          wallT = gateT;
+          wallBox = gate;
+        }
+      }
+
       let best: { actor: Actor; t: number; head: boolean; leg: boolean } | null = null;
       for (const actor of this.pool) {
         if (!actor.alive || actor.team !== "sec" || actor.down > 0) continue;
