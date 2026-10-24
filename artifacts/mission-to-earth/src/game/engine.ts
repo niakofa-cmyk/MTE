@@ -159,6 +159,35 @@ type ServerGameplayHandlers = {
 
 type Floater = { x: number; y: number; z: number; text: string; life: number; color: string };
 type Feed = { text: string; t: number };
+type CombatTestTargetState = {
+  name: string;
+  alive: boolean;
+  hp: number;
+  maxHp: number;
+  hurt: number;
+  x: number;
+  y: number;
+  z: number;
+  distance: number;
+  kills: number;
+};
+type CombatTestSnapshot = {
+  actor: Actor;
+  actorState: Actor;
+  actorPosition: THREE.Vector3;
+  actorRotation: THREE.Euler;
+  actorVisible: boolean;
+  actorEmissive: number;
+  actorOpacity: number;
+  actorTransparent: boolean;
+  yaw: number;
+  pitch: number;
+  kills: number;
+  feed: Feed[];
+  slots: { id: WeaponId; mag: number; reserve: number; mods: string[] }[];
+  slot: number;
+  weaponCycles: Record<WeaponHand, WeaponCycle>;
+};
 type Line = { speaker: string; text: string; t: number };
 
 const POOL = 22;
@@ -448,6 +477,8 @@ export class MissionEngine {
   private objectiveNavigator = new ObjectiveNavigator();
   private audio = new AudioBus();
   private pool: Actor[] = [];
+  #combatTestTarget: Actor | null = null;
+  #combatTestSnapshot: CombatTestSnapshot | null = null;
   private loots: Loot[] = [];
   private terminals: { id: string; x: number; z: number; mesh: THREE.Group; open: boolean }[] = [];
   private vips: {
@@ -1090,6 +1121,15 @@ export class MissionEngine {
             searchAge: actor.mind === "search" ? actor.mindStateAge : null,
             flank: actor.tactics?.flank ?? null,
           })),
+      ...(import.meta.env.DEV
+        ? {
+            prepareCombatTestTarget: (health?: number) =>
+              this.#prepareCombatTestTarget(health),
+            getCombatTestTarget: () => this.#getCombatTestTargetState(),
+            fireCombatTestShot: () => this.#fireCombatTestShot(),
+            clearCombatTestTarget: () => this.#clearCombatTestTarget(),
+          }
+        : {}),
     };
 
     this.raf = requestAnimationFrame(this.loop);
@@ -1102,6 +1142,7 @@ export class MissionEngine {
   }
 
   destroy() {
+    if (import.meta.env.DEV) this.#clearCombatTestTarget();
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.ro.disconnect();
@@ -1483,6 +1524,7 @@ export class MissionEngine {
   }
 
   private resetMission() {
+    if (import.meta.env.DEV) this.#clearCombatTestTarget();
     this.resetInputState();
     for (const box of this.world.covers) {
       box.alive = true;
@@ -1565,6 +1607,195 @@ export class MissionEngine {
       actor.bodyMat.opacity = 1;
       actor.bodyMat.transparent = false;
     }
+  }
+
+  #prepareCombatTestTarget(health = 100): CombatTestTargetState {
+    if (this.mode !== "ground") {
+      throw new Error("Land in a mission before preparing the combat test target.");
+    }
+    if (!Number.isFinite(health) || health < 1 || health > 1000) {
+      throw new RangeError("Combat test target health must be between 1 and 1000.");
+    }
+
+    if (!this.#combatTestSnapshot) {
+      const actor = this.pool.find((candidate) => candidate.kind === "guard" && !candidate.squad);
+      if (!actor) throw new Error("No non-squad guard is available for the combat test.");
+      this.#combatTestSnapshot = {
+        actor,
+        actorState: { ...actor },
+        actorPosition: actor.group.position.clone(),
+        actorRotation: actor.group.rotation.clone(),
+        actorVisible: actor.group.visible,
+        actorEmissive: actor.bodyMat.emissive.getHex(),
+        actorOpacity: actor.bodyMat.opacity,
+        actorTransparent: actor.bodyMat.transparent,
+        yaw: this.yaw,
+        pitch: this.pitch,
+        kills: this.kills,
+        feed: this.feed.map((item) => ({ ...item })),
+        slots: this.slots.map((slot) => ({ ...slot, mods: [...slot.mods] })),
+        slot: this.slot,
+        weaponCycles: { ...this.weaponCycles },
+      };
+      this.weaponCycles = { right: new WeaponCycle(), left: new WeaponCycle() };
+    }
+
+    const snapshot = this.#combatTestSnapshot;
+    const actor = snapshot.actor;
+    this.#combatTestTarget = actor;
+    this.kills = snapshot.kills;
+    this.feed = snapshot.feed.map((item) => ({ ...item }));
+    actor.alive = true;
+    actor.squad = false;
+    actor.deployed = true;
+    actor.kind = "guard";
+    actor.team = "sec";
+    actor.hp = health;
+    actor.maxHp = health;
+    actor.down = 0;
+    actor.corpse = 0;
+    actor.cooldown = 10;
+    actor.aggro = 0;
+    actor.slow = 0;
+    actor.hurt = 0;
+    actor.blind = 0;
+    actor.lift = 0;
+    actor.mind = "patrol";
+    actor.mindStateAge = 0;
+    actor.knownX = this.x;
+    actor.knownZ = this.z;
+    actor.navigation = null;
+    actor.tactics = null;
+    actor.bodyMat.emissive.setHex(0x000000);
+    actor.bodyMat.opacity = 1;
+    actor.bodyMat.transparent = false;
+    actor.group.visible = true;
+    actor.group.rotation.set(0, 0, 0);
+
+    const distance = 6;
+    const pitch = -Math.atan2(Math.max(0.4, this.eye - 0.8), distance);
+    const offsets = [0, 0.22, -0.22, 0.44, -0.44, 0.66, -0.66, 0.88, -0.88, 1.1, -1.1];
+    let placed = false;
+    for (const offset of offsets) {
+      this.yaw = snapshot.yaw + offset;
+      this.pitch = pitch;
+      this.euler.set(this.pitch, this.yaw, 0, "YXZ");
+      this.camera.quaternion.setFromEuler(this.euler);
+      this.camera.position.set(this.x, this.y + this.eye, this.z);
+      this.camera.updateMatrixWorld(true);
+      this.camera.getWorldDirection(this.aim);
+      this.camera.getWorldPosition(this.camPos);
+      this.camRight.setFromMatrixColumn(this.camera.matrixWorld, 0);
+
+      const x =
+        this.camPos.x +
+        this.aim.x * distance +
+        this.camRight.x * handMuzzleOffset("right");
+      const z =
+        this.camPos.z +
+        this.aim.z * distance +
+        this.camRight.z * handMuzzleOffset("right");
+      const y = floorHeight(x, z, this.y, this.solids);
+      const rayCenterY = this.camPos.y + this.aim.y * distance;
+      if (
+        !hasLos(this.x, this.z, x, z, this.solids) ||
+        movementBlocked(x, z, y, this.solids) ||
+        Math.abs(rayCenterY - (y + 0.8)) > 0.28
+      ) {
+        continue;
+      }
+
+      actor.x = x;
+      actor.y = y;
+      actor.z = z;
+      actor.yaw = this.yaw + Math.PI;
+      actor.group.position.set(x, y, z);
+      actor.group.lookAt(this.x, y + 1.2, this.z);
+      placed = true;
+      break;
+    }
+
+    if (!placed) {
+      this.#clearCombatTestTarget();
+      throw new Error("Could not find a clear, level firing lane for the combat test.");
+    }
+    return this.#getCombatTestTargetState()!;
+  }
+
+  #getCombatTestTargetState(): CombatTestTargetState | null {
+    const actor = this.#combatTestTarget;
+    if (!actor) return null;
+    return {
+      name: actor.name,
+      alive: actor.alive,
+      hp: actor.hp,
+      maxHp: actor.maxHp,
+      hurt: actor.hurt,
+      x: actor.x,
+      y: actor.y,
+      z: actor.z,
+      distance: Math.hypot(actor.x - this.x, actor.z - this.z),
+      kills: this.kills,
+    };
+  }
+
+  #fireCombatTestShot() {
+    const target = this.#combatTestTarget;
+    const slot = this.slotForHand("right");
+    const ammoBefore = slot?.mag ?? null;
+    const hpBefore = target?.hp ?? null;
+    if (
+      !target ||
+      !target.alive ||
+      !slot ||
+      (this.mode !== "ground" && this.mode !== "drop") ||
+      this.paused
+    ) {
+      return {
+        fired: false,
+        ammoBefore,
+        ammoAfter: ammoBefore,
+        hpBefore,
+        target: this.#getCombatTestTargetState(),
+      };
+    }
+
+    this.tryShootHand("right", true);
+    return {
+      fired: slot.mag < ammoBefore,
+      ammoBefore,
+      ammoAfter: slot.mag,
+      hpBefore,
+      target: this.#getCombatTestTargetState(),
+    };
+  }
+
+  #clearCombatTestTarget() {
+    const snapshot = this.#combatTestSnapshot;
+    if (!snapshot) {
+      this.#combatTestTarget = null;
+      return;
+    }
+    Object.assign(snapshot.actor, snapshot.actorState);
+    snapshot.actor.group.position.copy(snapshot.actorPosition);
+    snapshot.actor.group.rotation.copy(snapshot.actorRotation);
+    snapshot.actor.group.visible = snapshot.actorVisible;
+    snapshot.actor.bodyMat.emissive.setHex(snapshot.actorEmissive);
+    snapshot.actor.bodyMat.opacity = snapshot.actorOpacity;
+    snapshot.actor.bodyMat.transparent = snapshot.actorTransparent;
+    this.yaw = snapshot.yaw;
+    this.pitch = snapshot.pitch;
+    this.kills = snapshot.kills;
+    this.feed = snapshot.feed.map((item) => ({ ...item }));
+    this.slots = snapshot.slots.map((slot) => ({ ...slot, mods: [...slot.mods] }));
+    this.slot = snapshot.slot;
+    this.weaponCycles = { ...snapshot.weaponCycles };
+    this.#combatTestTarget = null;
+    this.#combatTestSnapshot = null;
+    this.euler.set(this.pitch, this.yaw, 0, "YXZ");
+    this.camera.quaternion.setFromEuler(this.euler);
+    this.camera.position.set(this.x, this.y + this.eye, this.z);
+    this.camera.updateMatrixWorld(true);
   }
 
   private resetInputState() {
@@ -2667,6 +2898,7 @@ export class MissionEngine {
       this.feed.unshift({ text: `${actor.name} down`, t: 3.5 });
       this.feed.length = Math.min(this.feed.length, 4);
     }
+    if (import.meta.env.DEV && actor === this.#combatTestTarget) return;
     const roll = Math.random();
     if (roll < 0.42) this.makeLoot({ kind: "ammo", x: actor.x, z: actor.z }, true);
     else if (roll < 0.68) this.makeLoot({ kind: "med", x: actor.x, z: actor.z }, true);
@@ -3273,6 +3505,18 @@ export class MissionEngine {
         if (actor.corpse <= 0) actor.group.visible = false;
       }
       if (!actor.alive) continue;
+      if (
+        import.meta.env.DEV &&
+        this.#combatTestTarget &&
+        actor !== this.#combatTestTarget
+      ) {
+        continue;
+      }
+      if (import.meta.env.DEV && actor === this.#combatTestTarget) {
+        actor.group.position.set(actor.x, actor.y, actor.z);
+        actor.bodyMat.emissive.setHex(actor.hurt > 0 ? 0xff3a3a : 0x000000);
+        continue;
+      }
       if (actor.squad && !actor.deployed) continue;
       actor.hurt = Math.max(0, actor.hurt - dt);
       actor.slow = Math.max(0, actor.slow - dt);
@@ -5092,6 +5336,16 @@ declare global {
         searchAge: number | null;
         flank: NavigationPoint | null;
       }>;
+      prepareCombatTestTarget?: (health?: number) => CombatTestTargetState;
+      getCombatTestTarget?: () => CombatTestTargetState | null;
+      fireCombatTestShot?: () => {
+        fired: boolean;
+        ammoBefore: number | null;
+        ammoAfter: number | null;
+        hpBefore: number | null;
+        target: CombatTestTargetState | null;
+      };
+      clearCombatTestTarget?: () => void;
     };
   }
 }

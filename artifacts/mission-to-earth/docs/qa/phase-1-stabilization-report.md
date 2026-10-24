@@ -298,9 +298,32 @@ The new post-rescue campaign-transition brief is preserved under `docs/architect
 ### Live enemy damage and frame-pacing follow-up — 2026-10-24
 
 - **Automated combat coverage: PASS.** The targeted `combat-damage`, `combat-feedback`, and `enemy-ai` suites passed: 21/21 tests. These verify hit-zone damage calculations, combat feedback classification, and enemy perception/state behavior; they do not prove the rendered weapon ray damages a live enemy.
-- **Live enemy damage/defeat: NOT VERIFIED.** The player’s displayed kill count remained `0 DOWN`. A mobile fire attempt spent ammunition without a confirmed hit or defeat reaction. On the later attempt, the nearest hostile was 93.6 m away, beyond the KARMA-9’s configured 70 m range; a desktop mouse-down did not consume ammunition. Do not treat the changing visible hostile count as evidence that player shots caused damage.
+- **Earlier live enemy attempt: NOT VERIFIED at that time.** The player’s displayed kill count remained `0 DOWN`. A mobile fire attempt spent ammunition without a confirmed hit or defeat reaction. On the later attempt, the nearest hostile was 93.6 m away, beyond the KARMA-9’s configured 70 m range; a desktop mouse-down did not consume ammunition. The controlled result below supersedes this earlier combat status.
 - **Desktop active-mission frame pacing: MEASURED, software-rendered.** Workspace Chromium used ANGLE/SwiftShader at 800×450 CSS pixels. During the active drop with 11 hostiles, the 7 s sample recorded 7.68 RAF frames/s (mean 130.24 ms, median 133.2 ms, p95 266.7 ms). A later ground-scene sample with 7 hostiles recorded 8.37 frames/s (mean 119.51 ms, median 116.7 ms, p95 250 ms).
 - **Mobile-emulated frame pacing: MEASURED, software-rendered.** At 390×844 CSS pixels with touch emulation and 5 hostiles at sample start, the 5 s sample recorded 7.95 RAF frames/s (mean 125.83 ms, median 133.3 ms, p95 250 ms). This was not a verified firing or hit test.
 - **Performance interpretation: PARTIAL.** These measurements establish that the test scene runs in the available browser, but SwiftShader is a software renderer and the observed rates are not representative of a physical GPU. They cannot certify desktop or mobile hardware performance. No physical-device test was performed.
 
-**Follow-up status:** Frame pacing was measured within the available software-rendered browser. Live enemy damage and defeat behavior remain unverified and require a controlled in-range encounter with a visible hit/damage indicator or other authoritative gameplay evidence.
+**Earlier follow-up conclusion:** Frame pacing was measured within the available software-rendered browser, but the first live enemy attempt could not verify damage or defeat.
+
+### Controlled in-range enemy damage and defeat check — 2026-10-24
+
+- Started a fresh mission through the normal menu in workspace Chromium and waited for the ground phase. The player was at `(0, 0, 86)` with 9 hostiles at the test baseline.
+- Used a development-only fixture to position one guard 5.95 m away in an unobstructed firing lane and hold the target and other NPCs stationary during the check. The test action called the engine’s real weapon-shot path (`tryShootHand` → `fireRay` → `hurtActor` / `killActor`); it did not simulate or directly assign shot damage. This fixture is an engine integration check, not a normal mouse/touch input test.
+- **Nonlethal hit: PASS.** A KARMA-9 shot reduced target health from 100 to 87, set the hurt reaction to `0.1`, kept the guard alive, and reduced the magazine from 34 to 33.
+- **Defeat: PASS.** After resetting the fixture target to 13 HP, the next shot reduced it to 0 HP, marked it dead, increased the in-game kill count to 1, and reduced the magazine from 33 to 32.
+- **Fixture cleanup: PASS.** The target was removed from the fixture, the player returned to `(0, 0, 86)`, hostile count returned to 9, the kill display returned to `0 DOWN`, and the weapon display returned to 34/68. No test loot was granted.
+- The first browser assertion script had a bookkeeping error because it did not capture the baseline kill count. The assertion was corrected and the complete damage/defeat/cleanup check passed on rerun.
+- Production-bundle inspection found no combat-fixture API or test-target marker in the emitted JavaScript. The fixture hooks are development-only.
+
+This verifies the live engine’s hit, hurt-reaction, and defeat path for one stationary, in-range KARMA-9 target. It does not certify enemy damage across every weapon or hit zone, the mouse/touch firing path in this fixture, the full rescue/extraction mission, or physical-device performance.
+
+### Final fixture verification — 2026-10-24
+
+- **Typecheck: PASS.** `pnpm run typecheck`.
+- **Lint: PASS.** `pnpm run lint`.
+- **Automated tests: PASS.** `pnpm run test` passed 163 Mission To Earth tests and 50 API tests (213 total).
+- **Production build: PASS.** `PORT=24152 BASE_PATH=/ pnpm run build`. Vite emitted its chunk-size advisory for the 558.57 kB Three.js vendor chunk; this is a warning, not a build failure.
+- **Development browser smoke: PASS.** After restarting the web workflow, workspace Chromium loaded the app, created a canvas, exposed the development-only test hook, and reported no JavaScript exceptions. The SwiftShader session is software-rendered.
+- **Preview-browser limitation: PARTIAL.** The screenshot browser cannot create a WebGL context and shows the app’s WebGL-unavailable fallback. The separate workspace Chromium run successfully rendered and exercised the live game. No physical-device certification was performed.
+- **Production fixture isolation: PASS.** A scan of emitted game JavaScript found no development combat-fixture API or test-target marker.
+- **Diff hygiene: PASS.** `git diff --check`.
