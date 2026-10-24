@@ -4,6 +4,7 @@ import {
   RADIUS,
   STEP,
   applyCoverDamage,
+  firstSolidRayHit,
   floorHeight,
   movementBlocked,
   separateAabbOverlap,
@@ -19,6 +20,8 @@ function box(overrides: Partial<{
   alive: boolean;
   destructible: boolean;
   hp: number;
+  tag: string;
+  reinforced: boolean;
 }> = {}) {
   return {
     minX: -1,
@@ -29,6 +32,8 @@ function box(overrides: Partial<{
     alive: true,
     destructible: true,
     hp: 50,
+    tag: "solid",
+    reinforced: false,
     ...overrides,
   };
 }
@@ -88,5 +93,83 @@ describe("world collision and cover damage", () => {
     assert.equal(applyCoverDamage(destroyed, 10), false);
     assert.equal(applyCoverDamage(cover, Number.NaN), false);
     assert.equal(cover.hp, 50);
+  });
+
+  it("forgives a small miss around a live prison-door edge when unobstructed", () => {
+    const door = box({
+      minX: -1,
+      maxX: 1,
+      minZ: 5,
+      maxZ: 6,
+      h: 4.4,
+      tag: "door",
+    });
+
+    const hit = firstSolidRayHit(
+      { x: 1.1, y: 4.55, z: 0 },
+      { x: 0, y: 0, z: 1 },
+      [door],
+      10,
+    );
+
+    assert.equal(hit?.box, door);
+    assert.equal(hit?.distance, 5);
+  });
+
+  it("keeps adjacent solid geometry in front of the forgiving door hit volume", () => {
+    const door = box({
+      minX: -1,
+      maxX: 1,
+      minZ: 5,
+      maxZ: 6,
+      h: 4.4,
+      tag: "door",
+    });
+    const wall = box({
+      minX: 1,
+      maxX: 3,
+      minZ: 5,
+      maxZ: 6,
+      h: 8,
+      destructible: false,
+    });
+
+    const hit = firstSolidRayHit(
+      { x: 1.1, y: 1.5, z: 0 },
+      { x: 0, y: 0, z: 1 },
+      [door, wall],
+      10,
+    );
+
+    assert.equal(hit?.box, wall);
+  });
+
+  it("does not let a door's forgiving hit volume bypass a nearer wall", () => {
+    const door = box({
+      minX: -1,
+      maxX: 1,
+      minZ: 5,
+      maxZ: 6,
+      h: 4.4,
+      tag: "door",
+    });
+    const wall = box({
+      minX: -2,
+      maxX: 2,
+      minZ: 2,
+      maxZ: 3,
+      h: 8,
+      destructible: false,
+    });
+
+    const hit = firstSolidRayHit(
+      { x: 0, y: 1.5, z: 0 },
+      { x: 0, y: 0, z: 1 },
+      [door, wall],
+      10,
+    );
+
+    assert.equal(hit?.box, wall);
+    assert.equal(hit?.distance, 2);
   });
 });

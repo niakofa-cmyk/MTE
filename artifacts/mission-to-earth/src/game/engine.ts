@@ -71,7 +71,7 @@ import {
   type Site,
   type WorldData,
 } from "@/game/world";
-import { applyCoverDamage, separateAabbOverlap } from "@/game/world-physics";
+import { applyCoverDamage, firstSolidRayHit, separateAabbOverlap } from "@/game/world-physics";
 import { createCityAsh } from "@/game/city-ash";
 import { NodPostProcessing } from "@/game/cinematic-postprocessing";
 import {
@@ -192,18 +192,13 @@ function rayBox(
     } else {
       let t1 = (min[i]! - oi) / di;
       let t2 = (max[i]! - oi) / di;
-      if (t1 > t2) {
-        const s = t1;
-        t1 = t2;
-        t2 = s;
-      }
+      if (t1 > t2) [t1, t2] = [t2, t1];
       if (t1 > tmin) tmin = t1;
       if (t2 < tmax) tmax = t2;
       if (tmin > tmax) return null;
     }
   }
-  if (tmin > 0.04 && tmin <= maxT) return tmin;
-  return null;
+  return tmin > 0.04 && tmin <= maxT ? tmin : null;
 }
 
 function raySphere(
@@ -2555,16 +2550,15 @@ export class MissionEngine {
     const gold = this.op === "khensu" || this.op === "aset" || this.op === "nefret";
     while (traveled < range) {
       const left = range - traveled;
-      let wallT = left;
-      let wallBox: Box | null = null;
-      for (const box of this.solids) {
-        if (!box.alive || box === ignored) continue;
-        const t = rayBox(ox, oy, oz, dx, dy, dz, box, left);
-        if (t != null && t < wallT) {
-          wallT = t;
-          wallBox = box;
-        }
-      }
+      const solidHit: { box: Box; distance: number } | null = firstSolidRayHit<Box>(
+        { x: ox, y: oy, z: oz },
+        { x: dx, y: dy, z: dz },
+        this.solids,
+        left,
+        ignored,
+      );
+      const wallT = solidHit?.distance ?? left;
+      const wallBox: Box | null = solidHit?.box ?? null;
       let best: { actor: Actor; t: number; head: boolean; leg: boolean } | null = null;
       for (const actor of this.pool) {
         if (!actor.alive || actor.team !== "sec" || actor.down > 0) continue;

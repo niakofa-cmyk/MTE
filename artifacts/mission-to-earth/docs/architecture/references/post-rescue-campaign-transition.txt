@@ -1,0 +1,191 @@
+What should happen after the descendants are extracted?
+
+This is the most important narrative and game-flow decision.
+
+The rescue should be the end of the opening mission, not the end of the story.
+
+The descendants' extraction should reveal a larger conflict and give the player a clear reason to continue. The next chapter should take the player from survival and rescue into investigation, alliance-building, and a counteroffensive.
+
+I recommend the following story structure.
+
+Mission 1 — The Rescue
+
+Purpose: Establish the world, the threat, the descendants, and the player's immediate objective.
+
+The current mission already provides the foundations for this chapter:
+
+The player enters the hostile region.
+The player fights through security forces.
+The player locates and frees the descendants.
+The player activates the beacon.
+The player reaches extraction.
+
+Before we extend this mission, we must make sure that every step works reliably during normal gameplay.
+
+The mission should end with a cinematic that establishes three things:
+
+The descendants are safe, at least temporarily.
+The enemy has discovered that the player has disrupted its operation.
+The rescue has uncovered information pointing toward a much larger threat.
+
+The final reveal should come from actual mission content: a recovered transmission, intelligence item, character dialogue, or another narrative asset. We should not pretend that this cinematic already exists unless the repository demonstrates it.
+
+I would divide the next development phase into five work packages.
+
+Work Package 1 — Certify the existing rescue mission
+
+Priority: P0 — before adding the next campaign chapter.
+
+The latest QA report records an important problem: the earlier run reached the win screen, but the expected extraction count and rewards were unchanged. The persistence implementation has since been strengthened, but the report explicitly says a complete post-fix browser extraction has not been verified.
+
+The next implementation should therefore:
+
+Start the game from the normal menu.
+Play through the Alpha rescue.
+Rescue the first descendant.
+Navigate to and complete the Omega rescue.
+Raise the beacon.
+Survive the remaining combat and reach extraction.
+Verify the win screen.
+Verify that the extraction record and rewards have been saved.
+Reload the browser and verify the saved progression.
+Attempt duplicate reward processing and confirm that rewards cannot be granted twice.
+
+The test must not use QA shortcuts or rely on death/reinsert checkpoints to skip the actual route.
+
+Acceptance criteria
+Every objective can be reached through normal gameplay.
+The player receives clear instructions for each objective.
+Descendant rescue states remain correct after death and reinsertion.
+Extraction rewards are granted once.
+Progression is still present after a browser reload.
+Failed local storage writes are surfaced clearly.
+The mission can be completed without unexplained movement or objective-state failures.
+
+Do not mark this work complete until the actual post-fix browser run succeeds.
+
+Work Package 2 — Complete the post-rescue campaign transition
+
+Implement the narrative and gameplay transition from extraction into the Sanctuary.
+
+Required work:
+
+A mission-completion sequence.
+A clear extraction result.
+A debrief or report screen.
+A persistent campaign-state update.
+The Sanctuary scene.
+A first conversation with the rescued descendants.
+An unlockable mission briefing for the next operation.
+
+Keep this work focused. It should not require a complete dialogue editor or a large narrative database.
+
+CompletePhase	Deliverable	Completion gate
+Phase 1A	Complete rescue and extraction certification	Full browser playthrough succeeds; rewards persist after reload
+Phase 1B	Mission transitions and campaign state	Completing the rescue reliably unlocks the next chapter
+
+The next implementation task I recommend
+
+The immediate next task is MTE Phase 1A: Complete Extraction Certification and Campaign-Transition Preparation.
+
+I recommend giving the implementation agent the following instructions.
+
+Repository: https://github.com/niakofa-cmyk/MTE
+
+Objective
+
+Continue from the latest main branch. Review the existing Phase 1 stabilization work and complete the current rescue-and-extraction mission before implementing a new map or expanding the campaign.
+
+Do not create a replacement application or rebuild systems that already work.
+
+1. Verify the current baseline
+
+Identify the latest commit and working branch.
+
+Review the current QA report, mission flow, world generation, enemy AI, local persistence, and recent combat changes.
+
+Run the existing mission-app typecheck, lint, automated tests, and production build with the required environment variables.
+
+Record actual results and distinguish new failures from existing failures.
+
+2. Complete real gameplay verification
+
+Using the running game and normal player input, complete the entire rescue mission:
+
+Start from the normal menu.
+
+Reach and breach the first prison gate.
+
+Rescue the first descendant.
+
+Navigate to and breach the second prison gate.
+
+Rescue the second descendant.
+
+Reach and activate the beacon.
+
+Complete the remaining encounter.
+
+Reach the extraction point.
+
+Complete extraction and verify the win screen.
+
+Do not modify player coordinates, health, mission flags, saved records, or objective states to simulate success. Do not count death/reinsert checkpoints as proof that the intended route works.
+
+If the mission cannot be completed, isolate the exact blocking step and fix the smallest responsible part of the existing implementation.
+
+3. Certify extraction persistence
+
+Test the current staged local-save recovery mechanism.
+
+Confirm that the extraction record updates after a real successful extraction.
+
+Confirm that the intended rewards are applied.
+
+Confirm that replaying a pending snapshot does not duplicate rewards.
+
+Confirm that a browser reload preserves the resulting progression.
+
+Test partial-write recovery and storage failures.
+
+Ensure invalid or unrecoverable pending state is surfaced rather than silently reported as a successful save.
+
+Preserve the existing browser-local persistence boundary for the single-player prototype. Do not add a backend merely to complete this task.
+
+4. Check mission and actor lifecycle
+
+Confirm that rescued descendants remain in the correct state after death and reinsertion.
+
+Confirm that controls, actors, event listeners, and render resources are reset correctly when leaving and restarting a mission.
+
+Confirm that objective instructions remain accurate as the player progresses.
+
+Ensure extraction and reward processing cannot be triggered repeatedly in the same completed mission.
+
+5. Prepare the next campaign chapter
+
+Once the current mission passes, define the smallest reusable campaign-state and mission-transition contracts needed to unlock a Sanctuary hub after extraction.
+
+Do not implement the full Sanctuary, the next map, streaming, vehicles, or multiplayer expansion in this task. Avoid changing unrelated systems.
+
+Acceptance criteria
+
+Typecheck, lint, tests, and the correctly configured production build pass.
+
+A normal browser playthrough completes the rescue mission without QA shortcuts.
+
+Extraction rewards and the extraction record persist after reload.
+
+Duplicate reward processing is prevented.
+
+The mission can be restarted without stale actors or controls.
+
+The QA report reflects the actual final results, including any failures or limitations.
+
+The next campaign chapter can be unlocked through explicit campaign state.
+
+Report the tested commit SHA, commands and results, browser gameplay evidence, any remaining blockers, and the precise next implementation task. Never claim that gameplay or persistence passed unless the relevant test was actually completed.
+
+Final recommendation
+
+MTE should now move from prototype stabilization toward a complete campaign experience.

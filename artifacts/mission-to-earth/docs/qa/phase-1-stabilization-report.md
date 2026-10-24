@@ -3,34 +3,34 @@
 **Review date:** 2026-10-24 (America/Chicago)<br>
 **Repository:** `niakofa-cmyk/MTE`<br>
 **Branch:** `main`<br>
-**Reviewed base commit:** `2ed9e8e98f0decd8a5bfef8248b805c831a23ffe` (HEAD before this pass)<br>
-**Overall result:** **PARTIAL** — a real-input run completed the entire rescue-to-extraction mission without dying, but its rifle was missing from the saved stash. The weapon-ID mapping fix is now verified in a second live extraction: after dying on an obstructed extraction route, the player used the game's native “Reinsert at the objective,” completed the recovery lock, and won. The service record advanced to two extractions and the recovered rifle (`wep_inf_rifle_02`, quantity 1) survived a page reload. An uninterrupted post-fix route remains unverified.
+**Reviewed base commit:** `0b2fc7bf9bcd6f79eb271e08404c814bd748aab1` (HEAD before this pass)<br>
+**Overall result:** **PARTIAL** — a new real-input run completed the full rescue-to-extraction mission on foot, freed both descendants, raised the beacon, and survived the recovery lock without death, reinsert, or injected state. The local service record saved one extraction (11:51) and survived a page reload. No salvage was collected, so credits and stash rewards remained empty; enemy hit damage, physical-device play, and production behavior remain unverified. The gate-shot tolerance change passes focused tests, but this run does not prove that tolerance was necessary: the initial shots missed because the camera was not aimed at the gate, and aligned shots then breached it.
 
-The current QA results are authoritative for this pass. The dated verification record below is historical and is not a certification of the current run. The safe-zone, compass, and weapon-reward fixes are in the working tree and are not included in the reviewed base commit.
+The current QA results are authoritative for this pass. The dated verification record below is historical and is not a certification of the current run. The reviewed base is commit `0b2fc7bf9bcd6f79eb271e08404c814bd748aab1` on `main`; the gate-shot tolerance and its regression tests are working-tree changes, not part of that commit. No commit or push was made.
 
 ## Current verification results — 2026-10-24
 
 | Requirement | Result | Evidence / qualification |
 |---|---|---|
-| Branch and reviewed commit | **PASS** | `main`, base commit `2ed9e8e98f0decd8a5bfef8248b805c831a23ffe`. |
+| Branch and reviewed commit | **PASS** | `main`, base commit `0b2fc7bf9bcd6f79eb271e08404c814bd748aab1`. |
 | Typecheck | **PASS** | Workspace typecheck completed without errors. |
 | Lint | **PASS** | Mission To Earth ESLint completed without errors. |
-| Automated tests | **PASS** | `pnpm test`: Mission To Earth 152 tests across 31 suites; API Server 50 tests; all passed. |
+| Automated tests | **PASS** | `pnpm test`: Mission To Earth 163 tests and API Server 50 tests; all passed. |
 | Production build | **PASS** | Build completed. Three.js vendor chunk is 558.57 kB, above Vite’s 500 kB warning threshold. |
 | Built-output HTTP/browser smoke | **PARTIAL** | The production build passed. An earlier build preview returned HTTP 200 and entered descent; this exact rebuilt output was not served separately. The screenshot browser rendered the WebGL-unavailable fallback. |
-| Desktop start, movement, look, and collision | **PARTIAL** | Workspace Chromium with SwiftShader started the game; basic movement and look worked and solid geometry blocked movement. A direct extraction corridor stopped player movement at about `(22.5, -19.2)` until the run ended in an out-of-zone death; it was not a global input lock. |
-| Weapon pickup and gate breach | **PASS** | The Veil Rifle pickup equipped the right hand. The first run used Khensu’s Q to breach both gates; the post-fix run broke Alpha with 21 Karma-9 shots and Omega with 14 Veil Rifle shots. |
-| Target hit detection and firearm damage | **PARTIAL** | Firearm damage to both destructible gates was verified. No enemy firearm hit was verified in these extraction runs; earlier live guard-damage evidence is preserved in the historical section. |
+| Desktop start, movement, look, and collision | **PASS** | Workspace Chromium with SwiftShader started the game. Real keyboard movement and mouse look worked; solid geometry blocked off-route movement, and the player completed the mission by steering around those obstructions. |
+| Weapon firing and gate breach | **PASS (live gate damage)** | At both Alpha and Omega, Stone Drum fire breached the gate after the camera was aligned and the player then crossed the opening. Focused tests verify modest gate-edge tolerance and that nearer solids still block shots. The live run does not isolate whether the new tolerance was needed. |
+| Target hit detection and firearm damage | **PARTIAL** | Destructible-gate damage was observed live. No enemy firearm hit or damage was verified in this run; earlier live guard-damage evidence is preserved in the historical section. |
 | Reload behavior | **PASS (prior live check)** | Earlier in-engine desktop testing verified a right-hand reload without changing left-hand ammunition. Reload was not repeated in the current extraction runs. |
 | Enemy perception and state timing | **PARTIAL** | AI timing and state-transition tests pass. During the full run, squad members took damage and were downed, but enemy perception/LOS transitions were not recorded directly. |
-| Safe-zone movement | **PASS (first run)** | Collapse stayed at 176 m during rescue and began after the beacon was raised. The first on-foot run completed while the zone reached its 20 m floor. In the post-fix run, the player became stuck in a direct corridor and died after going outside the shrinking zone. |
+| Safe-zone movement | **PASS (latest run)** | The 176 m zone remained stable through rescue; after beacon activation it shrank to 20 m while the player completed extraction without an out-of-zone death. A prior post-fix run did die during a blocked direct approach; that route defect is documented below. |
 | Compass heading after full rotations | **PASS** | Live yaw beyond one full rotation produced `undefined -128`; heading normalization and wrap/non-finite regression tests are now in place. |
-| Rescue mission through beacon | **PASS** | Ananda and Nefret were freed on foot; the beacon was raised through the normal interaction. |
-| Post-fix extraction completion | **PASS (with native reinsert)** | Both descendants and the beacon were completed on foot. A blocked extraction approach caused an out-of-zone death; the game's Reinsert button placed the player at the extraction objective. The player then completed the recovery lock and won. The earlier pre-fix run completed without reinsert. |
-| Service record persistence | **PASS** | The second win advanced the record from 1 to 2 extractions. After a full page reload, it remained at 2 and the extraction journal was clear. |
-| Saved recovered weapon reward | **PASS** | After the post-fix win, the stash contained one `wep_inf_rifle_02` item (`quantity: 1`, durability 100). The item and record survived page reload; no pending extraction journal remained. |
+| Rescue mission through beacon | **PASS** | Both descendants were freed through normal interactions. The beacon was raised, and the counter-push cleared. |
+| Uninterrupted extraction completion | **PASS** | The player reached the recovery pad on foot and completed the recovery lock without dying, using Reinsert, or injecting position or mission state. Some squad members were downed during the counter-push. |
+| Service record persistence | **PASS** | The result screen reported one extraction and a best time of 11:51. `mte-record-v2` stored `extractions: 1`, `best: 711.6459`, `kills: 0`, and `scrap: 0`; the record remained after a full page reload. |
+| Salvage and stash reward persistence | **PARTIAL** | This run collected no salvage or weapon pickup. The saved profile correctly remained at 0 credits with an empty stash, so an earned item/credit reward was not exercised in this run. |
 | Death/restart behavior | **PARTIAL** | Death and the native Reinsert-at-objective flow were exercised; reinsert preserved mission objectives and carried equipment. Repeated full mission restarts were not tested. |
-| Uninterrupted post-fix extraction route | **PARTIAL** | Collision-aware objective guidance now routes around the obstructing cover. The generated-world check found a clear next waypoint at `(20, -18)` from the reported stuck position, and regression tests cover route progression and off-route recovery. A full post-fix on-foot mission has not yet been replayed. |
+| Uninterrupted post-fix extraction route | **PASS (one run)** | A full rescue, beacon, and extraction route completed on foot. The player had to steer laterally around collision-blocked direct movement; this verifies one successful run, not all generated routes or mission balance. |
 | Mobile movement and simultaneous look | **PASS (browser-emulated)** | At 390×844 with Chromium touch emulation and coarse-pointer media enabled, separate movement/look touches moved the player about 1.59 m in X and 7.75 m in Z while changing yaw by −0.256 rad and pitch by +0.219 rad. |
 | Mobile touch firing | **PASS (browser-emulated)** | Holding the on-screen right-fire control changed the live right-hand magazine from 34 to 31. No browser runtime exceptions were observed. |
 | Mobile extraction interaction | **PARTIAL** | Controller tests verify the touch interaction command holds and releases; a complete extraction prompt and reward flow was not reached using touch in this pass. |
@@ -45,18 +45,29 @@ The current QA results are authoritative for this pass. The dated verification r
 |---|---|
 | `pnpm run typecheck` | **PASS** |
 | `pnpm run lint` | **PASS** |
-| `pnpm test` | **PASS** — Mission To Earth 152 tests / 31 suites and API Server 50 tests; 0 failures |
+| `pnpm test` | **PASS** — Mission To Earth 163 tests and API Server 50 tests; 0 failures |
 | `PORT=24152 BASE_PATH=/ pnpm run build` | **PASS** — Three.js chunk warning noted above |
 | `git diff --check` | **PASS** |
 | `artifacts/mission-to-earth: web` workflow restart | **PASS** — Vite ready at `http://localhost:24152/` |
-| Workspace Chromium reload and saved progression readback | **PASS** — menu loaded with WebGL2; 2 extractions and one rifle stash item persisted; no pending extraction journal |
+| Workspace Chromium reload and saved progression readback | **PASS** — after the latest win, the menu loaded and the one-extraction record persisted. The profile had 0 credits and an empty stash because no salvage or weapon pickup was collected. |
 | `pnpm --filter @workspace/mission-to-earth exec vite preview --host 0.0.0.0 --port 4174` | **FAIL (environment)** — Vite config requires `PORT`. |
 | `PORT=4174 BASE_PATH=/ pnpm --filter @workspace/mission-to-earth exec vite preview --host 0.0.0.0 --port 4174` | **PASS** — served the built application. |
 | `curl -sSI http://127.0.0.1:4174/` | **PASS** — HTTP 200. |
 
 The Replit screenshot browser displayed the application’s WebGL-unavailable fallback and logged context-creation errors. The separate workspace Chromium/SwiftShader session successfully ran the game and the production preview; the screenshot-browser limitation is not evidence that the app itself failed to create WebGL.
 
-### Current live-run findings — full rescue and extraction
+### Latest uninterrupted live run — 2026-10-24
+
+- Started a fresh mission through the normal menu as Khensu and used only browser keyboard/mouse inputs. No player position, health, mission flag, or save was injected; there was no death or Reinsert.
+- At Alpha, the first rifle burst was aimed at nearby wall geometry and did not breach the gate. After aligning the view to the door, Stone Drum fire broke it; movement then crossed the opening and a held E interaction freed Ananda. This demonstrates the ordinary gate-damage path, but does not establish that the new edge tolerance caused the success.
+- Repeated the same sequence at Omega: aligned Stone Drum fire broke the gate, the player crossed through it, and a held E interaction freed Nefret.
+- Reached the beacon on foot, held E through the counter-push and beacon channel, then followed the extraction route. Direct movement at two points was blocked by solid geometry until the player changed lateral position; the full route was completed without the player dying. Several squad members were downed during the counter-push.
+- The recovery lock completed at approximately `(1.0, -136.8)`. The win screen stated that Ananda and Nefret were extracted in 11:51, with 0 Eon Dusk kills and 0 salvage credits.
+- Before reload, `mte-record-v2` stored `extractions: 1`, `best: 711.6459`, `kills: 0`, and `scrap: 0`. `mte-mars-v2` stored 0 `martianCredits` and an empty stash. After a full reload, the service record remained at one extraction and the menu displayed “Service record · 1 extraction.” This verifies local record persistence, not a salvage/item reward; this run earned none.
+- The supplied Alpha gate note is preserved verbatim under the architecture references. Focused `firstSolidRayHit` tests verify modest gate-only edge tolerance and that a nearer ordinary solid still occludes the gate. The live run did not isolate the tolerance change from camera aiming.
+- The run used workspace Chromium with SwiftShader. The separate Replit screenshot browser still cannot create WebGL; no physical phone, tablet, or production deployment was tested.
+
+### Earlier live-run findings — weapon reward persistence
 
 - The first run started from the normal menu, completed both rescues, raised the beacon, and extracted on foot without Reinsert. At the win, `mte-record-v2` contained one extraction, but `mte-mars-v2` had an empty stash despite the carried Veil Rifle. Reload preserved the record and empty stash.
 - Root cause: static weapon pickups have a weapon ID but no explicit display label. The extraction path attempted to derive registry identity from the optional label, so the rifle never entered the reward manifest. The engine now resolves unique registry items by weapon ID and uses labels only to disambiguate shared classes. Unit tests cover the mapping, stash commit, and save readback.
@@ -108,14 +119,18 @@ The Replit screenshot browser displayed the application’s WebGL-unavailable fa
 - `artifacts/mission-to-earth/src/game/safe-zone.test.ts` — cover zone movement and rescue/beacon collapse timing.
 - `artifacts/mission-to-earth/src/game/navigation.ts` — normalize compass headings after repeated rotations and reject non-finite yaw.
 - `artifacts/mission-to-earth/src/game/navigation.test.ts` — add compass wrap and invalid-yaw regression tests.
-- `artifacts/mission-to-earth/src/game/engine.ts` — use the safe-zone and normalized compass helpers, clarify drop steering, and resolve extracted weapon rewards from stable weapon IDs.
+- `artifacts/mission-to-earth/src/game/engine.ts` — use the safe-zone and normalized compass helpers, clarify drop steering, resolve extracted weapon rewards from stable IDs, and route firearm solids through the gate-aware first-hit check.
+- `artifacts/mission-to-earth/src/game/world-physics.ts` — add a small door-only shot tolerance that applies only when the door remains the first solid hit.
+- `artifacts/mission-to-earth/src/game/world-physics.test.ts` — cover door edge tolerance and confirm nearer/tied non-door solids still occlude shots.
 - `artifacts/mission-to-earth/src/game/mars-stash.ts` — map unique weapon IDs to registry items and disambiguate shared classes by label.
 - `artifacts/mission-to-earth/src/game/mars-stash.test.ts` — cover static weapon registry mapping and stash filing.
 - `artifacts/mission-to-earth/src/game/mission-progress.test.ts` — verify weapon rewards persist with the extraction service record.
 - `artifacts/mission-to-earth/src/game/touch-controller.test.ts` — verify simultaneous mobile movement/look and extraction interaction hold/release.
+- `artifacts/mission-to-earth/docs/architecture/references/alpha-gate-breach-fix.txt` — preserve the supplied gate-breach review verbatim.
+- `artifacts/mission-to-earth/docs/architecture/references/README.md` — catalog the supplied gate-breach reference.
 - `artifacts/mission-to-earth/docs/qa/phase-1-stabilization-report.md` — current results and historical record.
 
-An unrelated `.replit` module change is present in the working tree and was not included in this pass. No commit or push was made during this QA pass.
+No commit or push was made during this QA pass.
 
 ## Previous verification record (2026-10-23; historical)
 
@@ -267,3 +282,15 @@ The demo's immediate camera-position AABB extraction was deliberately not copied
 - 390×844 browser touch emulation in the WebGL-enabled workspace Chromium: **PASS** — after landing, a 47px drag moved from `z=86` to `z=84.539` at 4.883 horizontal units/s; a 48px drag moved to `z=79.393` at 11.056 units/s (2.26× observed, including the small input-distance difference).
 - Physical mobile-device certification and FPS profiling: **NOT TESTED**.
 - The separate screenshot browser could not create WebGL and showed the game's WebGL-unavailable fallback; the workspace Chromium/SwiftShader session successfully ran the real mission engine and touch input.
+
+### Latest uninterrupted run attempt — 2026-10-24
+
+**Observed base:** `main` at `0b2fc7bf9bcd6f79eb271e08404c814bd748aab1` (before the narrative-reference documentation edits).
+
+- Started a new mission through the normal menu in workspace Chromium with SwiftShader at 1024×720. Movement and mouse-look reached the live mission engine; solid walls blocked movement. No death, restart, reinsert, direct mission-state mutation, or debug shortcut was used.
+- The player navigated around the west/south exterior and reached Cradle Alpha. The mission remained in **BREACH** with Ananda and Nefret still caged.
+- Normal right-hand firing reduced the visible magazine and triggered its normal reload, but the gate did not visibly break and the mission phase did not advance. Because this run did not expose a verified hit/damage result for the gate, the cause is **unconfirmed**; gate breach is **PARTIAL**, not a proven raycast or damage defect.
+- The run stopped at Alpha. Omega rescue, beacon activation, enemy attack/line-of-sight reactions, extraction, reward issuance, save/reload, and repeated restarts were **NOT TESTED** in this run. No extraction rewards were claimed or progression data cleared.
+- Browser and workflow logs showed Vite connecting/connected only; no browser runtime exception was observed. This run did not measure frame rate.
+
+The new post-rescue campaign-transition brief is preserved under `docs/architecture/references/`. Sanctuary unlocking and a new campaign transition remain deferred until a clean rescue-to-extraction run is completed and saved rewards are verified. This attempt does not certify that gate or the full mission flow.

@@ -1,0 +1,34 @@
+## Mission To Earth — Alpha Gate Breach Fix
+
+I reviewed the latest [MTE repository](https://github.com/niakofa-cmyk/MTE) and traced the reported issue to the weapon-to-environment hit-detection path. The previous attempt did **not** prove that shots actually struck the Alpha gate, so I’m treating the exact failure as unconfirmed rather than claiming a confirmed root cause.
+
+I’ve made a focused code change on an isolated branch and opened a pull request:
+
+* **[PR #1 — Fix Alpha gate shot registration](https://github.com/niakofa-cmyk/MTE/pull/1)**
+* **Commit:** `d71922c771970d1533b252ea8138139a02a135d5`
+* **File changed:** `artifacts/mission-to-earth/src/game/engine.ts`
+
+### What changed
+
+The game now gives the two prison gates a modestly more forgiving shot-hit volume. A shot can damage a gate when its aim is slightly off the visible gate bounds, **provided the gate remains the first solid target**.
+
+The change preserves the existing gate health and weapon-damage rules, breach effects, and descendant rescue sequence. It does not bypass the gate, mark a descendant rescued, or unlock the next chapter. Nearby solid geometry should continue to block shots.
+
+### Verification status
+
+GitHub Actions has started the **Lint, typecheck, test, and build** workflow for the change, but it is still running. I have not yet verified the fix in a live browser playthrough, so I cannot claim the gate breach is confirmed working.
+
+The next acceptance test is a normal, uninterrupted run:
+
+1. Start a new mission and reach Cradle Alpha.
+2. Fire at the gate and confirm visible damage or breach feedback.
+3. Free Ananda through the normal interaction.
+4. Continue to Cradle Omega, free Nefret, activate the beacon, and reach extraction **without using Reinsert or debug shortcuts**.
+5. Confirm that extraction rewards and the service record save correctly.
+
+**The change is proposed, not merged into `main`.** Sanctuary remains locked until the mission’s verified extraction condition is satisfied.
+
+* [Review the proposed code change](https://github.com/niakofa-cmyk/MTE/pull/1)
+* [Check the CI workflow](https://github.com/niakofa-cmyk/MTE/actions/runs/40106934832)
+
+The priority is to make the existing mission reliably playable before expanding the map or adding another campaign chapter.
