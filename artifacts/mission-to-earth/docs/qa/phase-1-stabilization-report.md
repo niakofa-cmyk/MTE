@@ -294,3 +294,13 @@ The demo's immediate camera-position AABB extraction was deliberately not copied
 - Browser and workflow logs showed Vite connecting/connected only; no browser runtime exception was observed. This run did not measure frame rate.
 
 The new post-rescue campaign-transition brief is preserved under `docs/architecture/references/`. Sanctuary unlocking and a new campaign transition remain deferred until a clean rescue-to-extraction run is completed and saved rewards are verified. This attempt does not certify that gate or the full mission flow.
+
+### Live enemy damage and frame-pacing follow-up — 2026-10-24
+
+- **Automated combat coverage: PASS.** The targeted `combat-damage`, `combat-feedback`, and `enemy-ai` suites passed: 21/21 tests. These verify hit-zone damage calculations, combat feedback classification, and enemy perception/state behavior; they do not prove the rendered weapon ray damages a live enemy.
+- **Live enemy damage/defeat: NOT VERIFIED.** The player’s displayed kill count remained `0 DOWN`. A mobile fire attempt spent ammunition without a confirmed hit or defeat reaction. On the later attempt, the nearest hostile was 93.6 m away, beyond the KARMA-9’s configured 70 m range; a desktop mouse-down did not consume ammunition. Do not treat the changing visible hostile count as evidence that player shots caused damage.
+- **Desktop active-mission frame pacing: MEASURED, software-rendered.** Workspace Chromium used ANGLE/SwiftShader at 800×450 CSS pixels. During the active drop with 11 hostiles, the 7 s sample recorded 7.68 RAF frames/s (mean 130.24 ms, median 133.2 ms, p95 266.7 ms). A later ground-scene sample with 7 hostiles recorded 8.37 frames/s (mean 119.51 ms, median 116.7 ms, p95 250 ms).
+- **Mobile-emulated frame pacing: MEASURED, software-rendered.** At 390×844 CSS pixels with touch emulation and 5 hostiles at sample start, the 5 s sample recorded 7.95 RAF frames/s (mean 125.83 ms, median 133.3 ms, p95 250 ms). This was not a verified firing or hit test.
+- **Performance interpretation: PARTIAL.** These measurements establish that the test scene runs in the available browser, but SwiftShader is a software renderer and the observed rates are not representative of a physical GPU. They cannot certify desktop or mobile hardware performance. No physical-device test was performed.
+
+**Follow-up status:** Frame pacing was measured within the available software-rendered browser. Live enemy damage and defeat behavior remain unverified and require a controlled in-range encounter with a visible hit/damage indicator or other authoritative gameplay evidence.
