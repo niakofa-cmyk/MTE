@@ -24,8 +24,8 @@ import {
   type MarsProfile,
   type ModField,
 } from "@/game/mars-stash";
-import { persistExtractionWin } from "@/game/mission-progress";
-import { loadRecord, type RecordBook } from "@/game/progress-record";
+import { persistExtractionWin, recoverPendingExtraction } from "@/game/mission-progress";
+import { type RecordBook } from "@/game/progress-record";
 import { applyTouchCommand, TouchControllerLayer, type TouchCommand, type TouchZone } from "@/game/touch-controller";
 import {
   ServerMatchClient,
@@ -66,11 +66,14 @@ export function Mission() {
   const chosen = OPERATOR_BY_ID[op];
 
   useEffect(() => {
-    const loadedRecord = loadRecord();
+    const recovery = recoverPendingExtraction();
+    const loadedRecord = recovery.record;
     setRecord(loadedRecord);
-    const loadedMars = loadMars();
-    const seeded = ensureCredits(loadedMars, loadedRecord.scrap);
-    if (seeded.martianCredits !== loadedMars.martianCredits && !saveMars(seeded)) {
+    const loadedMars = recovery.mars;
+    const seeded = recovery.pending ? loadedMars : ensureCredits(loadedMars, loadedRecord.scrap);
+    if (recovery.pending) {
+      setSaveWarning(LOCAL_SAVE_WARNING);
+    } else if (seeded.martianCredits !== loadedMars.martianCredits && !saveMars(seeded)) {
       setSaveWarning(LOCAL_SAVE_WARNING);
     }
     setMars(seeded);

@@ -15,3 +15,13 @@ export function writeLocalItem(key: string, value: string) {
     return false;
   }
 }
+
+export function removeLocalItem(key: string) {
+  try {
+    if (typeof localStorage === "undefined") return false;
+    localStorage.removeItem(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
