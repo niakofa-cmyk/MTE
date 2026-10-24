@@ -672,8 +672,10 @@ function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
         <p id="mte-tac" className="font-display text-xs tracking-widest text-cyan" />
         <h2 id="mte-obj" className="font-display text-2xl leading-none text-fg" />
         <p id="mte-obj-sub" className="mt-1 text-sm text-muted" />
-        <p className="mt-2 font-display text-sm tracking-widest text-cyan">
-          <span id="mte-dist" /> · <span id="mte-sector" />
+        <p className="mt-2 flex flex-wrap items-center gap-x-2 font-display text-xs tracking-widest text-cyan">
+          <span id="mte-dist" />
+          <span id="mte-bearing" className="text-fg" />
+          <span id="mte-sector" />
         </p>
       </div>
       <div className="absolute top-4 left-1/2 w-full max-w-md -translate-x-1/2 px-16 text-center">

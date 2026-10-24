@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { findNavigationPath } from "./navigation.ts";
+import { findNavigationPath, relativeTargetDirection } from "./navigation.ts";
 
 const worldLimit = 30;
 
@@ -53,5 +53,28 @@ describe("guard navigation", () => {
     ];
     const canStand = (x: number, z: number) => !pointBlockedByRectangles(x, z, walls);
     assert.equal(findNavigationPath(-8, 0, 0, 0, canStand, worldLimit), null);
+  });
+});
+
+describe("player objective guidance", () => {
+  it("reports cardinal directions relative to a north-facing player", () => {
+    assert.equal(relativeTargetDirection(0, 0, 0, -10, 0), "AHEAD");
+    assert.equal(relativeTargetDirection(0, 0, 10, 0, 0), "RIGHT");
+    assert.equal(relativeTargetDirection(0, 0, 0, 10, 0), "BEHIND");
+    assert.equal(relativeTargetDirection(0, 0, -10, 0, 0), "LEFT");
+  });
+
+  it("accounts for player yaw and wraps angles across north", () => {
+    assert.equal(relativeTargetDirection(0, 0, 10, 0, -Math.PI / 2), "AHEAD");
+    assert.equal(relativeTargetDirection(0, 0, 0, -10, -Math.PI / 6), "LEFT");
+  });
+
+  it("treats a target at the player position as ahead", () => {
+    assert.equal(relativeTargetDirection(4, -2, 4, -2, 1.7), "AHEAD");
+  });
+
+  it("handles non-finite inputs without producing misleading directions", () => {
+    assert.equal(relativeTargetDirection(0, 0, Number.NaN, 1, 0), "UNKNOWN");
+    assert.equal(relativeTargetDirection(0, 0, 1, 1, Number.POSITIVE_INFINITY), "UNKNOWN");
   });
 });

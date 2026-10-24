@@ -13,7 +13,11 @@ import { generateContainerDropArray, resolveExtractionDrop } from "@/game/extrac
 import { loadMars, modsForDrop, registryForLabel, solarCoilEmits, weaponIdForRegistry, COIL_EMISSION, type ExtractedPiece } from "@/game/mars-stash";
 import { applyAimAssist, AIM_ASSIST } from "@/game/aim-assist";
 import { canPerceiveTarget, stepEnemyMind, type Mind } from "@/game/enemy-ai";
-import { findNavigationPath, type NavigationPoint } from "@/game/navigation";
+import {
+  findNavigationPath,
+  relativeTargetDirection,
+  type NavigationPoint,
+} from "@/game/navigation";
 import {
   CombatFeedback,
   damageDirection,
@@ -4641,8 +4645,12 @@ export class MissionEngine {
               ? `${OPERATOR_BY_ID[this.worn].name} is unstable. Q and F are not Accord doctrine.`
               : "B wears a freed bloodline. Their kits do not behave.",
     );
-    set("mte-dist", `${Math.round(dist)} m`);
-    set("mte-sector", this.sectorName());
+    const objectiveName = obj.label.startsWith("CRADLE ") ? "GATE" : obj.label;
+    const targetName = this.mode === "drop" ? "LANDING" : objectiveName;
+    const direction = relativeTargetDirection(this.x, this.z, obj.x, obj.z, this.yaw);
+    set("mte-dist", `${targetName} ${Math.round(dist)} m`);
+    set("mte-bearing", `· ${direction}`);
+    set("mte-sector", `· ${this.sectorName()}`);
     const secs = Math.floor(this.missionClock);
     set("mte-kills", `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, "0")}   ${this.kills} DOWN`);
     const heading = ((-this.yaw * 180) / Math.PI + 360) % 360;

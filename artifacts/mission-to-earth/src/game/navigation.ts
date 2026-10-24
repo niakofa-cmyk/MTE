@@ -1,5 +1,32 @@
 export type NavigationPoint = { x: number; z: number };
 export type CanStand = (x: number, z: number) => boolean;
+export type RelativeTargetDirection = "AHEAD" | "RIGHT" | "BEHIND" | "LEFT" | "UNKNOWN";
+
+export function relativeTargetDirection(
+  playerX: number,
+  playerZ: number,
+  targetX: number,
+  targetZ: number,
+  yaw: number,
+): RelativeTargetDirection {
+  if (![playerX, playerZ, targetX, targetZ, yaw].every(Number.isFinite)) return "UNKNOWN";
+
+  const dx = targetX - playerX;
+  const dz = targetZ - playerZ;
+  if (Math.hypot(dx, dz) < 1e-6) return "AHEAD";
+
+  const targetBearing = Math.atan2(dx, -dz);
+  const playerHeading = -yaw;
+  const relativeBearing = Math.atan2(
+    Math.sin(targetBearing - playerHeading),
+    Math.cos(targetBearing - playerHeading),
+  );
+  const degrees = Math.abs((relativeBearing * 180) / Math.PI);
+
+  if (degrees <= 22.5) return "AHEAD";
+  if (degrees >= 157.5) return "BEHIND";
+  return relativeBearing > 0 ? "RIGHT" : "LEFT";
+}
 
 const CELL_SIZE = 2;
 const MAX_SNAP_CELLS = 4;
