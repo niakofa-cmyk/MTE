@@ -3,10 +3,10 @@
 **Review date:** 2026-10-24 (America/Chicago)<br>
 **Repository:** `niakofa-cmyk/MTE`<br>
 **Branch:** `main`<br>
-**Reviewed base commit:** `0b2fc7bf9bcd6f79eb271e08404c814bd748aab1` (HEAD before this pass)<br>
+**Reviewed commits:** `0b2fc7bf9bcd6f79eb271e08404c814bd748aab1` (rescue/extraction run) and `340c0dfe1c0967b1227856d6c2d914f3e1a372ab` (Server Loot Run supplement)<br>
 **Overall result:** **PARTIAL** — a new real-input run completed the full rescue-to-extraction mission on foot, freed both descendants, raised the beacon, and survived the recovery lock without death, reinsert, or injected state. The local service record saved one extraction (11:51) and survived a page reload. No salvage was collected, so credits and stash rewards remained empty; enemy hit damage, physical-device play, and production behavior remain unverified. The gate-shot tolerance change passes focused tests, but this run does not prove that tolerance was necessary: the initial shots missed because the camera was not aimed at the gate, and aligned shots then breached it.
 
-The current QA results are authoritative for this pass. The dated verification record below is historical and is not a certification of the current run. The reviewed base is commit `0b2fc7bf9bcd6f79eb271e08404c814bd748aab1` on `main`; the gate-shot tolerance and its regression tests are working-tree changes, not part of that commit. No commit or push was made.
+The rescue/extraction verification below applies to commit `0b2fc7bf9bcd6f79eb271e08404c814bd748aab1`. The Server Loot Run supplement at the end applies to commit `340c0dfe1c0967b1227856d6c2d914f3e1a372ab` on `main`. No gameplay source was changed during the Server Loot Run check.
 
 ## Current verification results — 2026-10-24
 
@@ -327,3 +327,69 @@ This verifies the live engine’s hit, hurt-reaction, and defeat path for one st
 - **Preview-browser limitation: PARTIAL.** The screenshot browser cannot create a WebGL context and shows the app’s WebGL-unavailable fallback. The separate workspace Chromium run successfully rendered and exercised the live game. No physical-device certification was performed.
 - **Production fixture isolation: PASS.** A scan of emitted game JavaScript found no development combat-fixture API or test-target marker.
 - **Diff hygiene: PASS.** `git diff --check`.
+
+### Server Loot Run end-to-end supplement — 2026-10-24
+
+**Reviewed HEAD:** `340c0dfe1c0967b1227856d6c2d914f3e1a372ab` on `main`.<br>
+**Test method:** The actual Server Loot Run menu flow in workspace Chromium with SwiftShader, through the Replit-routed preview and live API service. Inputs were dispatched as ordinary keyboard events; read-only development telemetry was used to observe the player position. Idle-menu rendering measured 8 FPS at 320×240, so this is interaction testing, not performance or physical-device certification.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Start Server Loot Run | **PASS** | The menu created a match (`POST /api/matches` 201), joined the player (201), and loaded gameplay state (200). |
+| Live movement and match input | **PASS** | WASD moved the player from the initial `(0, 86)` area toward the loot. Match input requests returned 202 and snapshots returned 200 during play. The first direct-to-Vite `/api` probe returned 404 because it bypassed Replit’s artifact router; the actual preview-routed game flow succeeded. |
+| Claim server loot | **PASS** | Within interaction range, the HUD showed `E TAKE SHROUD BARREL`. The server claim returned 200 with `map-loot-0053` (`SHROUD BARREL`, 120 scrap); the server cache displayed one item. |
+| Death and reinsert | **PASS (inventory retention)** | The player was killed before reaching a terminal. The normal Reinsert flow returned to gameplay and retained the one-item server cache. |
+| Restore after page reload | **PASS** | Starting Server Loot Run again restored the existing session without creating a new match. Snapshot and world-state requests returned 200; the snapshot returned the existing player position, the inventory still contained one item, and the claimed loot spawn was unavailable. |
+| Terminal opening in live gameplay | **PASS** | As Khensu, the player reached `terminal-01` at `(60, 20)` from the `(0, 86)` spawn using WASD and sprint. At `(59.10, 20.57)`, the HUD showed `E CRACK TERMINAL`; pressing E issued `POST /terminals/terminal-01/open` and returned 200. The next server state marked it `opened` and listed four generated drops (`map-loot-0088` through `map-loot-0091`). |
+| Terminal drops and claims | **PASS** | The HUD exposed `OVERCHARGED CAPACITOR`; its claim returned 200 and raised server inventory to 2. The mod did not fit the active weapon, but remained in the server cache. The next prompt exposed `SCAVENGER SMG`; its claim returned 200 with 50 scrap and raised inventory to 3. The HUD displayed `SERVER CACHE · 3`. |
+| Server cache settlement into durable progression | **FAIL (not implemented)** | The registered API router exposes match-session creation/join/input/snapshot/world-state/loot-claim/terminal-open/leave routes, but no extraction, settlement, or profile-reward route. `MatchSessionManager` and `AuthoritativeGameplayState` keep sessions and inventory in in-memory maps. Solo extraction writes browser-local progression and does not receive this server inventory; the menu also states that server inventory is temporary and solo saves are separate. |
+| Browser runtime errors | **PASS (observed window)** | No JavaScript exceptions or console errors were captured during the post-reload gameplay observation. |
+| API Server tests | **PASS** | `pnpm --filter @workspace/api-server run test`: 50/50 passed, including server-side proximity/duplicate-claim checks and in-range one-time terminal opening. |
+| Mission To Earth tests | **PASS** | `pnpm --filter @workspace/mission-to-earth run test`: 163/163 passed. |
+
+**Overall Server Loot Run result: PASS for the live terminal-to-cache loop; durable settlement is NOT IMPLEMENTED, and performance certification is PARTIAL.** Match creation, real movement input, terminal opening, four server-generated drops, two server-authorized claims, and cache updates were verified. A separate run verified inventory retention through death/reinsert and page reload. The cache is temporary match-session inventory, not a durable account reward. No gameplay defect was confirmed and no game source change was made; this supplement records the evidence and remaining limits.
+
+### Latest rescue-to-extraction run and beacon routing fix — 2026-10-24
+
+**Reviewed state:** `main`, HEAD `340c0dfe1c0967b1227856d6c2d914f3e1a372ab`. The gameplay changes below are in the working tree and are not committed or pushed.<br>
+**Files changed:** `src/game/engine.ts`, `src/game/objective-navigation.ts`, `src/game/objective-navigation.test.ts`, and this report.
+
+| Requirement | Result | Evidence / qualification |
+|---|---|---|
+| Game start, movement, look, and collision | **PASS (workspace Chromium)** | The separate SwiftShader-enabled Chromium session rendered the Three.js game. Real keyboard and mouse input moved and turned the player. Walking directly into solid cover stopped displacement; backing away and taking a clear route restored movement. No persistent input lock was observed. |
+| Rescue both descendants | **PASS** | The player breached both gates, freed Ananda and Nefret through normal interaction, and saw both marked `FREE`. |
+| Raise beacon and extract | **PASS** | The beacon was raised, the recovery lock reached 100%, and the game entered `win` without death, reinsert, or injected position/mission state. |
+| Beacon objective guidance | **FAIL confirmed, fix implemented** | At `(0, 0)`, solid geometry blocked the exact beacon target and the HUD incorrectly said no route existed. A reachable approach at `(2, 0)` is inside the beacon's 3.1 m interaction radius. The engine now finds and caches a reachable standable approach when the objective center is blocked. |
+| Safe-approach helper against live world geometry | **PASS** | After the fix and workflow restart, the browser loaded the helper against the generated world: it selected `(2, 0)`, confirmed it was standable, and the objective navigator reported the route reachable. Regression tests cover a blocked objective with a safe approach and a fully obstructed interaction radius. The complete mission was not replayed after this final guidance-only change. |
+| Local extraction record persistence | **PASS** | `mte-record-v2` recorded `extractions: 1`, `best: 844.5666` seconds, `kills: 0`, and `scrap: 0`. The same record remained after a page reload. |
+| Loot, credits, or stash reward grant | **NOT TESTED** | No salvage or weapon pickup was collected in this run. After reload, the profile still showed 0 credits and an empty stash; this confirms the record save, not an earned-item reward. Server Loot Run cache settlement remains unimplemented as documented above. |
+| Typecheck | **PASS** | `pnpm --filter @workspace/mission-to-earth run typecheck`. |
+| Lint | **PASS** | `pnpm --filter @workspace/mission-to-earth run lint`. |
+| Automated game tests | **PASS** | `pnpm --filter @workspace/mission-to-earth run test`: 167 passed, 0 failed. |
+| Production build | **PASS** | `PORT=24152 BASE_PATH=/ pnpm --filter @workspace/mission-to-earth run build`; Vite emitted the existing large Three.js chunk advisory. |
+| Preview-browser rendering | **PARTIAL** | The screenshot browser could not create a WebGL context and showed the documented fallback. The separate workspace Chromium session rendered and exercised the actual 3D game. This is not physical-device or GPU performance certification. |
+| Mobile physical-device test | **NOT TESTED** | No physical phone or tablet was used in this run. |
+
+**Latest result:** the rescue-to-extraction loop completed in the live game, and the local record survived reload. The verified player “stuck” case was collision with cover plus misleading guidance at a blocked beacon center, not a persistent movement-input failure. The new safe-approach behavior passed automated and live-world geometry checks; an uninterrupted full mission run after that final change remains unverified.
+
+### Account-linked extraction rewards and saved inventory — 2026-10-24
+
+**Reviewed state:** `main`, HEAD `340c0df` at implementation start. The feature and verification changes are in the working tree and are not committed or pushed.
+
+| Requirement | Result | Evidence / qualification |
+|---|---|---|
+| Replit Auth OIDC login flow | **PARTIAL** | The API starts an OIDC authorization redirect with PKCE, state, nonce, secure HttpOnly cookies, and the correct public preview callback URL. The actual user sign-in and callback were not completed in the unauthenticated test browser. |
+| Signed-out auth/profile behavior | **PASS** | Through the game preview proxy, `/api/auth/user` returns `{ "user": null }`; `/api/profile` returns 401 with a sign-in-required response. |
+| Server-owned extraction eligibility | **PASS (automated)** | The server tracks a continuous extraction-area hold using match state and grants rewards only for a matching authenticated account and valid match access token. Client-supplied reward payloads are rejected. |
+| Durable profile and inventory | **PASS (database integration test)** | Settlement writes profile totals and inventory transactionally to PostgreSQL. The test verifies persisted profile and item data. |
+| Duplicate settlement protection | **PASS (database integration test)** | A unique player/match settlement record makes repeat claims idempotent; duplicate settlement does not add credits or items again. |
+| Inventory screen | **IMPLEMENTED; signed-in UI NOT TESTED** | The game menu includes a saved-inventory view showing account credits, extraction count, and persisted items. The screenshot browser was signed out and could not render WebGL; no authenticated browser session was available. |
+| Server Loot Run to saved rewards | **NOT TESTED end-to-end** | Automated tests cover the match extraction hold and database settlement separately. No authenticated real-browser run exercised the complete mission, server extraction hold, and saved inventory readback in one session. |
+| Workspace typecheck | **PASS** | `pnpm run typecheck`. |
+| Lint | **PASS** | `pnpm run lint`. |
+| Automated tests | **PASS** | `pnpm run test`: 167 Mission To Earth tests and 54 API-server tests passed (221 total). |
+| Production builds | **PASS** | API: `pnpm --filter @workspace/api-server run build`. Client: `PORT=24152 BASE_PATH=/ pnpm --filter @workspace/mission-to-earth run build`. The existing Three.js chunk-size advisory remains. |
+| Workflow startup | **PASS** | API listens on port 8080 and Vite is ready on port 24152. Auth/profile routes respond through the game preview proxy. |
+| Preview rendering | **PARTIAL** | The capture browser displayed the menu and the WebGL-unavailable notice; its console reported failure to create a WebGL context. This is an environment limitation, not a successful 3D gameplay run. |
+
+**Current reward boundary:** the client can display match cache contents, but durable credits and inventory are granted only by the authenticated server settlement path after the server confirms extraction. The earlier “durable settlement is not implemented” finding above records the state of that earlier run; this section supersedes it for the current working tree. A full authenticated extraction-and-readback run remains the main verification gap.

@@ -108,7 +108,13 @@ export function createMatchSessionsRouter(
     if (rejectIfLimited(joinLimiter, req, res)) return;
 
     try {
-      const joined = manager.joinSession(req.params.matchId, operatorId);
+      const joined = manager.joinSession(
+        req.params.matchId,
+        operatorId,
+        typeof req.isAuthenticated === "function" && req.isAuthenticated()
+          ? req.user.id
+          : null,
+      );
       res.status(201).json(joined);
     } catch (error) {
       sendSessionError(res, error);

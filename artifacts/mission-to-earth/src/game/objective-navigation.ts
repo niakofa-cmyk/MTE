@@ -12,6 +12,43 @@ export type ObjectiveGuidance = {
   requiresDetour: boolean;
 };
 
+export function resolveObjectiveHint(
+  guidance: Pick<ObjectiveGuidance, "reachable" | "requiresDetour">,
+  directHint: string,
+  detourHint: string,
+  blockedHint: string,
+): string {
+  if (!guidance.reachable) return blockedHint;
+  return guidance.requiresDetour ? detourHint : directHint;
+}
+
+export function findReachableObjectiveApproach(
+  start: NavigationPoint,
+  goal: NavigationPoint,
+  canStand: CanStand,
+  worldLimit: number,
+  maxDistance = 2.5,
+): NavigationPoint | null {
+  const candidates = [2, 2.4].flatMap((radius) =>
+    Array.from({ length: 8 }, (_, index) => {
+      const angle = (index * Math.PI) / 4;
+      return {
+        x: goal.x + Math.cos(angle) * radius,
+        z: goal.z + Math.sin(angle) * radius,
+      };
+    }),
+  );
+
+  for (const candidate of candidates) {
+    if (Math.hypot(candidate.x - goal.x, candidate.z - goal.z) > maxDistance) continue;
+    if (!canStand(candidate.x, candidate.z)) continue;
+    if (findNavigationPath(start.x, start.z, candidate.x, candidate.z, canStand, worldLimit)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 const WAYPOINT_REACHED_DISTANCE = 1.25;
 const ROUTE_RECHECK_DISTANCE = 0.75;
 

@@ -20,7 +20,11 @@ import {
   relativeTargetDirection,
   type NavigationPoint,
 } from "@/game/navigation";
-import { ObjectiveNavigator } from "@/game/objective-navigation";
+import {
+  ObjectiveNavigator,
+  findReachableObjectiveApproach,
+  resolveObjectiveHint,
+} from "@/game/objective-navigation";
 import {
   CombatFeedback,
   damageDirection,
@@ -475,6 +479,10 @@ export class MissionEngine {
   private world: WorldData;
   private solids: Box[];
   private objectiveNavigator = new ObjectiveNavigator();
+  private objectiveApproachCache = new Map<
+    string,
+    { origin: { x: number; z: number }; point: { x: number; z: number } | null }
+  >();
   private audio = new AudioBus();
   private pool: Actor[] = [];
   #combatTestTarget: Actor | null = null;
@@ -4110,10 +4118,28 @@ export class MissionEngine {
         requiresDetour: false,
       };
     }
+    const start = { x: this.x, z: this.z };
+    const canStand = (x: number, z: number) => !movementBlocked(x, z, 0, this.solids);
+    let goal = { x: objective.x, z: objective.z };
+    if (!canStand(goal.x, goal.z)) {
+      let cached = this.objectiveApproachCache.get(objective.label);
+      const movedSinceFailedSearch =
+        cached !== undefined &&
+        cached.point === null &&
+        Math.hypot(start.x - cached.origin.x, start.z - cached.origin.z) >= 2;
+      if (!cached || movedSinceFailedSearch) {
+        cached = {
+          origin: start,
+          point: findReachableObjectiveApproach(start, goal, canStand, this.world.limit),
+        };
+        this.objectiveApproachCache.set(objective.label, cached);
+      }
+      if (cached.point) goal = cached.point;
+    }
     return this.objectiveNavigator.update(
-      { x: this.x, z: this.z },
-      { x: objective.x, z: objective.z },
-      (x, z) => !movementBlocked(x, z, 0, this.solids),
+      start,
+      goal,
+      canStand,
       this.world.limit,
     );
   }
@@ -4905,17 +4931,22 @@ export class MissionEngine {
         ? this.touch
           ? "Steer toward the landing marker with the left stick. Dive to drop faster; flare to slow down."
           : "WASD steers toward the landing marker. Shift dives; Space flares to slow your descent."
-        : this.mode === "ground" && !this.world.sites[0]!.freed
-          ? "Breach the gate or drop into the courtyard."
-          : guidance.requiresDetour && this.beaconDone
-            ? "Follow the route line around cover. Hold E on the recovery pad."
-            : guidance.requiresDetour
-              ? "Follow the route line around cover to the objective."
-          : this.beaconDone
-            ? "Stand on the recovery pad. Keep both bloodlines inside the ring."
-            : this.worn
-              ? `${OPERATOR_BY_ID[this.worn].name} is unstable. Q and F are not Accord doctrine.`
-              : "B wears a freed bloodline. Their kits do not behave.",
+        : resolveObjectiveHint(
+            guidance,
+            this.mode === "ground" && !this.world.sites[0]!.freed
+              ? "Breach the gate or drop into the courtyard."
+              : this.beaconDone
+                ? "Stand on the recovery pad. Keep both bloodlines inside the ring."
+                : this.worn
+                  ? `${OPERATOR_BY_ID[this.worn].name} is unstable. Q and F are not Accord doctrine.`
+                  : "B wears a freed bloodline. Their kits do not behave.",
+            this.phase === "BREACH"
+              ? "Follow the route line around cover, then breach the gate or enter the courtyard."
+              : this.beaconDone
+                ? "Follow the route line around cover. Hold E on the recovery pad."
+                : "Follow the route line around cover to the objective.",
+            "No clear route is available. Back away from blocked ground, then follow the route line.",
+          ),
     );
     const objectiveName = obj.label.startsWith("CRADLE ") ? "GATE" : obj.label;
     const targetName = this.mode === "drop" ? "LANDING" : objectiveName;

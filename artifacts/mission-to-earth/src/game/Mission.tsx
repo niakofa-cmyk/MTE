@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { Crosshair, Radio, Shield, Volume2, VolumeX } from "lucide-react";
+import { useAuth } from "@workspace/replit-auth-web";
 import { BLOODLINES, DOSSIER, OPERATORS, OPERATOR_BY_ID, type OpId, type WeaponId } from "@/game/content";
 import { MissionEngine, type MissionEvent } from "@/game/engine";
 import { CityOfNodBackdrop } from "@/game/city-of-nod-backdrop";
@@ -36,10 +37,13 @@ import {
 } from "@/game/touch-controller";
 import {
   ServerMatchClient,
+  parseServerProfile,
+  type ServerExtractionStatus,
   type ServerInventoryItem,
+  type ServerPlayerProfile,
 } from "@/game/server-match-client";
 
-type Screen = "menu" | "dossier" | "armory" | "settings" | "play" | "pause" | "dead" | "win";
+type Screen = "menu" | "dossier" | "armory" | "settings" | "inventory" | "play" | "pause" | "dead" | "win";
 const LOCAL_SAVE_WARNING = "Progress is still available in this session, but this browser could not save it locally.";
 
 function clock(seconds: number) {
@@ -48,6 +52,7 @@ function clock(seconds: number) {
 }
 
 export function Mission() {
+  const auth = useAuth();
   const hostRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<MissionEngine | null>(null);
@@ -62,6 +67,11 @@ export function Mission() {
   const [serverInventory, setServerInventory] = useState<ServerInventoryItem[]>([]);
   const [serverStatus, setServerStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle");
   const [serverMessage, setServerMessage] = useState<string | null>(null);
+  const [persistentProfile, setPersistentProfile] = useState<ServerPlayerProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [serverExtraction, setServerExtraction] = useState<ServerExtractionStatus | null>(null);
+  const settlementInFlight = useRef(false);
   const [graphicsUnavailable, setGraphicsUnavailable] = useState(false);
   const [lookSensitivity, setLookSensitivity] = useState(() => {
     try {
@@ -71,6 +81,40 @@ export function Mission() {
     }
   });
   const chosen = OPERATOR_BY_ID[op];
+
+  useEffect(() => {
+    if (!auth.isAuthenticated) {
+      setPersistentProfile(null);
+      setProfileError(null);
+      setProfileLoading(false);
+      return;
+    }
+    let active = true;
+    setProfileLoading(true);
+    setProfileError(null);
+    fetch("/api/profile", {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Could not load saved inventory (${response.status}).`);
+        return parseServerProfile(await response.json());
+      })
+      .then((profile) => {
+        if (active) setPersistentProfile(profile);
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setProfileError(error instanceof Error ? error.message : "Could not load saved inventory.");
+        }
+      })
+      .finally(() => {
+        if (active) setProfileLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [auth.isAuthenticated, auth.user?.id]);
 
   useEffect(() => {
     const recovery = recoverPendingExtraction();
@@ -161,6 +205,33 @@ export function Mission() {
         .catch((error: unknown) => {
           setServerMessage(error instanceof Error ? error.message : "Match inventory sync failed.");
         });
+      if (auth.isAuthenticated) {
+        void serverClient.getExtractionStatus()
+          .then((status) => {
+            setServerExtraction(status);
+            if (status.ready && !status.settled && !settlementInFlight.current) {
+              settlementInFlight.current = true;
+              void serverClient.settleExtraction()
+                .then((settlement) => {
+                  setPersistentProfile(settlement.profile);
+                  setServerInventory(settlement.inventory);
+                  setServerExtraction({ ...status, settled: true, ready: true, progress: 1 });
+                  setServerMessage(
+                    `Extraction secured · ${settlement.creditsAwarded} salvage credits added to your account.`,
+                  );
+                })
+                .catch((error: unknown) => {
+                  setServerMessage(error instanceof Error ? error.message : "Could not secure the extraction.");
+                })
+                .finally(() => {
+                  settlementInFlight.current = false;
+                });
+            }
+          })
+          .catch((error: unknown) => {
+            setServerMessage(error instanceof Error ? error.message : "Extraction status sync failed.");
+          });
+      }
     }, 1500);
 
     return () => {
@@ -169,12 +240,18 @@ export function Mission() {
       window.clearInterval(gameplayTimer);
       serverClient.setInputErrorHandler(null);
     };
-  }, [screen, serverClient]);
+  }, [screen, serverClient, auth.isAuthenticated]);
 
   const startServerRun = async () => {
     if (graphicsUnavailable || serverStatus === "connecting") return;
+    if (!auth.isAuthenticated) {
+      setServerMessage("Sign in before starting a server run so extracted rewards can be saved to your account.");
+      return;
+    }
     setServerStatus("connecting");
     setServerMessage(null);
+    setServerExtraction(null);
+    settlementInFlight.current = false;
     try {
       const connected = await ServerMatchClient.connect({ operatorId: op });
       const engine = engineRef.current;
@@ -231,18 +308,27 @@ export function Mission() {
           {saveWarning}
         </p>
       ) : null}
-      {screen === "menu" || screen === "dossier" || screen === "armory" || screen === "settings" ? (
+      {screen === "menu" || screen === "dossier" || screen === "armory" || screen === "settings" || screen === "inventory" ? (
         <Menu
           op={op}
           setOp={setOp}
-          panel={screen === "dossier" ? "dossier" : screen === "armory" ? "armory" : screen === "settings" ? "settings" : "ops"}
+          panel={screen === "dossier" ? "dossier" : screen === "armory" ? "armory" : screen === "settings" ? "settings" : screen === "inventory" ? "inventory" : "ops"}
           record={record}
           mars={mars}
           lookSensitivity={lookSensitivity}
           graphicsUnavailable={graphicsUnavailable}
           canStart={!graphicsUnavailable}
           serverStatus={serverStatus}
-          serverMessage={serverStatus === "error" ? serverMessage : null}
+          serverMessage={serverMessage}
+          authName={auth.user?.firstName || auth.user?.email || null}
+          authLoading={auth.isLoading}
+          isAuthenticated={auth.isAuthenticated}
+          profile={persistentProfile}
+          profileLoading={profileLoading}
+          profileError={profileError}
+          onLogin={() => auth.login("/")}
+          onLogout={() => auth.logout("/")}
+          onInventory={() => setScreen("inventory")}
           onDossier={() => setScreen("dossier")}
           onArmory={() => setScreen("armory")}
           onSettings={() => setScreen("settings")}
@@ -272,7 +358,7 @@ export function Mission() {
           onStartServer={() => void startServerRun()}
         />
       ) : null}
-      {serverClient && screen !== "menu" && screen !== "dossier" && screen !== "armory" && screen !== "settings" ? (
+      {serverClient && screen !== "menu" && screen !== "dossier" && screen !== "armory" && screen !== "settings" && screen !== "inventory" ? (
         <aside
           aria-live="polite"
           aria-label="Server match inventory"
@@ -291,6 +377,19 @@ export function Mission() {
           ) : (
             <p className="mt-2 text-xs text-muted">No claimed items in this match yet.</p>
           )}
+          {serverExtraction && (serverExtraction.inRange || serverExtraction.ready || serverExtraction.settled) ? (
+            <div className="mt-3 border-t border-cyan/30 pt-2">
+              <p className="font-display text-xs tracking-widest text-gold">
+                {serverExtraction.settled ? "EXTRACTION SECURED" : serverExtraction.ready ? "RECOVERY READY" : "RECOVERY HOLD"}
+              </p>
+              <progress className="mt-2 h-2 w-full accent-cyan" max={1} value={serverExtraction.progress} />
+              <p className="mt-1 text-xs text-muted">
+                {serverExtraction.settled
+                  ? "Rewards saved to your account."
+                  : `${Math.ceil(serverExtraction.requiredSeconds * (1 - serverExtraction.progress))}s remaining in zone`}
+              </p>
+            </div>
+          ) : null}
           {serverMessage ? <p role="status" className="mt-2 text-xs text-gold">{serverMessage}</p> : null}
         </aside>
       ) : null}
@@ -367,9 +466,18 @@ function Menu({
   canStart,
   serverStatus,
   serverMessage,
+  authName,
+  authLoading,
+  isAuthenticated,
+  profile,
+  profileLoading,
+  profileError,
   onDossier,
   onArmory,
   onSettings,
+  onInventory,
+  onLogin,
+  onLogout,
   onBack,
   onLookSensitivityChange,
   onMars,
@@ -378,7 +486,7 @@ function Menu({
 }: {
   op: OpId;
   setOp: (id: OpId) => void;
-  panel: "ops" | "dossier" | "armory" | "settings";
+  panel: "ops" | "dossier" | "armory" | "settings" | "inventory";
   record: RecordBook | null;
   mars: MarsProfile | null;
   lookSensitivity: number;
@@ -386,9 +494,18 @@ function Menu({
   canStart: boolean;
   serverStatus: "idle" | "connecting" | "connected" | "error";
   serverMessage: string | null;
+  authName: string | null;
+  authLoading: boolean;
+  isAuthenticated: boolean;
+  profile: ServerPlayerProfile | null;
+  profileLoading: boolean;
+  profileError: string | null;
   onDossier: () => void;
   onArmory: () => void;
   onSettings: () => void;
+  onInventory: () => void;
+  onLogin: () => void;
+  onLogout: () => void;
   onBack: () => void;
   onLookSensitivityChange: (value: number) => void;
   onMars: (next: MarsProfile) => void;
@@ -432,6 +549,14 @@ function Menu({
           <Armory opWeapon={OPERATOR_BY_ID[op].weapon} profile={mars} onMars={onMars} />
         ) : panel === "settings" ? (
           <SettingsPanel sensitivity={lookSensitivity} onSensitivityChange={onLookSensitivityChange} />
+        ) : panel === "inventory" ? (
+          <InventoryPanel
+            profile={profile}
+            loading={profileLoading}
+            error={profileError}
+            isAuthenticated={isAuthenticated}
+            onLogin={onLogin}
+          />
         ) : (
           <>
           <div className="flex gap-3 overflow-x-auto pb-2">
@@ -492,11 +617,11 @@ function Menu({
           {panel === "ops" ? (
             <button
               type="button"
-              disabled={!canStart || serverStatus === "connecting"}
+              disabled={!canStart || authLoading || !isAuthenticated || serverStatus === "connecting"}
               className="border border-gold px-5 py-3 font-display text-lg tracking-widest text-gold disabled:cursor-not-allowed disabled:opacity-50"
               onClick={onStartServer}
             >
-              {serverStatus === "connecting" ? "Connecting…" : "Server Loot Run"}
+              {serverStatus === "connecting" ? "Connecting…" : isAuthenticated ? "Server Loot Run" : "Sign in for Server Run"}
             </button>
           ) : null}
           {serverMessage ? <p role="alert" className="basis-full text-sm text-gold">{serverMessage}</p> : null}
@@ -524,10 +649,83 @@ function Menu({
               Settings
             </button>
           )}
+          <button type="button" className="border border-line px-5 py-3 font-display text-lg tracking-widest text-cyan" onClick={onInventory}>
+            Saved Inventory
+          </button>
+          {isAuthenticated ? (
+            <button type="button" className="border border-line px-4 py-3 text-sm text-muted" onClick={onLogout}>
+              Sign out{authName ? ` · ${authName}` : ""}
+            </button>
+          ) : (
+            <button type="button" disabled={authLoading} className="border border-gold px-4 py-3 text-sm text-gold disabled:opacity-50" onClick={onLogin}>
+              {authLoading ? "Checking account…" : "Sign in"}
+            </button>
+          )}
           <p className="text-sm text-muted">Click the city to seize the mouse. Esc pauses.</p>
+          {panel === "ops" ? (
+            <p className="basis-full text-xs text-muted">
+              {isAuthenticated
+                ? "Server-run rewards are saved only after the server validates a complete extraction."
+                : "Sign in before a server run to attach extracted rewards to your account. Solo saves remain local."}
+            </p>
+          ) : null}
         </div>
       </div>
     </div>
+  );
+}
+
+function InventoryPanel({
+  profile,
+  loading,
+  error,
+  isAuthenticated,
+  onLogin,
+}: {
+  profile: ServerPlayerProfile | null;
+  loading: boolean;
+  error: string | null;
+  isAuthenticated: boolean;
+  onLogin: () => void;
+}) {
+  return (
+    <section aria-label="Saved inventory" className="border border-line bg-surface p-5">
+      <p className="font-display text-xs tracking-widest text-cyan">ACCOUNT VAULT</p>
+      <h2 className="mt-1 font-display text-3xl text-fg">Saved Inventory</h2>
+      {!isAuthenticated ? (
+        <div className="mt-4">
+          <p className="text-sm text-muted">Sign in to view inventory secured by successful server extractions.</p>
+          <button type="button" className="mt-4 border border-gold px-4 py-2 font-display tracking-widest text-gold" onClick={onLogin}>
+            Sign in
+          </button>
+        </div>
+      ) : loading ? (
+        <p role="status" className="mt-4 text-sm text-muted">Loading saved inventory…</p>
+      ) : error ? (
+        <p role="alert" className="mt-4 text-sm text-danger">{error}</p>
+      ) : profile ? (
+        <>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <p className="border border-line p-3 text-sm text-muted">Salvage credits <strong className="ml-2 text-gold">{profile.credits}</strong></p>
+            <p className="border border-line p-3 text-sm text-muted">Successful extractions <strong className="ml-2 text-cyan">{profile.extractions}</strong></p>
+          </div>
+          {profile.inventory.length ? (
+            <ul className="mt-4 max-h-56 space-y-2 overflow-y-auto">
+              {profile.inventory.map((item, index) => (
+                <li key={`${item.matchId}:${item.lootId}:${index}`} className="flex items-center justify-between gap-3 border-t border-line py-2 text-sm">
+                  <span className="min-w-0 truncate text-fg">{item.label}<span className="ml-2 text-xs uppercase text-muted">{item.kind}</span></span>
+                  <span className="shrink-0 text-gold">{item.scrap} scrap</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-4 text-sm text-muted">Your vault is empty. Complete a server-verified extraction to secure loot.</p>
+          )}
+        </>
+      ) : (
+        <p className="mt-4 text-sm text-muted">No saved profile is available yet.</p>
+      )}
+    </section>
   );
 }
 

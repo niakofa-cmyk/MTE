@@ -45,6 +45,34 @@ export type ServerGameplayState = {
   inventory: ServerInventoryItem[];
 };
 
+export type ServerExtractionStatus = {
+  matchId: string;
+  inRange: boolean;
+  progress: number;
+  requiredSeconds: number;
+  ready: boolean;
+  settled: boolean;
+};
+
+export type PersistedServerInventoryItem = ServerInventoryItem & {
+  matchId: string;
+  acquiredAt: string;
+};
+
+export type ServerPlayerProfile = {
+  credits: number;
+  extractions: number;
+  inventory: PersistedServerInventoryItem[];
+};
+
+export type ServerExtractionSettlement = {
+  matchId: string;
+  alreadySettled: boolean;
+  creditsAwarded: number;
+  inventory: PersistedServerInventoryItem[];
+  profile: ServerPlayerProfile;
+};
+
 export type ServerPlayerSnapshot = {
   playerId: string;
   lastProcessedSequence: number;
@@ -162,6 +190,48 @@ function defaultStorage(): StorageLike | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parsePersistedInventoryItem(value: unknown): PersistedServerInventoryItem {
+  const kinds = new Set<ServerLootKind>(["weapon", "ammo", "med", "armor", "mod", "intel"]);
+  if (
+    !isRecord(value) ||
+    typeof value.lootId !== "string" ||
+    typeof value.kind !== "string" ||
+    !kinds.has(value.kind as ServerLootKind) ||
+    typeof value.label !== "string" ||
+    !Number.isSafeInteger(value.scrap) ||
+    typeof value.matchId !== "string" ||
+    typeof value.acquiredAt !== "string"
+  ) {
+    throw new Error("The saved inventory item was invalid.");
+  }
+  return {
+    lootId: value.lootId,
+    kind: value.kind as ServerLootKind,
+    label: value.label,
+    scrap: value.scrap as number,
+    ...(typeof value.weaponId === "string" ? { weaponId: value.weaponId } : {}),
+    ...(typeof value.modId === "string" ? { modId: value.modId } : {}),
+    matchId: value.matchId,
+    acquiredAt: value.acquiredAt,
+  };
+}
+
+export function parseServerProfile(value: unknown): ServerPlayerProfile {
+  if (
+    !isRecord(value) ||
+    !Number.isSafeInteger(value.credits) ||
+    !Number.isSafeInteger(value.extractions) ||
+    !Array.isArray(value.inventory)
+  ) {
+    throw new Error("The saved player profile was invalid.");
+  }
+  return {
+    credits: value.credits as number,
+    extractions: value.extractions as number,
+    inventory: value.inventory.map(parsePersistedInventoryItem),
+  };
 }
 
 function finite(value: unknown): value is number {
@@ -578,6 +648,58 @@ export class ServerMatchClient {
   async getGameplayState(): Promise<ServerGameplayState> {
     const value = await this.authorizedJson(`/api/matches/${this.matchId}/world-state`);
     return parseGameplayState(value, this.matchId);
+  }
+
+  async getExtractionStatus(): Promise<ServerExtractionStatus> {
+    const value = await this.authorizedJson(
+      `/api/matches/${this.matchId}/extraction/status`,
+    );
+    if (
+      !isRecord(value) ||
+      value.matchId !== this.matchId ||
+      typeof value.inRange !== "boolean" ||
+      typeof value.progress !== "number" ||
+      !Number.isFinite(value.progress) ||
+      typeof value.requiredSeconds !== "number" ||
+      !Number.isFinite(value.requiredSeconds) ||
+      typeof value.ready !== "boolean" ||
+      typeof value.settled !== "boolean"
+    ) {
+      throw new Error("The match server returned invalid extraction status.");
+    }
+    return {
+      matchId: value.matchId,
+      inRange: value.inRange,
+      progress: Math.max(0, Math.min(1, value.progress)),
+      requiredSeconds: value.requiredSeconds,
+      ready: value.ready,
+      settled: value.settled,
+    };
+  }
+
+  async settleExtraction(): Promise<ServerExtractionSettlement> {
+    const value = await this.authorizedJson(
+      `/api/matches/${this.matchId}/extraction/settle`,
+      { method: "POST" },
+    );
+    if (
+      !isRecord(value) ||
+      value.matchId !== this.matchId ||
+      typeof value.alreadySettled !== "boolean" ||
+      !Number.isSafeInteger(value.creditsAwarded) ||
+      !Array.isArray(value.inventory)
+    ) {
+      throw new Error("The match server returned an invalid settlement.");
+    }
+    const profile = parseServerProfile(value.profile);
+    const inventory = value.inventory.map(parsePersistedInventoryItem);
+    return {
+      matchId: value.matchId,
+      alreadySettled: value.alreadySettled,
+      creditsAwarded: value.creditsAwarded as number,
+      inventory,
+      profile,
+    };
   }
 
   submitInput(input: MatchInput): void {
