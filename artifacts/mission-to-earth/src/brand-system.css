@@ -29,7 +29,7 @@
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: -1;
+  z-index: 0;
 }
 .mte-command-menu::before {
   opacity: 0.7;
@@ -131,4 +131,11 @@
 @media (prefers-reduced-motion: reduce) {
   .mte-command-menu button { transition: none; }
   .mte-command-menu button:hover { transform: none; }
+}
+
+/* Keep the primary action ember-colored after semantic utility-token overrides. */
+.mte-command-menu .mte-primary-action {
+  background: linear-gradient(135deg, var(--mte-ember-hot), var(--mte-ember));
+  border-color: var(--mte-ember-hot);
+  color: #120d0b;
 }
