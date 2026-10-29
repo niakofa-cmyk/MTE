@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "./game/touch-overlay.css";
 @import "./game/ui-configurator.css";
+@import "./brand-system.css";
 
 @theme {
   --color-bg: #07090d;
