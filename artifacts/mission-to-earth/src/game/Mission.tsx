@@ -396,14 +396,14 @@ function Menu({
   onStartServer: () => void;
 }) {
   return (
-    <div className={`absolute inset-0 overflow-y-auto ${graphicsUnavailable ? "bg-bg/65" : "bg-bg/80"}`}>
-      <div className="mx-auto flex min-h-full max-w-6xl flex-col justify-end gap-8 px-5 py-10 md:justify-center md:px-10">
-        <div className="max-w-xl">
+    <div className={`mte-command-menu absolute inset-0 overflow-y-auto ${graphicsUnavailable ? "bg-bg/65" : "bg-bg/80"}`}>
+      <div className="mte-command-layout mx-auto flex min-h-full max-w-6xl flex-col justify-end gap-8 px-5 py-10 md:justify-center md:px-10">
+        <div className="mte-command-hero max-w-xl">
           <p className="inline-flex items-center gap-2 font-display text-sm tracking-widest text-cyan">
             <Radio className="size-4" />
             The Accord · Operation Shakuna
           </p>
-          <h1 className="mt-2 font-display text-6xl leading-none font-semibold text-fg md:text-8xl">
+          <h1 className="mte-game-title mt-2 font-display text-6xl leading-none font-semibold text-fg md:text-8xl">
             Mission
             <br />
             to Earth
@@ -442,7 +442,7 @@ function Menu({
                   key={card.id}
                   type="button"
                   onClick={() => setOp(card.id)}
-                  className={`w-64 shrink-0 border p-4 text-left ${on ? (card.tone === "cyan" ? "border-cyan bg-surface" : "border-gold bg-surface") : "border-line bg-bg/60"}`}
+                  className={`mte-operator-card w-64 shrink-0 border p-4 text-left ${on ? (card.tone === "cyan" ? "border-cyan bg-surface" : "border-gold bg-surface") : "border-line bg-bg/60"}`}
                 >
                   <p className={`inline-flex items-center gap-2 font-display text-xs tracking-widest ${card.tone === "cyan" ? "text-cyan" : "text-gold"}`}>
                     {card.tone === "cyan" ? <Crosshair className="size-3.5" /> : <Shield className="size-3.5" />}
@@ -484,7 +484,7 @@ function Menu({
           <button
             type="button"
             disabled={!canStart}
-            className="bg-cyan px-6 py-3 font-display text-xl tracking-widest text-bg disabled:cursor-not-allowed disabled:opacity-50"
+            className="mte-primary-action bg-cyan px-6 py-3 font-display text-xl tracking-widest text-bg disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onStart}
           >
             Start
