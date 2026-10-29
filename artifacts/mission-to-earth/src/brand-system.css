@@ -1,0 +1,134 @@
+/* MTE brand foundation — Operation Shakuna / Nod field command */
+:root {
+  color-scheme: dark;
+  --mte-ink: #080b0d;
+  --mte-panel: rgba(14, 20, 22, 0.88);
+  --mte-panel-raised: rgba(24, 32, 33, 0.92);
+  --mte-paper: #e8e5d9;
+  --mte-ash: #a0a59d;
+  --mte-ember: #e56b45;
+  --mte-ember-hot: #ff8a58;
+  --mte-signal: #7ad9c5;
+  --mte-brass: #d6b36a;
+  --mte-stroke: rgba(193, 206, 195, 0.2);
+  --mte-grid: rgba(122, 217, 197, 0.055);
+  --mte-display: "Rajdhani", "Arial Narrow", sans-serif;
+  --mte-body: "Barlow", Arial, sans-serif;
+}
+
+.mte-command-menu {
+  isolation: isolate;
+  background:
+    linear-gradient(90deg, rgba(6, 10, 11, 0.97) 0%, rgba(7, 12, 13, 0.84) 47%, rgba(7, 12, 13, 0.44) 100%),
+    radial-gradient(ellipse at 76% 38%, rgba(229, 107, 69, 0.17), transparent 38%),
+    linear-gradient(0deg, rgba(5, 8, 9, 0.96), transparent 48%);
+}
+.mte-command-menu::before,
+.mte-command-menu::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+.mte-command-menu::before {
+  opacity: 0.7;
+  background-image:
+    linear-gradient(var(--mte-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--mte-grid) 1px, transparent 1px);
+  background-size: 52px 52px;
+  mask-image: linear-gradient(90deg, #000, transparent 85%);
+}
+.mte-command-menu::after {
+  border: 1px solid rgba(214, 179, 106, 0.18);
+  inset: 12px;
+  clip-path: polygon(0 0, 110px 0, 110px 1px, 1px 1px, 1px 110px, 0 110px, 0 0, 100% 0, 100% 110px, calc(100% - 1px) 110px, calc(100% - 1px) 1px, calc(100% - 110px) 1px, calc(100% - 110px) 0, 100% 0, 100% 100%, calc(100% - 110px) 100%, calc(100% - 110px) calc(100% - 1px), calc(100% - 1px) calc(100% - 1px), calc(100% - 1px) calc(100% - 110px), 100% calc(100% - 110px), 100% 100%, 0 100%, 0 calc(100% - 110px), 1px calc(100% - 110px), 1px calc(100% - 1px), 110px calc(100% - 1px), 110px 100%, 0 100%);
+}
+.mte-command-layout { position: relative; z-index: 1; padding-top: clamp(2rem, 7vh, 5rem); padding-bottom: clamp(2rem, 6vh, 4.5rem); }
+.mte-command-hero { position: relative; }
+.mte-command-hero::before {
+  content: "ACCORD FIELD NETWORK  /  NOD SECTOR 07";
+  display: inline-flex;
+  margin-bottom: 1.15rem;
+  padding: 0.42rem 0.68rem;
+  border: 1px solid rgba(122, 217, 197, 0.36);
+  background: rgba(9, 20, 20, 0.72);
+  color: var(--mte-signal);
+  font: 600 0.67rem/1 var(--mte-display);
+  letter-spacing: 0.18em;
+}
+.mte-command-hero h1 {
+  text-transform: uppercase;
+  letter-spacing: -0.045em;
+  text-shadow: 0 4px 34px rgba(0, 0, 0, 0.65);
+}
+.mte-game-title { position: relative; }
+.mte-game-title::after {
+  content: "";
+  display: block;
+  width: clamp(5rem, 16vw, 10rem);
+  height: 4px;
+  margin-top: 1.1rem;
+  background: linear-gradient(90deg, var(--mte-ember), rgba(229, 107, 69, 0));
+  box-shadow: 0 0 18px rgba(229, 107, 69, 0.3);
+}
+.mte-command-hero p { max-width: 42rem; }
+.mte-command-menu button {
+  border-radius: 0;
+  transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+.mte-command-menu button:focus-visible {
+  outline: 2px solid var(--mte-brass);
+  outline-offset: 4px;
+}
+.mte-command-menu button:disabled { filter: saturate(0.45); }
+.mte-command-menu .mte-primary-action {
+  min-height: 3.25rem;
+  padding-inline: 1.65rem;
+  border: 1px solid var(--mte-ember-hot);
+  background: linear-gradient(135deg, var(--mte-ember-hot), var(--mte-ember));
+  box-shadow: 0 8px 30px rgba(229, 107, 69, 0.18);
+  color: #120d0b;
+  font-weight: 700;
+}
+.mte-command-menu .mte-primary-action:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 34px rgba(229, 107, 69, 0.3);
+}
+.mte-operator-card {
+  min-height: 15rem;
+  background: linear-gradient(150deg, rgba(24, 32, 33, 0.94), rgba(8, 12, 13, 0.9)) !important;
+  border-color: var(--mte-stroke) !important;
+  box-shadow: inset 3px 0 0 rgba(122, 217, 197, 0.25);
+}
+.mte-operator-card:hover { border-color: rgba(122, 217, 197, 0.6) !important; transform: translateY(-2px); }
+.mte-operator-card:focus-visible { outline: 2px solid var(--mte-brass); outline-offset: 3px; }
+.mte-command-menu [class*="border-line"][class*="bg-surface"],
+.mte-command-menu [class*="border-line"][class*="bg-bg"] {
+  border-color: var(--mte-stroke);
+}
+.mte-command-menu [class*="text-cyan"] { color: var(--mte-signal); }
+.mte-command-menu [class*="text-gold"] { color: var(--mte-brass); }
+.mte-command-menu [class*="bg-cyan"] { background-color: var(--mte-signal); }
+.mte-command-menu [class*="border-cyan"] { border-color: rgba(122, 217, 197, 0.75); }
+.mte-command-menu [class*="border-gold"] { border-color: rgba(214, 179, 106, 0.72); }
+.mte-command-menu [class*="bg-surface"] { background-color: var(--mte-panel-raised); }
+.mte-command-menu [class*="text-muted"] { color: var(--mte-ash); }
+.mte-command-menu [class*="border-line"] { border-color: var(--mte-stroke); }
+
+@media (min-width: 900px) {
+  .mte-command-layout { align-items: flex-start; }
+  .mte-command-hero { max-width: 44rem; }
+}
+@media (max-width: 640px) {
+  .mte-command-menu::after { inset: 6px; }
+  .mte-command-menu::before { background-size: 34px 34px; }
+  .mte-command-layout { gap: 1.6rem; padding-inline: 1.25rem; }
+  .mte-command-hero::before { font-size: 0.59rem; letter-spacing: 0.12em; }
+  .mte-game-title { font-size: clamp(3.7rem, 18vw, 5rem); }
+  .mte-operator-card { min-height: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mte-command-menu button { transition: none; }
+  .mte-command-menu button:hover { transform: none; }
+}
