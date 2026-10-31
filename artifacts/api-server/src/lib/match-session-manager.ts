@@ -361,6 +361,34 @@ export class MatchSessionManager {
     return { matchId, snapshot: this.snapshotFor(session) };
   }
 
+  getRealtimeState(
+    matchId: string,
+    accessToken: string,
+    ownerUserId: string,
+  ): {
+    matchId: string;
+    playerId: string;
+    snapshot: MatchSessionSnapshot;
+    gameplay: AuthoritativeGameplaySnapshot;
+  } {
+    const nowNs = this.readClock();
+    const session = this.getLiveSession(matchId, nowNs);
+    if (session.mapId !== CINDER_ROW_MAP_ID) {
+      throw new MatchSessionError(
+        "not-found",
+        "Real-time competitive matches are unavailable for this map.",
+      );
+    }
+    const playerId = this.resolveOwnedPlayer(session, accessToken, ownerUserId);
+    session.lastActivityAtNs = nowNs;
+    return {
+      matchId,
+      playerId,
+      snapshot: this.snapshotFor(session),
+      gameplay: session.gameplay.getSnapshot(playerId),
+    };
+  }
+
   getGameplaySnapshot(
     matchId: string,
     accessToken: string,

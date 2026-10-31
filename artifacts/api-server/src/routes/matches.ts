@@ -88,6 +88,10 @@ export function createMatchSessionsRouter(
       res.status(400).json({ error: "invalid-match-map" });
       return;
     }
+    if (!req.isAuthenticated()) {
+      res.status(401).json({ error: "sign-in-required-for-competitive-match" });
+      return;
+    }
     if (rejectIfLimited(createLimiter, req, res)) return;
 
     try {
@@ -101,6 +105,10 @@ export function createMatchSessionsRouter(
   router.post("/matches/:matchId/players", (req, res) => {
     if (!isMatchId(req.params.matchId)) {
       res.status(404).json({ error: "match-not-found" });
+      return;
+    }
+    if (!req.isAuthenticated()) {
+      res.status(401).json({ error: "sign-in-required-for-competitive-match" });
       return;
     }
     const operatorId = parseOperatorSelection(req.body);

@@ -65,6 +65,7 @@ test("match session routes load the map, assign server identity, and authorize a
   try {
     const createdResponse = await fetch(`${baseUrl}/matches`, {
       method: "POST",
+      headers: { "x-test-user-id": "host" },
     });
     assert.equal(createdResponse.status, 201);
     assert.equal(createdResponse.headers.get("cache-control"), "no-store");
@@ -74,6 +75,7 @@ test("match session routes load the map, assign server identity, and authorize a
 
     const fullResponse = await fetch(`${baseUrl}/matches`, {
       method: "POST",
+      headers: { "x-test-user-id": "host" },
     });
     assert.equal(fullResponse.status, 503);
 
@@ -81,7 +83,7 @@ test("match session routes load the map, assign server identity, and authorize a
       `${baseUrl}/matches/${created.matchId}/players`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-test-user-id": "host" },
         body: JSON.stringify({ spawn: { x: 0, y: 0, z: 0 } }),
       },
     );
@@ -90,7 +92,7 @@ test("match session routes load the map, assign server identity, and authorize a
       `${baseUrl}/matches/${created.matchId}/players`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-test-user-id": "host" },
         body: JSON.stringify({ operatorId: "admin" }),
       },
     );
@@ -98,7 +100,7 @@ test("match session routes load the map, assign server identity, and authorize a
 
     const joinedResponse = await fetch(
       `${baseUrl}/matches/${created.matchId}/players`,
-      { method: "POST" },
+      { method: "POST", headers: { "x-test-user-id": "guest" } },
     );
     assert.equal(joinedResponse.status, 201);
     const joined = await joinedResponse.json();
@@ -167,7 +169,7 @@ test("match session routes load the map, assign server identity, and authorize a
       `${baseUrl}/matches/${created.matchId}/players`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-test-user-id": "guest" },
         body: JSON.stringify({ operatorId: "aset" }),
       },
     );

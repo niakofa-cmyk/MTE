@@ -102,6 +102,13 @@ export type ServerArenaRoundSnapshot = {
   winner: "accord" | "eon-dusk" | null;
 };
 
+export type RealtimeConnectionStatus = "connecting" | "connected" | "error";
+export type RealtimeConnectionHandlers = {
+  onSnapshot: (snapshot: MatchSnapshot) => void;
+  onStatus?: (status: RealtimeConnectionStatus) => void;
+  onError?: (error: Error) => void;
+};
+
 export type ServerOperatorId = "jaya" | "bodhi" | "khensu" | "aset" | "ananda" | "nefret";
 export type ServerAbilityId =
   | "TEMPORAL_PHASE"
@@ -602,6 +609,10 @@ export class ServerMatchClient {
   private latestInput: (MatchInput & { sequenceNumber: number }) | null = null;
   private sendingInput = false;
   private inputErrorHandler: ((error: Error) => void) | null = null;
+  private realtimeEnabled = false;
+  private realtimeSocket: WebSocket | null = null;
+  private realtimeAuthorized = false;
+  private flushRealtimeInput: (() => void) | null = null;
 
   private constructor(
     session: StoredSession,
@@ -627,6 +638,11 @@ export class ServerMatchClient {
   get mapId(): ServerMatchMapId {
     return this.session.mapId;
   }
+
+  get isRealtimeConnected(): boolean {
+    return this.realtimeAuthorized;
+  }
+
   get localPlayerId(): string {
     return this.session.playerId;
   }
@@ -770,6 +786,168 @@ export class ServerMatchClient {
     this.inputErrorHandler = handler;
   }
 
+  connectRealtime(handlers: RealtimeConnectionHandlers): () => void {
+    if (this.session.mapId !== "cinder-row-blackout") {
+      handlers.onError?.(new Error("Real-time transport is only enabled for Cinder Row."));
+      handlers.onStatus?.("error");
+      return () => undefined;
+    }
+    if (typeof window === "undefined" || typeof WebSocket === "undefined") {
+      handlers.onError?.(new Error("This browser does not support real-time match transport."));
+      handlers.onStatus?.("error");
+      return () => undefined;
+    }
+
+    this.realtimeEnabled = true;
+    let disposed = false;
+    let terminalFailure = false;
+    let attempt = 0;
+    let retryTimer: number | undefined;
+    let currentSocket: WebSocket | null = null;
+
+    const scheduleRetry = () => {
+      if (disposed || terminalFailure || retryTimer !== undefined) return;
+      handlers.onStatus?.("connecting");
+      const delay = Math.min(1_000 * 2 ** Math.min(attempt, 3), 8_000);
+      attempt += 1;
+      retryTimer = window.setTimeout(() => {
+        retryTimer = undefined;
+        connect();
+      }, delay);
+    };
+
+    const connect = () => {
+      if (disposed) return;
+      handlers.onStatus?.("connecting");
+      const url = new URL(
+        `/api/matches/${this.matchId}/realtime`,
+        window.location.href,
+      );
+      url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const socket = new WebSocket(url);
+      currentSocket = socket;
+      this.realtimeSocket = socket;
+      this.realtimeAuthorized = false;
+
+      socket.addEventListener("open", () => {
+        if (disposed || socket !== currentSocket) return;
+        socket.send(JSON.stringify({
+          type: "authenticate",
+          accessToken: this.session.accessToken,
+        }));
+      });
+      socket.addEventListener("message", (event) => {
+        if (disposed || socket !== currentSocket || typeof event.data !== "string") return;
+        let message: unknown;
+        try {
+          message = JSON.parse(event.data);
+        } catch {
+          handlers.onError?.(new Error("The real-time server sent invalid data."));
+          return;
+        }
+        if (!isRecord(message) || typeof message.type !== "string") return;
+        if (message.type === "input-rejected") {
+          const reason = typeof message.reason === "string" ? message.reason : "input-rejected";
+          handlers.onError?.(new Error(`Server rejected player input (${reason}).`));
+          return;
+        }
+        if (message.type === "error") {
+          const code = typeof message.code === "string" ? message.code : "match-session-failed";
+          const error = new ServerMatchError(code, 409, code);
+          handlers.onError?.(error);
+          if (code === "unauthorized" || code === "not-found" || code === "round-finished") {
+            terminalFailure = true;
+            handlers.onStatus?.("error");
+          }
+          return;
+        }
+        if (message.type !== "ready" && message.type !== "snapshot") return;
+        if (message.matchId !== this.matchId) {
+          handlers.onError?.(new Error("The real-time server returned another match."));
+          return;
+        }
+        if (
+          message.type === "ready" &&
+          (message.protocolVersion !== 1 || message.playerId !== this.session.playerId)
+        ) {
+          terminalFailure = true;
+          handlers.onStatus?.("error");
+          handlers.onError?.(new Error("The real-time server returned an invalid player session."));
+          socket.close(1008, "invalid-player-session");
+          return;
+        }
+        try {
+          const snapshot = parseSnapshot(
+            { matchId: this.matchId, snapshot: message.snapshot },
+            this.matchId,
+          );
+          if (message.type === "ready") {
+            this.realtimeAuthorized = true;
+            attempt = 0;
+            const localPlayer = snapshot.players.find(
+              (player) => player.playerId === this.session.playerId,
+            );
+            if (localPlayer) {
+              this.nextSequence = Math.max(
+                this.nextSequence,
+                localPlayer.lastProcessedSequence + 1,
+              );
+              this.session.nextSequence = this.nextSequence;
+              this.persistSession();
+            }
+            handlers.onStatus?.("connected");
+            this.flushRealtimeInput?.();
+          }
+          handlers.onSnapshot(snapshot);
+        } catch (error) {
+          handlers.onError?.(error instanceof Error ? error : new Error("Invalid real-time snapshot."));
+        }
+      });
+      socket.addEventListener("close", (event) => {
+        if (socket === currentSocket) {
+          currentSocket = null;
+          this.realtimeSocket = null;
+          this.realtimeAuthorized = false;
+        }
+        if (event.code === 4003 || event.code === 4004) {
+          terminalFailure = true;
+          handlers.onStatus?.("error");
+          return;
+        }
+        scheduleRetry();
+      });
+      socket.addEventListener("error", () => {
+        if (!disposed) handlers.onError?.(new Error("Real-time match link interrupted; reconnecting."));
+      });
+    };
+
+    this.flushRealtimeInput = () => {
+      if (
+        !this.latestInput ||
+        this.sendingInput ||
+        !this.realtimeAuthorized ||
+        !this.realtimeSocket ||
+        this.realtimeSocket.readyState !== WebSocket.OPEN
+      ) return;
+      const input = this.latestInput;
+      this.latestInput = null;
+      this.realtimeSocket.send(JSON.stringify({ type: "input", ...input }));
+    };
+    connect();
+
+    return () => {
+      disposed = true;
+      this.realtimeEnabled = false;
+      this.realtimeAuthorized = false;
+      this.flushRealtimeInput = null;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      if (currentSocket && currentSocket.readyState < WebSocket.CLOSING) {
+        currentSocket.close(1000, "client-unmounted");
+      }
+      if (this.latestInput && !this.sendingInput) void this.drainInputQueue();
+    };
+  }
+
   async getSnapshot(): Promise<MatchSnapshot> {
     const value = await this.authorizedJson(`/api/matches/${this.matchId}/snapshot`);
     return parseSnapshot(value, this.matchId);
@@ -837,6 +1015,10 @@ export class ServerMatchClient {
     this.nextSequence += 1;
     this.session.nextSequence = this.nextSequence;
     this.persistSession();
+    if (this.realtimeEnabled && this.realtimeAuthorized) {
+      this.flushRealtimeInput?.();
+      return;
+    }
     if (!this.sendingInput) void this.drainInputQueue();
   }
 
@@ -910,7 +1092,8 @@ export class ServerMatchClient {
       this.inputErrorHandler?.(error instanceof Error ? error : new Error("Input sync failed."));
     } finally {
       this.sendingInput = false;
-      if (this.latestInput) void this.drainInputQueue();
+      if (this.realtimeAuthorized) this.flushRealtimeInput?.();
+      else if (this.latestInput) void this.drainInputQueue();
     }
   }
 

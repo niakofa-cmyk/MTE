@@ -79,7 +79,8 @@ test("Cinder Row match creation joins two server-assigned teams at opposing spaw
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    req.isAuthenticated = () => false;
+    req.user = { id: "cinder-test-user" };
+    req.isAuthenticated = () => true;
     next();
   });
   app.use("/api", createMatchSessionsRouter(manager));

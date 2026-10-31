@@ -1,5 +1,7 @@
 import app from "./app";
+import { createServer } from "node:http";
 import { logger } from "./lib/logger";
+import { MatchRealtimeGateway } from "./lib/match-realtime-gateway.ts";
 import { matchSessionManager } from "./lib/match-session-service.ts";
 
 const rawPort = process.env["PORT"];
@@ -17,13 +19,18 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 matchSessionManager.start();
-const server = app.listen(port, (err) => {
-  if (err) {
-    logger.error({ err }, "Error listening on port");
-    process.exit(1);
-  }
-
+const server = createServer(app);
+const matchRealtimeGateway = new MatchRealtimeGateway(matchSessionManager);
+matchRealtimeGateway.attach(server);
+server.once("error", (err) => {
+  logger.error({ err }, "Error listening on port");
+  process.exit(1);
+});
+server.listen(port, () => {
   logger.info({ port }, "Server listening");
 });
 
-server.once("close", () => matchSessionManager.stop());
+server.once("close", () => {
+  matchRealtimeGateway.close();
+  matchSessionManager.stop();
+});

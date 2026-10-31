@@ -192,22 +192,40 @@ export function Mission() {
       const current = engineRef.current;
       if (current) serverClient.submitInput(current.matchInput());
     }, 50);
-    const snapshotTimer = window.setInterval(() => {
-      void serverClient.getSnapshot()
-        .then((snapshot) => {
-          engineRef.current?.applyServerSnapshot(
-            snapshot.players,
-            serverClient.localPlayerId,
-          );
-          if (snapshot.mapId === "cinder-row-blackout") {
-            setArenaRound(snapshot.arenaRound);
-            setArenaMatchId(serverClient.matchId);
-            const localPlayer = snapshot.players.find(
-              (player) => player.playerId === serverClient.localPlayerId,
-            );
-            setArenaTeam(localPlayer?.team ?? null);
-          }
+    const applySnapshot = (snapshot: Awaited<ReturnType<ServerMatchClient["getSnapshot"]>>) => {
+      engineRef.current?.applyServerSnapshot(
+        snapshot.players,
+        serverClient.localPlayerId,
+      );
+      if (snapshot.mapId === "cinder-row-blackout") {
+        setArenaRound(snapshot.arenaRound);
+        setArenaMatchId(serverClient.matchId);
+        const localPlayer = snapshot.players.find(
+          (player) => player.playerId === serverClient.localPlayerId,
+        );
+        setArenaTeam(localPlayer?.team ?? null);
+      }
+    };
+    const realtimeDisconnect = serverClient.mapId === "cinder-row-blackout"
+      ? serverClient.connectRealtime({
+          onSnapshot: applySnapshot,
+          onStatus: (status) => {
+            setServerStatus(status);
+            if (status === "connected") setServerMessage(null);
+            if (status === "connecting") {
+              setServerMessage("Real-time link interrupted; reconnecting.");
+            }
+          },
+          onError: (error) => setServerMessage(error.message),
         })
+      : null;
+    const snapshotTimer = window.setInterval(() => {
+      if (
+        serverClient.mapId === "cinder-row-blackout" &&
+        serverClient.isRealtimeConnected
+      ) return;
+      void serverClient.getSnapshot()
+        .then(applySnapshot)
         .catch((error: unknown) => {
           setServerMessage(error instanceof Error ? error.message : "Match position sync failed.");
         });
@@ -254,6 +272,7 @@ export function Mission() {
       window.clearInterval(inputTimer);
       window.clearInterval(snapshotTimer);
       window.clearInterval(gameplayTimer);
+      realtimeDisconnect?.();
       serverClient.setInputErrorHandler(null);
     };
   }, [screen, serverClient, auth.isAuthenticated]);
