@@ -165,6 +165,9 @@ async function runViewport(cdp, viewport) {
 
   let movementControlResponded = false;
   let lookInputDispatched = false;
+  let movementDistance = 0;
+  let yawChange = 0;
+  let pitchChange = 0;
   let fireControlPresent = false;
   let landscapeHudReady = false;
   if (viewport.touch) {
@@ -197,6 +200,12 @@ async function runViewport(cdp, viewport) {
     assert(mobileControls.fieldInfoHidden, "secondary field telemetry should start hidden");
     assert(mobileControls.landscapePromptVisible, "portrait gameplay did not show the landscape recommendation");
     fireControlPresent = mobileControls.fireButton;
+    const engineStart = await evaluate(cdp, `(() => {
+      const controls = window.__controlsTest;
+      if (!controls?.getPos || !controls.getYaw || !controls.getPitch) return null;
+      return { position: controls.getPos(), yaw: controls.getYaw(), pitch: controls.getPitch() };
+    })()`);
+    assert(engineStart, "mobile live-engine movement/camera probe is unavailable");
 
     const movement = await evaluate(cdp, `(() => {
       const zone = document.querySelector(".zone-left-movement");
@@ -205,37 +214,61 @@ async function runViewport(cdp, viewport) {
       const y = Math.round(box.top + box.height * 0.68);
       return { x, y };
     })()`);
+    const aim = await evaluate(cdp, `(() => {
+      const box = document.querySelector(".zone-right-combat").getBoundingClientRect();
+      return { x: Math.round(box.left + box.width * 0.45), y: Math.round(box.top + box.height * 0.42) };
+    })()`);
+    const cameraStart = await evaluate(cdp, `({
+      yaw: window.__controlsTest.getYaw(),
+      pitch: window.__controlsTest.getPitch(),
+    })`);
     await cdp.call("Input.dispatchTouchEvent", {
       type: "touchStart",
-      touchPoints: [{ id: 7, x: movement.x, y: movement.y, radiusX: 5, radiusY: 5, force: 1 }],
+      touchPoints: [
+        { id: 7, x: movement.x, y: movement.y, radiusX: 5, radiusY: 5, force: 1 },
+        { id: 9, x: aim.x, y: aim.y, radiusX: 5, radiusY: 5, force: 1 },
+      ],
     });
     await cdp.call("Input.dispatchTouchEvent", {
       type: "touchMove",
-      touchPoints: [{ id: 7, x: movement.x + 30, y: movement.y - 24, radiusX: 5, radiusY: 5, force: 1 }],
+      touchPoints: [
+        { id: 7, x: movement.x + 30, y: movement.y - 24, radiusX: 5, radiusY: 5, force: 1 },
+        { id: 9, x: aim.x + 36, y: aim.y - 22, radiusX: 5, radiusY: 5, force: 1 },
+      ],
     });
     await delay(120);
     movementControlResponded = await evaluate(
       cdp,
       `Boolean(document.querySelector(".dynamic-virtual-stick"))`,
     );
+    await delay(1_500);
+    const movementEnd = await evaluate(cdp, `(() => ({
+      position: window.__controlsTest.getPos(),
+      speed: window.__controlsTest.getSpeed(),
+      yaw: window.__controlsTest.getYaw(),
+      pitch: window.__controlsTest.getPitch(),
+    }))()`);
+    movementDistance = Math.hypot(
+      movementEnd.position.x - engineStart.position.x,
+      movementEnd.position.z - engineStart.position.z,
+    );
+    yawChange = Math.abs(movementEnd.yaw - cameraStart.yaw);
+    pitchChange = Math.abs(movementEnd.pitch - cameraStart.pitch);
     await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     assert(movementControlResponded, "mobile movement zone did not respond to a touch drag");
-
-    const aim = await evaluate(cdp, `(() => {
-      const box = document.querySelector(".zone-right-combat").getBoundingClientRect();
-      return { x: Math.round(box.left + box.width * 0.45), y: Math.round(box.top + box.height * 0.42) };
-    })()`);
-    await cdp.call("Input.dispatchTouchEvent", {
-      type: "touchStart",
-      touchPoints: [{ id: 9, x: aim.x, y: aim.y, radiusX: 5, radiusY: 5, force: 1 }],
-    });
-    await cdp.call("Input.dispatchTouchEvent", {
-      type: "touchMove",
-      touchPoints: [{ id: 9, x: aim.x + 36, y: aim.y - 22, radiusX: 5, radiusY: 5, force: 1 }],
-    });
-    await delay(120);
-    await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-    lookInputDispatched = true;
+    assert(
+      movementDistance > 0.005,
+      `mobile touch did not move the live player; start=${JSON.stringify(engineStart.position)} end=${JSON.stringify(movementEnd.position)} speed=${movementEnd.speed}`,
+    );
+    lookInputDispatched = yawChange > 0.0001 && pitchChange > 0.0001;
+    assert(
+      yawChange > 0.0001,
+      `simultaneous right-side look did not change live camera yaw (before=${cameraStart.yaw}, after=${movementEnd.yaw})`,
+    );
+    assert(
+      pitchChange > 0.0001,
+      `simultaneous right-side look did not change live camera pitch (before=${cameraStart.pitch}, after=${movementEnd.pitch})`,
+    );
 
     const fireButton = await evaluate(cdp, `document.querySelector(".touch-fire")?.getBoundingClientRect().toJSON() ?? null`);
     if (fireButton) {
@@ -411,6 +444,9 @@ async function runViewport(cdp, viewport) {
     coarsePointer: beforeStart.coarsePointer,
     movementControlResponded,
     lookInputDispatched,
+    movementDistance,
+    yawChange,
+    pitchChange,
     fireControlPresent,
     landscapeHudReady,
     frameTimes,
@@ -545,6 +581,8 @@ function formatResult(result) {
   return `${result.viewport}, WebGL2=${result.webgl2}, renderer=${result.rendererName}, canvases=${result.canvasCount}, ` +
     `frames=${frame.frames}, p50=${frame.p50Ms.toFixed(2)} ms, p95=${frame.p95Ms.toFixed(2)} ms, ` +
     `movement-touch=${result.movementControlResponded}, look-touch=${result.lookInputDispatched}, ` +
+    `player-translation=${result.movementDistance.toFixed(3)} units, ` +
+    `camera-yaw=${result.yawChange.toFixed(4)} rad, camera-pitch=${result.pitchChange.toFixed(4)} rad, ` +
     `fire-control=${result.fireControlPresent || "desktop input"}, landscape-HUD=${result.landscapeHudReady}`;
 }
 
