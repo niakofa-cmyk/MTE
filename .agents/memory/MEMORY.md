@@ -13,3 +13,4 @@
 - [Persistent reward identity](persistent-reward-identity.md) — Replit Auth is the chosen identity for account-linked MTE reward ownership.
 - [Landscape-first mobile FPS](landscape-first-mobile-fps.md) — make active combat landscape-first while keeping browser rotation advisory and the pre-deployment command center responsive.
 - [React touch-smoke inputs](react-touch-smoke-inputs.md) — browser tests must use the native input value setter for React-controlled range controls before dispatching input.
+- [Artifact production builds](artifact-build-environment.md) — build the changed artifact with its own PORT and BASE_PATH when workspace builds lack managed workflow environment.
