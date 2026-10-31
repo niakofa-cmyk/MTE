@@ -5,6 +5,7 @@ import { BLOODLINES, DOSSIER, OPERATORS, OPERATOR_BY_ID, type OpId, type WeaponI
 import { MissionEngine, type MissionEvent } from "@/game/engine";
 import { CinderRowPanel } from "@/game/CinderRowPanel";
 import { CityOfNodBackdrop } from "@/game/city-of-nod-backdrop";
+import { copyMatchIdToClipboard } from "@/game/match-invite";
 import { ATTACHMENT_BY_ID, type AttachSlot } from "@/game/loot";
 import { extractionEpilogue } from "@/game/mission-epilogue";
 import {
@@ -493,6 +494,19 @@ export function Mission() {
     }
   };
 
+  const copyArenaMatchId = async () => {
+    if (!arenaMatchId) return;
+    const copied = await copyMatchIdToClipboard(
+      arenaMatchId,
+      typeof navigator === "undefined" ? undefined : navigator.clipboard,
+    );
+    setServerMessage(
+      copied
+        ? "Match ID copied. Share it with the players you invite."
+        : "Clipboard unavailable. Select the match ID field and copy it manually.",
+    );
+  };
+
   const onRankedQueueAction = async () => {
     if (graphicsUnavailable || serverStatus === "connecting") return;
     if (!auth.isAuthenticated) {
@@ -620,6 +634,7 @@ export function Mission() {
                 round={arenaRound}
                 onHost={() => void startCinderRow()}
                 onJoin={() => void startCinderRow(arenaJoinCode.trim())}
+                onCopyMatchId={() => void copyArenaMatchId()}
                 onRankedAction={() => void onRankedQueueAction()}
               />
               {serverClient?.mapId === "cinder-row-blackout" ? (
@@ -725,6 +740,7 @@ export function Mission() {
             round={arenaRound}
             onHost={() => void startCinderRow()}
             onJoin={() => void startCinderRow(arenaJoinCode.trim())}
+            onCopyMatchId={() => void copyArenaMatchId()}
             onRankedAction={() => void onRankedQueueAction()}
           />
         </div>

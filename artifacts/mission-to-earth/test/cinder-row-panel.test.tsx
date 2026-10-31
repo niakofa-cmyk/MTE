@@ -29,6 +29,7 @@ const baseProps: CinderRowPanelProps = {
   },
   onHost: () => undefined,
   onJoin: () => undefined,
+  onCopyMatchId: () => undefined,
   onRankedAction: () => undefined,
 };
 
@@ -50,4 +51,31 @@ test("Cinder Row HUD shows the selected ranked team capacity", () => {
   assert.match(fourVsFour, /\/4/);
   assert.match(eightVsEight, /\/8/);
   assert.match(eightVsEightMenu, /up to 8 operators per side/);
+});
+
+test("explains private match creation and exposes a shareable ID after hosting", () => {
+  const readyToHost = renderToStaticMarkup(
+    <CinderRowPanel
+      {...baseProps}
+      screen="menu"
+      serverStatus="idle"
+      matchId={null}
+      rankedQueue={{ state: "idle", rating: 1_000 }}
+    />,
+  );
+  const hostedMatch = renderToStaticMarkup(
+    <CinderRowPanel
+      {...baseProps}
+      screen="menu"
+      matchId="invite-match-123"
+      rankedQueue={{ state: "idle", rating: 1_000 }}
+    />,
+  );
+
+  assert.match(readyToHost, /CREATE PRIVATE MATCH/);
+  assert.match(readyToHost, /Custom matches are unranked/);
+  assert.match(readyToHost, /PASTE MATCH ID/);
+  assert.match(hostedMatch, /PRIVATE MATCH ID/);
+  assert.match(hostedMatch, /invite-match-123/);
+  assert.match(hostedMatch, /aria-label="Copy Match ID"/);
 });

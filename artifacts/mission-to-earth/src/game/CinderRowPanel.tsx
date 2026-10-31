@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { Radio, Users, Timer, Shield, Swords, Signal, ArrowUpRight } from "lucide-react";
+import { Radio, Users, Timer, Shield, Swords, Signal, ArrowUpRight, Copy } from "lucide-react";
 
 export type CinderRowPanelProps = {
   screen: "menu" | "hud";
@@ -29,6 +29,7 @@ export type CinderRowPanelProps = {
   };
   onHost: () => void;
   onJoin: () => void;
+  onCopyMatchId: () => void;
   onRankedAction: () => void;
 };
 
@@ -80,6 +81,7 @@ export function CinderRowPanel({
   round,
   onHost,
   onJoin,
+  onCopyMatchId,
   onRankedAction,
 }: CinderRowPanelProps) {
   const codeId = useId();
@@ -226,16 +228,25 @@ export function CinderRowPanel({
               onClick={onHost}
               disabled={actionsLocked}
               className="field-deploy-button flex min-h-12 items-center justify-center gap-2 px-3 py-2 font-display text-sm font-bold tracking-[.13em] disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
-              aria-label={isConnecting ? "Establishing arena connection" : "Host a Cinder Row match"}
+              aria-label={
+                isConnecting
+                  ? "Establishing arena connection"
+                  : serverStatus === "connected"
+                    ? "Cinder Row match connected"
+                    : "Create private Cinder Row match"
+              }
             >
               {isConnecting ? <span className="size-3.5 animate-pulse rounded-full border border-current" aria-hidden="true" /> : <ArrowUpRight className="size-4" aria-hidden="true" />}
-              {isConnecting ? "LINKING…" : "HOST MATCH"}
+              {isConnecting ? "LINKING…" : serverStatus === "connected" ? "MATCH LINKED" : "CREATE PRIVATE MATCH"}
             </button>
             <div className="flex min-h-12 flex-col justify-center border border-line/70 bg-background/40 px-3">
               <span className="font-display text-[9px] tracking-[.18em] text-muted">YOUR TEAM</span>
               <span className="mt-0.5 font-display text-xs font-bold tracking-widest"><TeamTag team={team} /></span>
             </div>
           </div>
+          <p className="text-[11px] leading-relaxed text-muted">
+            Custom matches are unranked. Invite players with the match ID; ranked matchmaking is below.
+          </p>
 
           <form
             className="grid grid-cols-[minmax(0,1fr)_auto] gap-2"
@@ -245,15 +256,15 @@ export function CinderRowPanel({
             }}
           >
             <label className="min-w-0">
-              <span className="sr-only">Match join code</span>
+              <span className="sr-only">Match ID</span>
               <input
                 id={codeId}
                 type="text"
                 autoComplete="off"
                 value={joinCode}
                 onChange={(event) => onJoinCodeChange(event.currentTarget.value)}
-                placeholder="ENTER MATCH CODE"
-                aria-label="Match join code"
+                placeholder="PASTE MATCH ID"
+                aria-label="Match ID"
                 disabled={actionsLocked}
                 className="h-full min-h-11 w-full border border-line bg-background/60 px-3 font-mono text-sm tracking-[.12em] text-fg placeholder:text-muted/70 focus:border-cyan focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
               />
@@ -262,7 +273,7 @@ export function CinderRowPanel({
               type="submit"
               disabled={actionsLocked || !joinCode.trim()}
               className="field-action-button min-h-11 border border-cyan/60 px-4 font-display text-xs tracking-[.16em] text-cyan disabled:cursor-not-allowed disabled:opacity-40"
-              aria-label="Join match using entered code"
+              aria-label="Join match using entered match ID"
             >
               JOIN
             </button>
@@ -317,11 +328,33 @@ export function CinderRowPanel({
           </div>
 
           {matchId ? (
-            <p className="flex min-w-0 items-center gap-2 text-xs text-muted">
-              <Signal className="size-3.5 shrink-0 text-cyan" aria-hidden="true" />
-              <span className="font-display tracking-widest">MATCH LINK</span>
-              <span className="truncate font-mono text-fg" title={matchId}>{matchId}</span>
-            </p>
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-end gap-2 border border-cyan/30 bg-background/45 p-2">
+              <label className="min-w-0">
+                <span className="mb-1 flex items-center gap-1.5 font-display text-[9px] tracking-[.15em] text-cyan">
+                  <Signal className="size-3 shrink-0" aria-hidden="true" />
+                  PRIVATE MATCH ID · SHARE TO INVITE
+                </span>
+                <input
+                  type="text"
+                  readOnly
+                  value={matchId}
+                  aria-label="Private match ID to share"
+                  onFocus={(event) => event.currentTarget.select()}
+                  onClick={(event) => event.currentTarget.select()}
+                  className="h-9 w-full min-w-0 select-all border border-line bg-background px-2 font-mono text-xs text-fg focus:border-cyan focus:outline-none"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={onCopyMatchId}
+                aria-label="Copy Match ID"
+                title="Copy Match ID"
+                className="field-action-button flex min-h-9 items-center justify-center gap-1.5 border border-cyan/60 px-2 font-display text-[9px] tracking-widest text-cyan hover:bg-cyan/10"
+              >
+                <Copy className="size-3" aria-hidden="true" />
+                COPY ID
+              </button>
+            </div>
           ) : null}
           {serverStatus === "error" ? (
             <p role="alert" className="border-l-2 border-gold pl-2 text-xs leading-relaxed text-gold">
