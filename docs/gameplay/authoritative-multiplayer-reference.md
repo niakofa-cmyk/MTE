@@ -24,20 +24,35 @@ The security follow-up also needs correction before use. Its slab ray test divid
 
 Do not copy those behaviors into a live service. A transport must authenticate a connection and map it to a server-owned player ID before passing input to the simulation. Keep credentials and identity out of input payloads.
 
-## Implemented foundation
+## Current MTE implementation — verified 2026-10-31
 
-`artifacts/api-server/src/lib/authoritative-match.ts` contains a pure, transport-agnostic match core. It validates packet shape, angles, movement, flags, and 32-bit sequence order; limits queue size and packet rate; expires stale held input; derives movement from server configuration; and runs explicit safe-zone phases with capped delta time. `spatial-hash-grid.ts` provides collision-safe nested cell maps, exact radius filtering, and reusable query output; the match core updates it on registration, movement, and disconnect. `fixed-step-accumulator.ts` converts monotonic nanosecond timestamps into bounded fixed steps and reports dropped time without running a busy loop. `authoritative-snapshot-codec.ts` encodes and decodes a versioned `MTE` binary snapshot with bounded UTF-8 IDs and 64KB maximum packet size, rejects malformed fields and packets, and returns owned buffers rather than reusing mutable global storage. `static-world-collision-map.ts` accepts copied, validated server-owned AABBs, rejects embedded spawns, resolves swept horizontal movement against walls, and provides bounded ray/AABB occlusion queries that handle parallel axes. Geometry must be loaded before players; the current implementation has a 4,096-box cap and linear scans. Tests live in `artifacts/api-server/test/`.
+### Implemented and tested
 
-These structures are correctness-oriented foundations, not a claim of AAA performance. The static collision map is not populated from the game level yet, is not an octree, and has no performance certification. Spatial indexing is currently used for bounded nearby-player queries, not a complete collision or raycast engine. The accumulator is caller-driven; the API server does not start a live match loop until authenticated rooms and transport exist. No zero-allocation or thousands-of-entities throughput guarantee is made without profiling.
+- `artifacts/api-server/src/lib/authoritative-match.ts` validates input shape, movement, look angles, flags, sequence order, queue size, packet rate, stale held input, and bounded simulation deltas.
+- `match-session-manager.ts` starts from the API-server entry point and owns bounded in-memory sessions. The 60 Hz fixed-step simulation, session capacity, expiry, and per-player limits are exercised by tests.
+- `match-bootstrap.ts` loads and validates server-owned generated Nod geometry and gameplay data before players join. This is one hardcoded map bootstrap, not yet a reusable map catalog.
+- Match REST routes create sessions, assign player IDs and spawn positions, accept authenticated input, and return snapshots and world-state. The React mission has a Server Loot Run path through `ServerMatchClient`.
+- Server-side combat tests cover weapon cadence, hit validation, cover occlusion, and reload state. Loot and terminal actions validate server-owned positions and prevent duplicate claims.
+- Extraction hold status is server-validated. Once ready, a durable receipt can be settled idempotently into the authenticated player's profile and inventory. A match session itself remains in memory and is not restored after process restart.
+- `spatial-hash-grid.ts`, `fixed-step-accumulator.ts`, `authoritative-snapshot-codec.ts`, and `static-world-collision-map.ts` provide bounded, tested building blocks. The codec is not connected to the current REST client.
 
-This core is not yet exposed to clients. The current game remains a local single-player mission. There is no authenticated multiplayer transport, matchmaking, client prediction/reconciliation, level collision import, authoritative weapon fire cadence/ammo/hit resolution, loot/inventory replication, or production Battle Royale mode. The binary codec is not connected to a socket, and the occlusion query is not yet connected to damage resolution. Do not describe the game as network-authoritative until those parts are implemented and verified together.
+These are correctness-oriented foundations, not a claim of AAA performance. The static collision map has a 4,096-box cap and linear scans; spatial indexing covers bounded nearby-player queries, not every collision or raycast. The configured 64-player session ceiling is not evidence of a tested 64-player match.
+
+### Integrated prototype and remaining gaps
+
+The browser's Server Loot Run submits input every 50 ms (20 Hz), reads snapshots every 200 ms (5 Hz), and polls gameplay and extraction state every 1,500 ms. This is a REST-polling prototype, not the final low-latency transport. The current client does not implement explicit prediction/reconciliation or remote-player interpolation.
+
+The server gameplay registry includes rescue, beacon, and extraction objective records, but the authoritative gameplay snapshot still labels objectives as waiting for a server event or locked. The current match routes do not advance the rescue/beacon objective chain, assign teams, run competitive rounds, or settle a round winner. Extraction hold and reward settlement do not prove that the campaign objective chain has completed.
+
+The match bootstrap remains Nod-specific. There is no map catalog/version selection, Cinder Row arena, authenticated real-time socket transport, team/spawn/respawn lifecycle, reconnect recovery for a live match, multi-client latency/loss certification, or load/performance certification. Keep the solo campaign as the stable baseline and do not advertise production multiplayer.
 
 ## Integration order
 
-1. Add authenticated room/session ownership and a bounded transport.
-2. Define the network contract and acknowledgement/snapshot cadence; integrate client prediction and reconciliation.
-3. Add server-owned weapon inventory, fire cadence, collision/raycast hit registration, and damage.
-4. Add server-owned loot claims, extraction outcomes, and duplicate-claim protection.
-5. Run load, abuse, reconnect, and multi-client tests before enabling public matches.
+1. Preserve and verify the solo rescue-to-extraction baseline; keep these implementation limits documented.
+2. Define a versioned, server-approved map/match contract and map catalog before adding selectable maps.
+3. Prototype one compact graybox arena, **Cinder Row: Blackout**, with three lanes and a server-owned relay objective. Target 4v4 only as a vertical-slice test, not a certified capacity claim.
+4. Add server-owned teams, objective progress, round lifecycle, and result settlement for that slice.
+5. Replace REST polling for live combat with a bounded real-time transport, then add prediction/reconciliation and remote interpolation.
+6. Run multi-client, reconnect, latency/loss, security, and load tests before calling the arena production-ready.
 
-The existing local mission and its controls remain the gameplay baseline while these layers are built in testable stages.
+The arena is intended to expose and complete these dependencies, not to imply they already work. See [`updated-repository-forensic-evaluation-2026-10-31.md`](./updated-repository-forensic-evaluation-2026-10-31.md) for the full current assessment and acceptance gates.

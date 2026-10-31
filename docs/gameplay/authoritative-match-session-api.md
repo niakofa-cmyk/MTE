@@ -1,43 +1,75 @@
 # Authoritative Match Session API
 
-This is the first server-owned match-session path. It uses the existing
-transport-neutral simulation and loads the generated Nod collision asset before
-players can join.
+**Status verified 2026-10-31:** the browser can start a server match through the
+React `Server Loot Run` flow. The client uses bounded HTTP polling. This is an
+integrated prototype, not a real-time competitive service.
 
 ## Routes
 
 All routes are under `/api`:
 
-- `POST /matches` — create a bounded, in-memory match session. The server loads
-  the canonical map; clients cannot provide a map or match configuration.
-- `POST /matches/:matchId/players` — join. The server creates the player ID
-  and selects a clear spawn inside the initial zone.
-- `POST /matches/:matchId/input` — submit a sequenced movement/look/hand input
-  packet using `Authorization: Bearer <accessToken>`.
-- `GET /matches/:matchId/snapshot` — read the latest authoritative snapshot
-  using the same bearer token.
-- `DELETE /matches/:matchId/player` — remove the authenticated player from the
-  match and revoke that token.
+- `POST /matches` — create a bounded in-memory match. The server loads the
+  canonical Nod map; clients cannot supply geometry or match rules.
+- `POST /matches/:matchId/players` — join. The server creates the player ID and
+  selects a clear spawn. The response returns an opaque access token once.
+- `POST /matches/:matchId/input` — submit sequenced movement, look, hand, and
+  ability input using `Authorization: Bearer <accessToken>`.
+- `GET /matches/:matchId/snapshot` — read the latest server-owned match snapshot.
+- `GET /matches/:matchId/world-state` — read server-owned loot, terminals,
+  objective records, and the player's temporary match inventory.
+- `POST /matches/:matchId/loot/:lootId/claim` — claim a registered item after
+  server-side range and availability checks.
+- `POST /matches/:matchId/terminals/:terminalId/open` — open a registered
+  terminal after server-side range and one-time-use checks.
+- `GET /matches/:matchId/extraction/status` — read server-validated recovery
+  hold status.
+- `POST /matches/:matchId/extraction/settle` — settle a ready extraction for
+  the authenticated account; retrying is idempotent.
+- `DELETE /matches/:matchId/player` — remove the authenticated player and revoke
+  the match token.
+- `GET /auth/user` and `GET /profile` — read the Replit-authenticated account
+  and its durable progression.
 
-The join response returns the opaque player access token once. Only its SHA-256
-digest is retained in memory. Input bodies do not establish identity, spawn
-coordinates, timestamps, speed, or position. Snapshot responses are
-`Cache-Control: no-store`.
+The join response's token is stored as a SHA-256 digest in memory. Input bodies
+do not establish identity, spawn coordinates, timestamps, speed, or position.
+The API's authentication middleware resolves account identity; reward values
+come from server-owned match state, not client-submitted loot. Snapshot and
+profile responses are not cacheable.
 
-## Resource and lifecycle limits
+## Client cadence and server lifecycle
 
-- At most 12 active sessions, 64 players per session, and 3 session creations
-  per client address per minute.
+The current browser integration submits input every 50 ms, polls match snapshots
+every 200 ms, and polls world-state and extraction status every 1,500 ms. This
+means approximately 20 input updates per second and five snapshot requests per
+second, with slower inventory/objective polling. The server processes simulation
+on a bounded 60 Hz fixed-step loop.
+
+- At most 12 active sessions and 64 players per session.
+- At most 3 session creations per client address per minute.
 - Sessions expire after five minutes idle or 30 minutes maximum lifetime.
-- The server runs bounded 60 Hz fixed-step simulation with capped catch-up;
-  dropped simulation time is logged.
-- Join and snapshot requests are rate-limited; individual input queues and
-  input rates remain bounded by the existing match simulator.
-- The JSON request body limit is 16 KiB.
+- Input queues and packet rates are bounded; the JSON body limit is 16 KiB.
 
-Sessions and access tokens are in memory only; a process restart ends them.
-This is a REST polling prototype, not a WebSocket transport, account system,
-production matchmaking service, or persistence layer. The solo browser client
-is not connected to these routes. The simulation currently validates movement,
-look state, zone phase, and hand-action flags; it does not provide authoritative
-weapon hit detection, inventory rewards, or extraction claims.
+The match session, player token digests, and temporary inventory are in memory.
+A process restart ends an unfinished match. After the server confirms extraction
+readiness, it persists a durable receipt before settlement; a later retry can
+settle that receipt after restart without granting the reward twice. This
+recovery guarantee does not restore the live match simulation.
+
+## Explicit limitations
+
+- Transport is REST polling; there is no WebSocket or other persistent realtime
+  transport.
+- The client applies server snapshots but has no explicit input prediction and
+  reconciliation or remote-player interpolation.
+- The only match bootstrap is the server-owned Nod map. There is no map catalog,
+  version selection, or Cinder Row arena.
+- The server has validated combat, loot, terminal, and extraction primitives,
+  but it does not yet advance the rescue/beacon objective chain, run teams and
+  competitive rounds, or determine a relay-capture winner.
+- The current 64-player configuration is not a measured capacity result.
+- Automated tests cover units and API paths, not multi-client synchronization
+  under real latency, packet loss, disconnects, or load.
+
+See [`authoritative-multiplayer-reference.md`](./authoritative-multiplayer-reference.md)
+for the implementation status and staged arena plan. Do not treat a successful
+HTTP match flow or green CI run as multiplayer certification.
