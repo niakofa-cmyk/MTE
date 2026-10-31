@@ -122,8 +122,12 @@ async function movePlayerTo(manager, clock, socket, ticket, sequences, target) {
   throw new Error(`Player ${ticket.playerId} could not reach its test waypoint.`);
 }
 
-test("phase-two 8v8 supports sixteen authenticated ranked WebSocket clients", async () => {
-  const manager = new MatchSessionManager(async () => createCinderRowAuthoritativeMatch());
+test("phase-two 8v8 completes a simulated relay round and ranked settlement", async () => {
+  const clock = { nowNs: 1_000_000_000n };
+  const manager = new MatchSessionManager(
+    async () => createCinderRowAuthoritativeMatch(),
+    { nowNs: () => clock.nowNs },
+  );
   const userIds = Array.from({ length: CLIENTS }, () => `phase-two-user-${randomUUID()}`);
   const sidToUser = new Map(userIds.map((userId) => [userId, userId]));
   const regionId = `test-${randomUUID()}`;
@@ -140,8 +144,6 @@ test("phase-two 8v8 supports sixteen authenticated ranked WebSocket clients", as
       CINDER_ROW_RELAY_8V8_PROFILE.id,
       regionId,
     ),
-    readRating: async () => 1_000,
-    persistResult: async () => undefined,
   });
   const app = express();
   app.use(express.json());
@@ -172,6 +174,8 @@ test("phase-two 8v8 supports sixteen authenticated ranked WebSocket clients", as
   assert.ok(address && typeof address !== "string");
   const apiUrl = `http://127.0.0.1:${address.port}/api`;
   const sockets = [];
+  const sequences = new Map();
+  let matchId = null;
 
   try {
     const queueResponses = await Promise.all(userIds.map((userId) =>
@@ -202,7 +206,7 @@ test("phase-two 8v8 supports sixteen authenticated ranked WebSocket clients", as
     }));
     assert.equal(new Set(tickets.map((ticket) => ticket.matchId)).size, 1);
 
-    const matchId = tickets[0].matchId;
+    matchId = tickets[0].matchId;
     const realtimeUrl = `ws://127.0.0.1:${address.port}/api/matches/${matchId}/realtime`;
     sockets.push(...await Promise.all(tickets.map((ticket, index) =>
       openSocket(realtimeUrl, userIds[index])
@@ -216,6 +220,7 @@ test("phase-two 8v8 supports sixteen authenticated ranked WebSocket clients", as
       return ready;
     });
     const ready = await Promise.all(readyPromises);
+    manager.advanceAt(clock.nowNs);
     assert.ok(ready.every((message) => message.snapshot.players.length === CLIENTS));
     const teams = ready[0].snapshot.players.reduce((counts, player) => {
       counts[player.team] = (counts[player.team] ?? 0) + 1;
@@ -233,24 +238,9 @@ test("phase-two 8v8 supports sixteen authenticated ranked WebSocket clients", as
       }
     }
 
-    const inputAcks = sockets.map((socket, index) =>
-      nextMessage(
-        socket,
-        (message) =>
-          message.type === "input-accepted" && message.sequenceNumber === index + 1,
-      )
-    );
-    sockets.forEach((socket, index) => {
-      socket.send(JSON.stringify({
-        type: "input",
-        sequenceNumber: index + 1,
-        inputFlags: 0,
-        yaw: 0,
-        pitch: 0,
-        movementVector: { forward: 0, strafe: 0 },
-      }));
-    });
-    await Promise.all(inputAcks);
+    await Promise.all(tickets.map((ticket, index) =>
+      sendInput(sockets[index], ticket, sequences)
+    ));
     const snapshotsPerClient = Array(CLIENTS).fill(0);
     sockets.forEach((socket, index) => {
       socket.on("message", (data) => {
@@ -263,8 +253,145 @@ test("phase-two 8v8 supports sixteen authenticated ranked WebSocket clients", as
       snapshotsPerClient.every((count) => count >= 8),
       `Each 8v8 client should continue receiving snapshots; got ${snapshotsPerClient.join(",")}.`,
     );
+    const socketByPlayerId = new Map(
+      tickets.map((ticket, index) => [ticket.playerId, sockets[index]]),
+    );
+    const northPlayers = tickets
+      .map((ticket) => ({
+        ticket,
+        socket: socketByPlayerId.get(ticket.playerId),
+        position: playerSnapshot(manager, ticket).position,
+      }))
+      .filter(({ position }) => position.z < -17);
+    let shooterEntry;
+    let targetEntry;
+    let closestNorthPair = Number.POSITIVE_INFINITY;
+    for (const shooter of northPlayers.filter(({ ticket }) => ticket.team === "accord")) {
+      for (const target of northPlayers.filter(({ ticket }) => ticket.team === "eon-dusk")) {
+        const dz = Math.abs(shooter.position.z - target.position.z);
+        if (dz < closestNorthPair) {
+          shooterEntry = shooter;
+          targetEntry = target;
+          closestNorthPair = dz;
+        }
+      }
+    }
+    assert.ok(shooterEntry?.socket && targetEntry?.socket, "Both teams need a northern-lane combat pair.");
+    await movePlayerTo(
+      manager,
+      clock,
+      shooterEntry.socket,
+      shooterEntry.ticket,
+      sequences,
+      { x: -10, z: -28 },
+    );
+    await movePlayerTo(
+      manager,
+      clock,
+      targetEntry.socket,
+      targetEntry.ticket,
+      sequences,
+      { x: 10, z: -28 },
+    );
+
+    const shooterBefore = playerSnapshot(manager, shooterEntry.ticket);
+    const targetBefore = playerSnapshot(manager, targetEntry.ticket);
+    const horizontalDistance = Math.hypot(
+      targetBefore.position.x - shooterBefore.position.x,
+      targetBefore.position.z - shooterBefore.position.z,
+    );
+    const shotYaw = Math.atan2(
+      targetBefore.position.x - shooterBefore.position.x,
+      targetBefore.position.z - shooterBefore.position.z,
+    ) * 180 / Math.PI;
+    const shotPitch = Math.atan2(-0.5, horizontalDistance) * 180 / Math.PI;
+    await sendInput(shooterEntry.socket, shooterEntry.ticket, sequences, {
+      inputFlags: ClientInputFlags.FIRE_RIGHT,
+      yaw: shotYaw,
+      pitch: shotPitch,
+    });
+    advanceSimulation(manager, clock, 0.1);
+    const shooterAfter = playerSnapshot(manager, shooterEntry.ticket);
+    const targetAfter = playerSnapshot(manager, targetEntry.ticket);
+    assert.ok(
+      targetAfter.health < targetBefore.health,
+      "Server-authoritative firing must damage the intended opponent.",
+    );
+    assert.ok(
+      shooterAfter.rightWeapon.ammoInMagazine < shooterBefore.rightWeapon.ammoInMagazine,
+      "The server must consume ammunition for the accepted shot.",
+    );
+
+    const runnerEntry = tickets
+      .filter((ticket) =>
+        ticket.team === "accord" && ticket.playerId !== shooterEntry.ticket.playerId
+      )
+      .map((ticket) => ({
+        ticket,
+        socket: socketByPlayerId.get(ticket.playerId),
+        position: playerSnapshot(manager, ticket).position,
+      }))
+      .filter((entry) => entry.socket)
+      .sort((left, right) =>
+        Math.hypot(left.position.x, left.position.z) -
+        Math.hypot(right.position.x, right.position.z)
+      )[0];
+    assert.ok(runnerEntry?.socket, "An Accord player must remain to capture the relay.");
+    await movePlayerTo(
+      manager,
+      clock,
+      runnerEntry.socket,
+      runnerEntry.ticket,
+      sequences,
+      { x: CINDER_ROW_RELAY.x, z: CINDER_ROW_RELAY.z },
+    );
+    const runnerPosition = playerSnapshot(manager, runnerEntry.ticket).position;
+    assert.ok(
+      Math.hypot(
+        runnerPosition.x - CINDER_ROW_RELAY.x,
+        runnerPosition.z - CINDER_ROW_RELAY.z,
+      ) <= CINDER_ROW_RELAY.radius,
+      "The runner must reach the actual server relay radius.",
+    );
+
+    let round = manager.getSnapshot(matchId, runnerEntry.ticket.accessToken)
+      .snapshot.arenaRound;
+    const captureSteps = Math.ceil(CINDER_ROW_CAPTURE_SECONDS / 0.2) + 5;
+    for (let step = 0; step < captureSteps; step += 1) {
+      await sendInput(runnerEntry.socket, runnerEntry.ticket, sequences);
+      advanceSimulation(manager, clock, 0.2);
+      round = manager.getSnapshot(matchId, runnerEntry.ticket.accessToken)
+        .snapshot.arenaRound;
+      if (round.phase === "finished") break;
+    }
+    assert.equal(round.phase, "finished");
+    assert.equal(round.winner, "accord");
+    assert.equal(round.controlledBy, "accord");
+
+    await eightVsEight.runMaintenance();
+    const [storedResult] = await db.select()
+      .from(competitiveMatchResultsTable)
+      .where(eq(competitiveMatchResultsTable.matchId, matchId));
+    assert.equal(storedResult?.winner, "accord");
+    assert.equal(storedResult?.participants.length, CLIENTS);
+    const ratings = await db.select()
+      .from(competitiveRatingsTable)
+      .where(inArray(competitiveRatingsTable.userId, userIds));
+    assert.equal(ratings.length, CLIENTS);
+    assert.ok(ratings.every((row) => row.gamesPlayed === 1));
+    assert.equal(ratings.filter((row) => row.wins === 1).length, 8);
+    assert.equal(ratings.filter((row) => row.losses === 1).length, 8);
+    const [storedSession] = await db.select()
+      .from(competitiveMatchSessionsTable)
+      .where(eq(competitiveMatchSessionsTable.matchId, matchId));
+    assert.equal(storedSession?.status, "completed");
+    await eightVsEight.runMaintenance();
+    const ratingsAfterRetry = await db.select()
+      .from(competitiveRatingsTable)
+      .where(inArray(competitiveRatingsTable.userId, userIds));
+    assert.ok(ratingsAfterRetry.every((row) => row.gamesPlayed === 1));
     console.log(
-      `Phase 2 local match check: 16 authenticated clients, balanced 8v8 teams, accepted input, snapshot minimum=${Math.min(...snapshotsPerClient)}.`,
+      `Phase 2 local round: 16 clients, movement and hit verified, Accord captured the relay, 16 ratings persisted once; snapshot minimum=${Math.min(...snapshotsPerClient)}.`,
     );
   } finally {
     gateway.close();
@@ -273,6 +400,14 @@ test("phase-two 8v8 supports sixteen authenticated ranked WebSocket clients", as
     await new Promise((resolve) => server.close(resolve));
     await db.delete(competitiveMatchSessionsTable)
       .where(eq(competitiveMatchSessionsTable.regionId, regionId));
+    if (matchId) {
+      await db.delete(competitiveMatchResultsTable)
+        .where(eq(competitiveMatchResultsTable.matchId, matchId));
+    }
+    await db.delete(competitiveQueueEntriesTable)
+      .where(inArray(competitiveQueueEntriesTable.userId, userIds));
+    await db.delete(competitiveRatingsTable)
+      .where(inArray(competitiveRatingsTable.userId, userIds));
     await db.delete(usersTable).where(inArray(usersTable.id, userIds));
   }
 });

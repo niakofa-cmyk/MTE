@@ -7,7 +7,7 @@ Treat the user-provided milestones as staged capacity targets, not claims about 
 | Phase | Intended match scale | Status |
 | --- | ---: | --- |
 | 1 | 8 players, competitive 4v4 | Implemented and locally integration-tested |
-| 2 | 16 players, 8v8 | Initial Cinder Row profile and 16-client local integration test implemented; not production load-tested |
+| 2 | 16 players, 8v8 | Full simulated relay round, 16-client WebSocket integration, and ranked settlement tested locally; not production load-tested |
 | 3 | 40 players, 20v20 | Not implemented; needs a larger team-battle map and visibility/network budget |
 | 4 | 100-player planetary battlefield | Not implemented; needs a separate battle-royale world, interest management, and zone/loot systems |
 | Long term | 100–150 players | Exploratory only; depends on dedicated-server capacity and measured cost/performance |
@@ -22,7 +22,7 @@ The local synthetic integration test creates a ranked match through the HTTP que
 
 Those numbers measure a same-process, same-host test only. A gateway test also introduces client-side send delays, skips an input sequence, then reconnects with the same account ticket and continues with the next sequence. This is application-level fault simulation over localhost, not network-level packet shaping or WAN validation.
 
-The Phase 2 local test authenticates sixteen ranked WebSocket clients, verifies eight assigned players per team, checks spawn separation and accepted input, and observes continued snapshots. It does not establish sustained match quality, internet latency, published compute capacity, multi-process routing, a player-facing frame rate, or physical-device behavior.
+The Phase 2 local test authenticates sixteen ranked WebSocket clients, verifies eight assigned players per team and spawn separation, drives authoritative movement and a hit through WebSocket input, captures the relay, and persists all sixteen ranked results exactly once. The test advances a simulated server clock, so its full round is not a player-paced browser playthrough. It does not establish sustained match quality, internet latency, published compute capacity, multi-process routing, a player-facing frame rate, or physical-device behavior.
 
 ## Production blockers
 
@@ -35,4 +35,4 @@ The Phase 2 local test authenticates sixteen ranked WebSocket clients, verifies 
 
 ## Next implementation phase
 
-Playtest the newly selectable 8v8 profile for full-round movement, combat, relay capture, rating settlement, disconnect/reconnect and restart behavior. Then profile 4v4 and 8v8 under sustained local and WAN impairment, and add a dedicated larger arena layout only if Cinder Row's graybox fails measured gameplay or performance targets.
+Run a player-paced browser playtest of the 8v8 mode, then profile both 4v4 and 8v8 under sustained local and WAN impairment, disconnect/reconnect, and restart scenarios. Add a dedicated larger arena layout only if Cinder Row's graybox fails measured gameplay or performance targets.
