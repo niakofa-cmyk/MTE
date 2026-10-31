@@ -4,6 +4,7 @@ import { useAuth } from "@workspace/replit-auth-web";
 import { BLOODLINES, DOSSIER, OPERATORS, OPERATOR_BY_ID, type OpId, type WeaponId } from "@/game/content";
 import { MissionEngine, type MissionEvent } from "@/game/engine";
 import { CinderRowPanel } from "@/game/CinderRowPanel";
+import { supportsWebGL2Context } from "@/game/webgl-support";
 import { CityOfNodBackdrop } from "@/game/city-of-nod-backdrop";
 import { copyMatchIdToClipboard } from "@/game/match-invite";
 import { ATTACHMENT_BY_ID, type AttachSlot } from "@/game/loot";
@@ -226,6 +227,11 @@ export function Mission() {
     const host = hostRef.current;
     const root = rootRef.current;
     if (!host || !root) return;
+    setGraphicsUnavailable(false);
+    if (!supportsWebGL2Context()) {
+      setGraphicsUnavailable(true);
+      return;
+    }
     let engine: MissionEngine;
     try {
       engine = new MissionEngine(host, {
@@ -253,7 +259,7 @@ export function Mission() {
       }, { mapId });
     } catch (error) {
       setGraphicsUnavailable(true);
-      console.warn("Mission To Earth needs WebGL to render the game.", error);
+      console.error("Could not initialize the Mission To Earth renderer.", error);
       return;
     }
     engine.bind(root);

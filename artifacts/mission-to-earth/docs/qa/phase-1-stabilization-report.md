@@ -429,3 +429,20 @@ This verifies the live engine’s hit, hurt-reaction, and defeat path for one st
 | 3D preview and physical-device test | **PARTIAL / NOT TESTED** | The screenshot preview showed the signed-out menu but could not create a WebGL context. No physical device was used. |
 
 **Result:** host/join and roster data are covered by API/client/UI tests, and the host menu now has a server-refreshed roster. The actual two-authenticated-browser invitation flow remains unverified; these results do not certify production multiplayer or physical-device behavior.
+
+### Build and renderer warning cleanup — 2026-10-31
+
+**Reviewed revision:** `2200be0` plus the current uncommitted warning-cleanup changes.
+
+| Finding | Result | Evidence / qualification |
+|---|---|---|
+| Oversized Vite Three.js chunk | **PASS** | Split Three.js core and addons into separate chunks. Production output's largest chunk is 358.31 kB; no Vite chunk-size warning is emitted. |
+| Oversized API bundle warning | **PASS** | Externalized installed runtime dependencies while keeping workspace packages and Pino worker handling intact. The server bundle is 625.7 kB; the API build emits no large-bundle warning. |
+| API root 404s | **PASS** | Added a public root health response. After restart, `GET /` returned HTTP 200 with `{"service":"mission-to-earth-api","status":"ok"}`; `/api/auth/user` also returned 200. |
+| Unsupported WebGL capture browser | **PASS (graceful fallback)** | A WebGL2 capability probe now prevents constructing the renderer when the browser cannot provide WebGL2. The preview shows the existing explanatory fallback without page-console renderer errors. |
+| WebGL-capable software-rendered browser | **PASS (compatibility only)** | Workspace Chromium with SwiftShader produced two canvas elements, did not show the fallback notice, and logged no renderer errors. Chromium itself emitted container D-Bus/GCM diagnostics; these are not page errors. This is not physical-GPU performance certification. |
+| Automated checks | **PASS** | Mission tests: 172/172; UI tests: 3/3; API tests: 74/74; both artifacts' typechecks passed; Mission To Earth lint passed. |
+| Intentional API security warning | **RETAINED** | The API tests log a warning when a deliberately wrong account tries to authenticate a match socket. This is expected rejection telemetry, not an application failure, and remains enabled. |
+| Physical-device WebGL behavior | **NOT TESTED** | No desktop GPU or mobile device was available for this verification. |
+
+**Result:** the reproducible Vite chunk advisory and API bundle-size warning are cleared, the API root returns a healthy response, and the unsupported preview browser now fails gracefully without renderer-console errors. Its visible no-WebGL notice remains accurate for that browser.

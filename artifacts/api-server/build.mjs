@@ -28,6 +28,16 @@ async function buildAll() {
     // - uses native modules and loads them dynamically (e.g. sharp)
     // - use path traversal to read files (e.g. @google-cloud/secret-manager loads sibling .proto files)
     external: [
+      // Keep ordinary runtime dependencies in node_modules rather than inflating
+      // the single server bundle; the artifact installs these with its package.
+      "cookie-parser",
+      "cors",
+      "drizzle-orm",
+      "drizzle-orm/*",
+      "express",
+      "openid-client",
+      "pino-http",
+      "ws",
       "*.node",
       "sharp",
       "better-sqlite3",

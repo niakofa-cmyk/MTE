@@ -145,7 +145,14 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('/node_modules/three/')) return 'vendor-three';
+          const normalizedId = id.replaceAll('\\', '/');
+          if (normalizedId.includes('/node_modules/three/examples/jsm/')) {
+            return 'vendor-three-addons';
+          }
+          if (normalizedId.includes('/node_modules/three/build/three.core.js')) {
+            return 'vendor-three-core';
+          }
+          if (normalizedId.includes('/node_modules/three/')) return 'vendor-three';
           if (
             id.includes('/node_modules/react/') ||
             id.includes('/node_modules/react-dom/') ||
