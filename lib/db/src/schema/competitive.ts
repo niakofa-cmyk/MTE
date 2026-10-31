@@ -16,6 +16,11 @@ export type CompetitiveParticipantRating = {
   outcome: "win" | "loss" | "draw";
 };
 
+export type CompetitiveMatchSessionParticipant = {
+  userId: string;
+  team: "accord" | "eon-dusk";
+};
+
 export const competitiveRatingsTable = pgTable("competitive_ratings", {
   userId: varchar("user_id")
     .primaryKey()
@@ -36,6 +41,25 @@ export const competitiveMatchResultsTable = pgTable("competitive_match_results",
     .notNull(),
   recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const competitiveMatchSessionsTable = pgTable(
+  "competitive_match_sessions",
+  {
+    matchId: varchar("match_id").primaryKey(),
+    modeId: varchar("mode_id").notNull(),
+    regionId: varchar("region_id").notNull().default("default"),
+    mapId: varchar("map_id").notNull(),
+    status: varchar("status").notNull().default("active"),
+    participants: jsonb("participants")
+      .$type<CompetitiveMatchSessionParticipant[]>()
+      .notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("competitive_match_sessions_status_started_idx").on(table.status, table.startedAt),
+  ],
+);
 
 export const competitiveQueueEntriesTable = pgTable(
   "competitive_queue_entries",

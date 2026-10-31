@@ -19,10 +19,12 @@ import {
 import {
   CINDER_ROW_MAP_ID,
   CINDER_ROW_MAP_VERSION,
-  CINDER_ROW_MAX_PLAYERS,
+  CINDER_ROW_RELAY_4V4_PROFILE,
   CINDER_ROW_SPAWNS,
   CinderRowRelayRound,
+  getCinderRowRelayProfile,
   type ArenaTeam,
+  type CinderRowRelayProfileId,
   type CinderRowRoundSnapshot,
 } from "./cinder-row-arena.ts";
 import type { GameplayRegistryAsset } from "./gameplay-registry.ts";
@@ -127,6 +129,7 @@ interface MatchSessionRecord {
   gameplay: AuthoritativeGameplayState;
   extractionObjective: GameplayRegistryAsset["objectives"][number] | null;
   arenaRound: CinderRowRelayRound | null;
+  arenaProfileId: CinderRowRelayProfileId | null;
   mapNodeCount: number;
   createdAtNs: bigint;
   lastActivityAtNs: bigint;
@@ -216,10 +219,19 @@ export class MatchSessionManager {
     return this.sessions.size;
   }
 
-  async createSession(mapId: MatchMapId = "nod"): Promise<CreatedMatchSession> {
+  async createSession(
+    mapId: MatchMapId = "nod",
+    arenaProfileId?: CinderRowRelayProfileId,
+  ): Promise<CreatedMatchSession> {
     if (mapId !== "nod" && mapId !== CINDER_ROW_MAP_ID) {
       throw new MatchSessionError("not-found", "The requested map is unavailable.");
     }
+    if (mapId === "nod" && arenaProfileId) {
+      throw new MatchSessionError("not-found", "The requested arena profile is unavailable.");
+    }
+    const arenaProfile = mapId === CINDER_ROW_MAP_ID
+      ? getCinderRowRelayProfile(arenaProfileId ?? CINDER_ROW_RELAY_4V4_PROFILE.id)
+      : null;
     const nowNs = this.readClock();
     this.pruneExpired(nowNs);
     if (this.sessions.size + this.pendingCreates >= this.maxActiveSessions) {
@@ -244,13 +256,12 @@ export class MatchSessionManager {
         matchId,
         mapId,
         mapVersion: mapId === CINDER_ROW_MAP_ID ? CINDER_ROW_MAP_VERSION : "nod-current",
-        maxPlayers: mapId === CINDER_ROW_MAP_ID
-          ? CINDER_ROW_MAX_PLAYERS
-          : this.maxPlayersPerSession,
+        maxPlayers: arenaProfile?.maxPlayers ?? this.maxPlayersPerSession,
         match,
         gameplay: new AuthoritativeGameplayState(gameplayRegistry),
         extractionObjective: extractionObjective ?? null,
         arenaRound: mapId === CINDER_ROW_MAP_ID ? new CinderRowRelayRound() : null,
+        arenaProfileId: arenaProfile?.id ?? null,
         mapNodeCount: loadedGeometryCount,
         createdAtNs,
         lastActivityAtNs: createdAtNs,
@@ -302,7 +313,8 @@ export class MatchSessionManager {
       : null;
     if (team) {
       const spawnIndex = [...session.players.values()].filter((player) => player.team === team).length;
-      const spawn = CINDER_ROW_SPAWNS[team][spawnIndex];
+      const spawns = CINDER_ROW_SPAWNS[team];
+      const spawn = spawns[spawnIndex];
       if (!spawn) {
         throw new MatchSessionError("player-capacity", "This team has no open player slots.");
       }

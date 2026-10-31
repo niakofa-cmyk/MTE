@@ -1,13 +1,19 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { inArray } from "drizzle-orm";
-import { db, usersTable } from "@workspace/db";
+import {
+  competitiveMatchSessionsTable,
+  db,
+  usersTable,
+} from "@workspace/db";
+import { eq } from "drizzle-orm";
 import test from "node:test";
 import { PostgresCompetitiveQueueStore } from "../src/lib/competitive-queue-store.ts";
 
 test("ranked queue survives store recreation and an expired claim can be recovered", async () => {
   const userIds = [`queue-test-${randomUUID()}`, `queue-test-${randomUUID()}`];
   const regionId = `test-${randomUUID()}`;
+  const matchId = randomUUID();
   const firstStore = new PostgresCompetitiveQueueStore("test-mode", regionId);
   const secondStore = new PostgresCompetitiveQueueStore("test-mode", regionId);
   const now = Date.now();
@@ -36,10 +42,19 @@ test("ranked queue survives store recreation and an expired claim can be recover
 
     const recoveredClaim = await secondStore.claimNextBatch(2, now + 31_000);
     assert.ok(recoveredClaim);
-    await secondStore.completeClaim(recoveredClaim.claimId);
+    await secondStore.completeClaim(recoveredClaim.claimId, {
+      matchId,
+      mapId: "test-map",
+      participants: recoveredClaim.entries.map((entry, index) => ({
+        userId: entry.userId,
+        team: index === 0 ? "accord" : "eon-dusk",
+      })),
+    });
     assert.equal(await firstStore.status(userIds[0]), null);
     assert.equal(await firstStore.status(userIds[1]), null);
   } finally {
+    await db.delete(competitiveMatchSessionsTable)
+      .where(eq(competitiveMatchSessionsTable.matchId, matchId));
     await db.delete(usersTable).where(inArray(usersTable.id, userIds));
   }
 });

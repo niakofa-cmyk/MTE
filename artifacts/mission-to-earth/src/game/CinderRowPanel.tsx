@@ -8,13 +8,15 @@ export type CinderRowPanelProps = {
   matchId: string | null;
   joinCode: string;
   onJoinCodeChange: (value: string) => void;
+  onRankedProfileChange: (profileId: "cinder-row-relay-4v4" | "cinder-row-relay-8v8") => void;
   team: "accord" | "eon-dusk" | null;
   rankedQueue: {
-    state: "idle" | "queued" | "matched";
+    state: "idle" | "interrupted" | "queued" | "matched";
     rating: number;
     position?: number;
     queuedPlayers?: number;
   };
+  rankedProfileId: "cinder-row-relay-4v4" | "cinder-row-relay-8v8";
   round: null | {
     phase: "waiting" | "active" | "finished";
     remainingSeconds: number;
@@ -71,8 +73,10 @@ export function CinderRowPanel({
   matchId,
   joinCode,
   onJoinCodeChange,
+  onRankedProfileChange,
   team,
   rankedQueue,
+  rankedProfileId,
   round,
   onHost,
   onJoin,
@@ -81,7 +85,10 @@ export function CinderRowPanel({
   const codeId = useId();
   const isConnecting = serverStatus === "connecting";
   const actionsLocked =
-    isConnecting || serverStatus === "connected" || rankedQueue.state !== "idle";
+    isConnecting ||
+    serverStatus === "connected" ||
+    rankedQueue.state === "queued" ||
+    rankedQueue.state === "matched";
   const progress = round ? Math.min(100, Math.max(0, round.relayProgress)) : 0;
   const phaseLabel = round?.phase === "active" ? "LIVE ROUND" : round?.phase === "finished" ? "ROUND COMPLETE" : "AWAITING OPERATORS";
   const controlledLabel = round?.contested
@@ -262,12 +269,32 @@ export function CinderRowPanel({
 
           <div className="flex flex-wrap items-center justify-between gap-2 border border-line/70 bg-background/35 p-2.5">
             <div className="min-w-0">
-              <p className="font-display text-[10px] tracking-[.16em] text-cyan">RANKED RELAY</p>
+              <label className="flex items-center gap-2">
+                <span className="font-display text-[10px] tracking-[.16em] text-cyan">
+                  RANKED RELAY
+                </span>
+                <select
+                  aria-label="Ranked team size"
+                  value={rankedProfileId}
+                  onChange={(event) => onRankedProfileChange(
+                    event.currentTarget.value as "cinder-row-relay-4v4" | "cinder-row-relay-8v8",
+                  )}
+                  disabled={actionsLocked}
+                  className="border border-line bg-background px-2 py-1 font-display text-[10px] tracking-wider text-fg disabled:opacity-50"
+                >
+                  <option value="cinder-row-relay-4v4">4V4</option>
+                  <option value="cinder-row-relay-8v8">8V8</option>
+                </select>
+              </label>
               <p className="mt-1 text-xs text-muted">
                 {rankedQueue.state === "queued"
                   ? `Search position ${rankedQueue.position ?? 1} · ${rankedQueue.queuedPlayers ?? 1} operators`
                   : rankedQueue.state === "matched"
-                    ? "An eight-player match is ready."
+                    ? rankedProfileId === "cinder-row-relay-8v8"
+                      ? "A sixteen-player match is ready."
+                      : "An eight-player match is ready."
+                    : rankedQueue.state === "interrupted"
+                      ? "Previous match interrupted. No rating change."
                     : "Rating"}
                 <span className="ml-2 font-mono tabular-nums text-fg">{rankedQueue.rating} ELO</span>
               </p>
@@ -282,6 +309,8 @@ export function CinderRowPanel({
                 ? "CANCEL SEARCH"
                 : rankedQueue.state === "matched"
                   ? "JOIN RANKED MATCH"
+                  : rankedQueue.state === "interrupted"
+                    ? "FIND NEW MATCH"
                   : "FIND RANKED MATCH"}
             </button>
           </div>

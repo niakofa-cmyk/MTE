@@ -1,5 +1,6 @@
 import { and, asc, count, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import {
+  competitiveMatchSessionsTable,
   competitiveQueueEntriesTable,
   db,
 } from "@workspace/db";
@@ -26,12 +27,18 @@ export interface RankedQueueClaim {
   entries: RankedQueueEntry[];
 }
 
+export interface RankedQueueMatchRecord {
+  matchId: string;
+  mapId: string;
+  participants: Array<{ userId: string; team: "accord" | "eon-dusk" }>;
+}
+
 export interface CompetitiveQueueStore {
   enqueue(entry: RankedQueueEntry): Promise<void>;
   status(userId: string): Promise<RankedQueueStatus | null>;
   cancel(userId: string): Promise<boolean>;
   claimNextBatch(matchSize: number, nowMs: number): Promise<RankedQueueClaim | null>;
-  completeClaim(claimId: string): Promise<void>;
+  completeClaim(claimId: string, match: RankedQueueMatchRecord): Promise<void>;
   releaseClaim(claimId: string): Promise<void>;
 }
 
@@ -172,9 +179,24 @@ export class PostgresCompetitiveQueueStore implements CompetitiveQueueStore {
     });
   }
 
-  async completeClaim(claimId: string): Promise<void> {
-    await db.delete(competitiveQueueEntriesTable)
-      .where(eq(competitiveQueueEntriesTable.claimId, claimId));
+  async completeClaim(claimId: string, match: RankedQueueMatchRecord): Promise<void> {
+    await db.transaction(async (tx) => {
+      await this.lockMode(tx);
+      await tx.insert(competitiveMatchSessionsTable).values({
+        matchId: match.matchId,
+        modeId: this.modeId,
+        regionId: this.regionId,
+        mapId: match.mapId,
+        status: "active",
+        participants: match.participants,
+      });
+      const removed = await tx.delete(competitiveQueueEntriesTable)
+        .where(eq(competitiveQueueEntriesTable.claimId, claimId))
+        .returning({ userId: competitiveQueueEntriesTable.userId });
+      if (removed.length !== match.participants.length) {
+        throw new Error("The ranked queue claim changed before match activation.");
+      }
+    });
   }
 
   async releaseClaim(claimId: string): Promise<void> {

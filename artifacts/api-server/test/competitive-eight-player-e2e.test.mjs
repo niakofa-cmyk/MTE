@@ -4,8 +4,8 @@ import { createServer } from "node:http";
 import express from "express";
 import test from "node:test";
 import { WebSocket } from "ws";
-import { db, usersTable } from "@workspace/db";
-import { inArray } from "drizzle-orm";
+import { competitiveMatchSessionsTable, db, usersTable } from "@workspace/db";
+import { eq, inArray } from "drizzle-orm";
 import { CompetitiveMatchService } from "../src/lib/competitive-match-service.ts";
 import { PostgresCompetitiveQueueStore } from "../src/lib/competitive-queue-store.ts";
 import { MatchRealtimeGateway } from "../src/lib/match-realtime-gateway.ts";
@@ -185,6 +185,8 @@ test("phase-one 4v4 supports eight concurrent ranked WebSocket clients", async (
     manager.stop();
     for (const socket of sockets) socket.terminate();
     await new Promise((resolve) => server.close(resolve));
+    await db.delete(competitiveMatchSessionsTable)
+      .where(eq(competitiveMatchSessionsTable.regionId, testRegion));
     await db.delete(usersTable).where(inArray(usersTable.id, userIds));
   }
 });

@@ -48,8 +48,10 @@ import {
 } from "@/game/server-match-client";
 
 type Screen = "menu" | "dossier" | "armory" | "settings" | "inventory" | "play" | "pause" | "dead" | "win";
+type RankedProfileId = "cinder-row-relay-4v4" | "cinder-row-relay-8v8";
 type RankedQueueState =
   | { state: "idle"; rating: number }
+  | { state: "interrupted"; rating: number }
   | { state: "queued"; rating: number; position: number; queuedPlayers: number }
   | {
       state: "matched";
@@ -57,6 +59,7 @@ type RankedQueueState =
       match: {
         matchId: string;
         mapId: "cinder-row-blackout";
+        profileId: RankedProfileId;
         playerId: string;
         accessToken: string;
         team: "accord" | "eon-dusk";
@@ -73,6 +76,9 @@ function clock(seconds: number) {
 function parseRankedQueueState(value: unknown): RankedQueueState | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
+  if (record.state === "interrupted" && Number.isFinite(record.rating)) {
+    return { state: "interrupted", rating: Number(record.rating) };
+  }
   if (record.state === "idle" && Number.isFinite(record.rating)) {
     return { state: "idle", rating: Number(record.rating) };
   }
@@ -97,6 +103,8 @@ function parseRankedQueueState(value: unknown): RankedQueueState | null {
       !Array.isArray(match) &&
       typeof (match as Record<string, unknown>).matchId === "string" &&
       (match as Record<string, unknown>).mapId === "cinder-row-blackout" &&
+      ((match as Record<string, unknown>).profileId === "cinder-row-relay-4v4" ||
+        (match as Record<string, unknown>).profileId === "cinder-row-relay-8v8") &&
       typeof (match as Record<string, unknown>).playerId === "string" &&
       typeof (match as Record<string, unknown>).accessToken === "string" &&
       ((match as Record<string, unknown>).team === "accord" ||
@@ -110,6 +118,7 @@ function parseRankedQueueState(value: unknown): RankedQueueState | null {
         match: {
           matchId: matchRecord.matchId as string,
           mapId: "cinder-row-blackout",
+          profileId: matchRecord.profileId as RankedProfileId,
           playerId: matchRecord.playerId as string,
           accessToken: matchRecord.accessToken as string,
           team: matchRecord.team as "accord" | "eon-dusk",
@@ -147,6 +156,9 @@ export function Mission() {
     state: "idle",
     rating: 1_000,
   });
+  const [rankedProfileId, setRankedProfileId] = useState<RankedProfileId>(
+    "cinder-row-relay-4v4",
+  );
   const [arenaMatchId, setArenaMatchId] = useState<string | null>(null);
   const [arenaTeam, setArenaTeam] = useState<"accord" | "eon-dusk" | null>(null);
   const [arenaRound, setArenaRound] = useState<ServerArenaRoundSnapshot | null>(null);
@@ -260,10 +272,13 @@ export function Mission() {
     let active = true;
     const refreshRankedStatus = async () => {
       try {
-        const response = await fetch("/api/competitive/ranked/status", {
+        const response = await fetch(
+          `/api/competitive/ranked/status?profileId=${rankedProfileId}`,
+          {
           credentials: "same-origin",
           headers: { Accept: "application/json" },
-        });
+          },
+        );
         if (!response.ok) throw new Error("Ranked matchmaking status is unavailable.");
         const parsed = parseRankedQueueState(await response.json());
         if (!parsed) throw new Error("The ranked queue returned invalid status.");
@@ -278,7 +293,7 @@ export function Mission() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [auth.isAuthenticated]);
+  }, [auth.isAuthenticated, rankedProfileId]);
 
   useEffect(() => {
     const engine = engineRef.current;
@@ -504,15 +519,16 @@ export function Mission() {
     }
 
     try {
+      const queueUrl = `/api/competitive/ranked/queue?profileId=${rankedProfileId}`;
       const response = await fetch(
-        "/api/competitive/ranked/queue",
+        queueUrl,
         rankedQueue.state === "queued"
           ? { method: "DELETE", credentials: "same-origin" }
           : {
               method: "POST",
               credentials: "same-origin",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ operatorId: op }),
+              body: JSON.stringify({ operatorId: op, profileId: rankedProfileId }),
             },
       );
       const body = await response.json();
@@ -596,6 +612,11 @@ export function Mission() {
                 onJoinCodeChange={setArenaJoinCode}
                 team={arenaTeam}
                 rankedQueue={rankedQueueDisplay}
+                rankedProfileId={rankedProfileId}
+                onRankedProfileChange={(profileId) => {
+                  setRankedProfileId(profileId);
+                  setRankedQueue({ state: "idle", rating: rankedQueue.rating });
+                }}
                 round={arenaRound}
                 onHost={() => void startCinderRow()}
                 onJoin={() => void startCinderRow(arenaJoinCode.trim())}
@@ -696,6 +717,11 @@ export function Mission() {
             onJoinCodeChange={setArenaJoinCode}
             team={arenaTeam}
             rankedQueue={rankedQueueDisplay}
+            rankedProfileId={rankedProfileId}
+            onRankedProfileChange={(profileId) => {
+              setRankedProfileId(profileId);
+              setRankedQueue({ state: "idle", rating: rankedQueue.rating });
+            }}
             round={arenaRound}
             onHost={() => void startCinderRow()}
             onJoin={() => void startCinderRow(arenaJoinCode.trim())}

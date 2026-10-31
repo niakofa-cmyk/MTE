@@ -1,6 +1,7 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   competitiveMatchResultsTable,
+  competitiveMatchSessionsTable,
   competitiveRatingsTable,
   db,
   type CompetitiveParticipantRating,
@@ -8,6 +9,8 @@ import {
 import {
   CINDER_ROW_MAP_ID,
   CINDER_ROW_RELAY_4V4_PROFILE,
+  getCinderRowRelayProfile,
+  type CinderRowRelayProfileId,
 } from "./cinder-row-arena.ts";
 import { logger } from "./logger.ts";
 import { SERVER_OPERATOR_PROFILES } from "./authoritative-combat-systems.ts";
@@ -21,6 +24,7 @@ import type { ServerOperatorId } from "./authoritative-combat-systems.ts";
 
 export type CompetitiveStatus =
   | { state: "idle" }
+  | { state: "interrupted"; rating: number }
   | { state: "queued"; position: number; rating: number; queuedPlayers: number }
   | {
       state: "matched";
@@ -28,6 +32,7 @@ export type CompetitiveStatus =
       match: {
         matchId: string;
         mapId: typeof CINDER_ROW_MAP_ID;
+      profileId: CinderRowRelayProfileId;
         playerId: string;
         accessToken: string;
         team: "accord" | "eon-dusk";
@@ -55,6 +60,7 @@ interface MatchTicket {
 
 export interface CompetitiveMatchServiceOptions {
   matchSize?: number;
+  profileId?: CinderRowRelayProfileId;
   nowMs?: () => number;
   queueStore?: CompetitiveQueueStore;
   readRating?: (userId: string) => Promise<number>;
@@ -70,6 +76,7 @@ export class CompetitiveMatchService {
   private readonly tickets = new Map<string, MatchTicket>();
   private readonly rankedMatchIds = new Set<string>();
   private readonly matchSize: number;
+  private readonly profileId: CinderRowRelayProfileId;
   private readonly nowMs: () => number;
   private readonly readRating: (userId: string) => Promise<number>;
   private readonly readFinishedResult: NonNullable<
@@ -88,9 +95,11 @@ export class CompetitiveMatchService {
     options: CompetitiveMatchServiceOptions = {},
   ) {
     this.manager = manager;
-    this.matchSize = options.matchSize ?? CINDER_ROW_RELAY_4V4_PROFILE.maxPlayers;
+    this.profileId = options.profileId ?? CINDER_ROW_RELAY_4V4_PROFILE.id;
+    const profile = getCinderRowRelayProfile(this.profileId);
+    this.matchSize = options.matchSize ?? profile.maxPlayers;
     this.nowMs = options.nowMs ?? Date.now;
-    this.queueStore = options.queueStore ?? new PostgresCompetitiveQueueStore();
+    this.queueStore = options.queueStore ?? new PostgresCompetitiveQueueStore(this.profileId);
     this.readRating = options.readRating ?? getCompetitiveRating;
     this.readFinishedResult = options.readFinishedResult ??
       ((matchId) => manager.getFinishedArenaResult(matchId));
@@ -98,11 +107,11 @@ export class CompetitiveMatchService {
     if (
       !Number.isInteger(this.matchSize) ||
       this.matchSize < 2 ||
-      this.matchSize > CINDER_ROW_RELAY_4V4_PROFILE.maxPlayers ||
+      this.matchSize > profile.maxPlayers ||
       this.matchSize % 2 !== 0
     ) {
       throw new Error(
-        `Ranked match size must be an even number between two and ${CINDER_ROW_RELAY_4V4_PROFILE.maxPlayers}.`,
+        `Ranked match size must be an even number between two and ${profile.maxPlayers}.`,
       );
     }
   }
@@ -159,8 +168,12 @@ export class CompetitiveMatchService {
     const ticket = this.tickets.get(userId);
     if (ticket) return this.toMatchedStatus(ticket);
     const queued = await this.queueStore.status(userId);
-    if (!queued) return { state: "idle" };
-    return this.toQueuedStatus(queued);
+    if (queued) return this.toQueuedStatus(queued);
+    const interrupted = await findInterruptedMatch(userId);
+    if (interrupted) {
+      return { state: "interrupted", rating: await this.readRating(userId) };
+    }
+    return { state: "idle" };
   }
 
   private async formMatches(): Promise<void> {
@@ -178,7 +191,7 @@ export class CompetitiveMatchService {
       });
       let createdMatchId: string | null = null;
       try {
-        const created = await this.manager.createSession(CINDER_ROW_MAP_ID);
+        const created = await this.manager.createSession(CINDER_ROW_MAP_ID, this.profileId);
         createdMatchId = created.matchId;
         const ordered = balancedTeamJoinOrder(batch);
         const pendingTickets = new Map<string, MatchTicket>();
@@ -201,7 +214,14 @@ export class CompetitiveMatchService {
             operatorId: entry.operatorId,
           });
         }
-        await this.queueStore.completeClaim(claim.claimId);
+        await this.queueStore.completeClaim(claim.claimId, {
+          matchId: created.matchId,
+          mapId: created.mapId,
+          participants: [...pendingTickets.entries()].map(([userId, ticket]) => ({
+            userId,
+            team: ticket.team,
+          })),
+        });
         for (const [userId, ticket] of pendingTickets) this.tickets.set(userId, ticket);
         this.rankedMatchIds.add(created.matchId);
       } catch (error) {
@@ -231,6 +251,7 @@ export class CompetitiveMatchService {
       match: {
         matchId: ticket.matchId,
         mapId: CINDER_ROW_MAP_ID,
+        profileId: this.profileId,
         playerId: ticket.playerId,
         accessToken: ticket.accessToken,
         team: ticket.team,
@@ -273,6 +294,36 @@ export async function getCompetitiveRating(userId: string): Promise<number> {
   return row?.rating ?? 1_000;
 }
 
+export async function interruptUnfinishedCompetitiveMatches(
+  scope?: { modeId: string; regionId: string },
+): Promise<number> {
+  const conditions = [eq(competitiveMatchSessionsTable.status, "active")];
+  if (scope) {
+    conditions.push(eq(competitiveMatchSessionsTable.modeId, scope.modeId));
+    conditions.push(eq(competitiveMatchSessionsTable.regionId, scope.regionId));
+  }
+  const interrupted = await db
+    .update(competitiveMatchSessionsTable)
+    .set({ status: "interrupted", endedAt: new Date() })
+    .where(and(...conditions))
+    .returning({ matchId: competitiveMatchSessionsTable.matchId });
+  return interrupted.length;
+}
+
+async function findInterruptedMatch(userId: string): Promise<boolean> {
+  const participantsContainUser = sql`${competitiveMatchSessionsTable.participants} @> ${JSON.stringify([{ userId }])}::jsonb`;
+  const [match] = await db
+    .select({ matchId: competitiveMatchSessionsTable.matchId })
+    .from(competitiveMatchSessionsTable)
+    .where(and(
+      eq(competitiveMatchSessionsTable.status, "interrupted"),
+      participantsContainUser,
+    ))
+    .orderBy(desc(competitiveMatchSessionsTable.startedAt))
+    .limit(1);
+  return Boolean(match);
+}
+
 export async function persistCompetitiveResult(
   result: NonNullable<ReturnType<MatchSessionManager["getFinishedArenaResult"]>>,
 ): Promise<void> {
@@ -290,7 +341,12 @@ export async function persistCompetitiveResult(
       })
       .onConflictDoNothing({ target: competitiveMatchResultsTable.matchId })
       .returning({ matchId: competitiveMatchResultsTable.matchId });
-    if (!inserted) return;
+    if (!inserted) {
+      await tx.update(competitiveMatchSessionsTable)
+        .set({ status: "completed", endedAt: new Date() })
+        .where(eq(competitiveMatchSessionsTable.matchId, result.matchId));
+      return;
+    }
 
     for (const userId of uniqueUserIds) {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}))`);
@@ -359,6 +415,9 @@ export async function persistCompetitiveResult(
       .update(competitiveMatchResultsTable)
       .set({ participants })
       .where(eq(competitiveMatchResultsTable.matchId, result.matchId));
+    await tx.update(competitiveMatchSessionsTable)
+      .set({ status: "completed", endedAt: new Date() })
+      .where(eq(competitiveMatchSessionsTable.matchId, result.matchId));
   });
 }
 

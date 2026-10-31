@@ -6,6 +6,17 @@ export const CINDER_ROW_RELAY_4V4_PROFILE = {
   playersPerTeam: 4,
   maxPlayers: 8,
 } as const;
+export const CINDER_ROW_RELAY_8V8_PROFILE = {
+  id: "cinder-row-relay-8v8",
+  phase: 2,
+  playersPerTeam: 8,
+  maxPlayers: 16,
+} as const;
+export const CINDER_ROW_RELAY_PROFILES = {
+  [CINDER_ROW_RELAY_4V4_PROFILE.id]: CINDER_ROW_RELAY_4V4_PROFILE,
+  [CINDER_ROW_RELAY_8V8_PROFILE.id]: CINDER_ROW_RELAY_8V8_PROFILE,
+} as const;
+export type CinderRowRelayProfileId = keyof typeof CINDER_ROW_RELAY_PROFILES;
 export const CINDER_ROW_MAX_PLAYERS = CINDER_ROW_RELAY_4V4_PROFILE.maxPlayers;
 export const CINDER_ROW_RELAY = { x: 0, z: 0, radius: 6 } as const;
 export const CINDER_ROW_ROUND_SECONDS = 180;
@@ -42,14 +53,28 @@ export const CINDER_ROW_SPAWNS: Record<ArenaTeam, readonly {
     { x: -33, y: 0, z: -18 },
     { x: -33, y: 0, z: 18 },
     { x: -33, y: 0, z: 24 },
+    { x: -29, y: 0, z: -27 },
+    { x: -29, y: 0, z: -20 },
+    { x: -29, y: 0, z: 20 },
+    { x: -29, y: 0, z: 27 },
   ],
   "eon-dusk": [
     { x: 33, y: 0, z: -24 },
     { x: 33, y: 0, z: -18 },
     { x: 33, y: 0, z: 18 },
     { x: 33, y: 0, z: 24 },
+    { x: 29, y: 0, z: -27 },
+    { x: 29, y: 0, z: -20 },
+    { x: 29, y: 0, z: 20 },
+    { x: 29, y: 0, z: 27 },
   ],
 };
+
+export function getCinderRowRelayProfile(
+  profileId: CinderRowRelayProfileId = CINDER_ROW_RELAY_4V4_PROFILE.id,
+) {
+  return CINDER_ROW_RELAY_PROFILES[profileId];
+}
 
 export class CinderRowRelayRound {
   private phase: ArenaRoundPhase = "waiting";

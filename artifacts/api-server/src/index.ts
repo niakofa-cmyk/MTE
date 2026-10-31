@@ -3,7 +3,11 @@ import { createServer } from "node:http";
 import { logger } from "./lib/logger";
 import { MatchRealtimeGateway } from "./lib/match-realtime-gateway.ts";
 import { matchSessionManager } from "./lib/match-session-service.ts";
-import { competitiveMatchService } from "./lib/competitive-match-service-instance.ts";
+import {
+  competitiveMatchService,
+  competitiveMatchService8v8,
+} from "./lib/competitive-match-service-instance.ts";
+import { interruptUnfinishedCompetitiveMatches } from "./lib/competitive-match-service.ts";
 
 const rawPort = process.env["PORT"];
 
@@ -19,8 +23,16 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
+const interruptedRankedMatches = await interruptUnfinishedCompetitiveMatches();
+if (interruptedRankedMatches > 0) {
+  logger.warn(
+    { count: interruptedRankedMatches },
+    "Marked unfinished ranked matches as interrupted; no rating was awarded.",
+  );
+}
 matchSessionManager.start();
 competitiveMatchService.start();
+competitiveMatchService8v8.start();
 const server = createServer(app);
 const matchRealtimeGateway = new MatchRealtimeGateway(matchSessionManager);
 matchRealtimeGateway.attach(server);
@@ -35,5 +47,6 @@ server.listen(port, () => {
 server.once("close", () => {
   matchRealtimeGateway.close();
   competitiveMatchService.stop();
+  competitiveMatchService8v8.stop();
   matchSessionManager.stop();
 });
