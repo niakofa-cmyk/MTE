@@ -396,20 +396,20 @@ export class MatchSessionManager {
 
   getFinishedArenaResult(matchId: string): {
     matchId: string;
-    winner: "accord" | "eon-dusk";
+    winner: "accord" | "eon-dusk" | "draw";
     players: Array<{ userId: string; team: "accord" | "eon-dusk" }>;
   } | null {
     const session = this.sessions.get(matchId);
     if (!session?.arenaRound) return null;
     const round = session.arenaRound.snapshot();
-    if (round.phase !== "finished" || !round.winner) return null;
+    if (round.phase !== "finished") return null;
     const players = [...session.players.values()].flatMap((player) =>
       player.ownerUserId && player.team
         ? [{ userId: player.ownerUserId, team: player.team }]
         : [],
     );
     if (players.length < 2) return null;
-    return { matchId, winner: round.winner, players };
+    return { matchId, winner: round.winner ?? "draw", players };
   }
 
   setRealtimePresence(

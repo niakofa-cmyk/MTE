@@ -5,8 +5,16 @@ import {
   db,
   type CompetitiveParticipantRating,
 } from "@workspace/db";
-import { CINDER_ROW_MAP_ID } from "./cinder-row-arena.ts";
+import {
+  CINDER_ROW_MAP_ID,
+  CINDER_ROW_RELAY_4V4_PROFILE,
+} from "./cinder-row-arena.ts";
 import { logger } from "./logger.ts";
+import {
+  PostgresCompetitiveQueueStore,
+  type CompetitiveQueueStore,
+  type RankedQueueStatus,
+} from "./competitive-queue-store.ts";
 import type { MatchSessionManager } from "./match-session-manager.ts";
 import type { ServerOperatorId } from "./authoritative-combat-systems.ts";
 
@@ -25,6 +33,8 @@ export type CompetitiveStatus =
         operatorId: string;
       };
     };
+
+export type CompetitiveMatchWinner = "accord" | "eon-dusk" | "draw";
 
 interface QueueEntry {
   userId: string;
@@ -45,23 +55,30 @@ interface MatchTicket {
 export interface CompetitiveMatchServiceOptions {
   matchSize?: number;
   nowMs?: () => number;
+  queueStore?: CompetitiveQueueStore;
   readRating?: (userId: string) => Promise<number>;
+  readFinishedResult?: (
+    matchId: string,
+  ) => ReturnType<MatchSessionManager["getFinishedArenaResult"]>;
   persistResult?: (
     result: NonNullable<ReturnType<MatchSessionManager["getFinishedArenaResult"]>>,
   ) => Promise<void>;
 }
 
 export class CompetitiveMatchService {
-  private readonly queue: QueueEntry[] = [];
   private readonly tickets = new Map<string, MatchTicket>();
   private readonly rankedMatchIds = new Set<string>();
   private readonly matchSize: number;
   private readonly nowMs: () => number;
   private readonly readRating: (userId: string) => Promise<number>;
+  private readonly readFinishedResult: NonNullable<
+    CompetitiveMatchServiceOptions["readFinishedResult"]
+  >;
   private readonly persistResult: NonNullable<
     CompetitiveMatchServiceOptions["persistResult"]
   >;
   private readonly manager: MatchSessionManager;
+  private readonly queueStore: CompetitiveQueueStore;
   private operation = Promise.resolve();
   private resultTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -70,27 +87,29 @@ export class CompetitiveMatchService {
     options: CompetitiveMatchServiceOptions = {},
   ) {
     this.manager = manager;
-    this.matchSize = options.matchSize ?? 8;
+    this.matchSize = options.matchSize ?? CINDER_ROW_RELAY_4V4_PROFILE.maxPlayers;
     this.nowMs = options.nowMs ?? Date.now;
+    this.queueStore = options.queueStore ?? new PostgresCompetitiveQueueStore();
     this.readRating = options.readRating ?? getCompetitiveRating;
+    this.readFinishedResult = options.readFinishedResult ??
+      ((matchId) => manager.getFinishedArenaResult(matchId));
     this.persistResult = options.persistResult ?? persistCompetitiveResult;
     if (
       !Number.isInteger(this.matchSize) ||
       this.matchSize < 2 ||
-      this.matchSize > 8 ||
+      this.matchSize > CINDER_ROW_RELAY_4V4_PROFILE.maxPlayers ||
       this.matchSize % 2 !== 0
     ) {
-      throw new Error("Ranked match size must be an even number between two and eight.");
+      throw new Error(
+        `Ranked match size must be an even number between two and ${CINDER_ROW_RELAY_4V4_PROFILE.maxPlayers}.`,
+      );
     }
   }
 
   start(): void {
     if (this.resultTimer) return;
     this.resultTimer = setInterval(() => {
-      void this.exclusive(async () => {
-        await this.formMatches();
-        await this.recordFinishedMatches();
-      }).catch((error: unknown) => {
+      void this.runMaintenance().catch((error: unknown) => {
         logger.error({ err: error }, "Ranked matchmaking maintenance tick failed.");
       });
     }, 1_000);
@@ -102,23 +121,26 @@ export class CompetitiveMatchService {
     this.resultTimer = undefined;
   }
 
+  runMaintenance(): Promise<void> {
+    return this.exclusive(async () => {
+      await this.formMatches();
+      await this.recordFinishedMatches();
+    });
+  }
+
   enqueue(userId: string, operatorId: ServerOperatorId): Promise<CompetitiveStatus> {
     return this.exclusive(async () => {
       const existingTicket = this.tickets.get(userId);
       if (existingTicket) return this.toMatchedStatus(existingTicket);
-      const existing = this.queue.find((entry) => entry.userId === userId);
+      const existing = await this.queueStore.status(userId);
       if (existing) return this.toQueuedStatus(existing);
-      if (this.queue.length >= 512) {
-        throw new Error("Ranked matchmaking is at capacity.");
-      }
       const rating = await this.readRating(userId);
-      const entry: QueueEntry = {
+      await this.queueStore.enqueue({
         userId,
-        operatorId,
+        operatorId: String(operatorId),
         rating,
         queuedAt: this.nowMs(),
-      };
-      this.queue.push(entry);
+      });
       await this.formMatches();
       return this.status(userId);
     });
@@ -126,18 +148,18 @@ export class CompetitiveMatchService {
 
   cancel(userId: string): Promise<CompetitiveStatus> {
     return this.exclusive(async () => {
-      const index = this.queue.findIndex((entry) => entry.userId === userId);
-      if (index >= 0) this.queue.splice(index, 1);
+      if (this.tickets.has(userId)) return this.status(userId);
+      await this.queueStore.cancel(userId);
       return this.status(userId);
     });
   }
 
-  status(userId: string): CompetitiveStatus {
+  async status(userId: string): Promise<CompetitiveStatus> {
     const ticket = this.tickets.get(userId);
     if (ticket) return this.toMatchedStatus(ticket);
-    const entry = this.queue.find((candidate) => candidate.userId === userId);
-    if (!entry) return { state: "idle" };
-    return this.toQueuedStatus(entry);
+    const queued = await this.queueStore.status(userId);
+    if (!queued) return { state: "idle" };
+    return this.toQueuedStatus(queued);
   }
 
   private async formMatches(): Promise<void> {
@@ -228,7 +250,7 @@ export class CompetitiveMatchService {
 
   private async recordFinishedMatches(): Promise<void> {
     for (const matchId of this.rankedMatchIds) {
-      const result = this.manager.getFinishedArenaResult(matchId);
+      const result = this.readFinishedResult(matchId);
       if (!result) continue;
       try {
         await this.persistResult(result);
@@ -300,22 +322,25 @@ export async function persistCompetitiveResult(
         Math.max(1, members.length);
     };
     const winner = result.winner;
-    const loser = winner === "accord" ? "eon-dusk" : "accord";
-    const expectedWinner = 1 / (1 + 10 ** ((teamAverage(loser) - teamAverage(winner)) / 400));
+    const expectedAccord = 1 /
+      (1 + 10 ** ((teamAverage("eon-dusk") - teamAverage("accord")) / 400));
     const participants: CompetitiveParticipantRating[] = [];
     for (const player of result.players) {
       const ratingBefore = oldRatings.get(player.userId) ?? 1_000;
-      const expected = player.team === winner ? expectedWinner : 1 - expectedWinner;
+      const expected = player.team === "accord" ? expectedAccord : 1 - expectedAccord;
+      const won = winner !== "draw" && player.team === winner;
+      const lost = winner !== "draw" && player.team !== winner;
+      const score = winner === "draw" ? 0.5 : won ? 1 : 0;
       const ratingAfter = Math.max(
         100,
-        Math.round(ratingBefore + 32 * ((player.team === winner ? 1 : 0) - expected)),
+        Math.round(ratingBefore + 32 * (score - expected)),
       );
-      const won = player.team === winner;
       participants.push({
         userId: player.userId,
         team: player.team,
         ratingBefore,
         ratingAfter,
+        outcome: winner === "draw" ? "draw" : won ? "win" : "loss",
       });
       await tx
         .insert(competitiveRatingsTable)
@@ -324,7 +349,8 @@ export async function persistCompetitiveResult(
           rating: ratingAfter,
           gamesPlayed: 1,
           wins: won ? 1 : 0,
-          losses: won ? 0 : 1,
+          losses: lost ? 1 : 0,
+          draws: winner === "draw" ? 1 : 0,
         })
         .onConflictDoUpdate({
           target: competitiveRatingsTable.userId,
@@ -332,7 +358,8 @@ export async function persistCompetitiveResult(
             rating: ratingAfter,
             gamesPlayed: sql`${competitiveRatingsTable.gamesPlayed} + 1`,
             wins: sql`${competitiveRatingsTable.wins} + ${won ? 1 : 0}`,
-            losses: sql`${competitiveRatingsTable.losses} + ${won ? 0 : 1}`,
+            losses: sql`${competitiveRatingsTable.losses} + ${lost ? 1 : 0}`,
+            draws: sql`${competitiveRatingsTable.draws} + ${winner === "draw" ? 1 : 0}`,
             updatedAt: new Date(),
           },
         });
@@ -346,28 +373,32 @@ export async function persistCompetitiveResult(
 
 export function balancedTeamJoinOrder<T extends { rating: number }>(players: T[]): T[] {
   const sorted = [...players].sort((left, right) => right.rating - left.rating);
-  const teamSize = Math.floor(sorted.length / 2);
-  let bestTeamA: number[] = [];
-  let bestDifference = Number.POSITIVE_INFINITY;
-  const combinations = 1 << sorted.length;
-  for (let mask = 0; mask < combinations; mask += 1) {
-    const indices: number[] = [];
-    let ratingTotal = 0;
-    for (let index = 0; index < sorted.length; index += 1) {
-      if ((mask & (1 << index)) === 0) continue;
-      indices.push(index);
-      ratingTotal += sorted[index]!.rating;
-    }
-    if (indices.length !== teamSize) continue;
-    const totalRating = sorted.reduce((sum, player) => sum + player.rating, 0);
-    const difference = Math.abs(totalRating - 2 * ratingTotal);
-    if (difference < bestDifference) {
-      bestDifference = difference;
-      bestTeamA = indices;
+  if (sorted.length < 2 || sorted.length % 2 !== 0) {
+    throw new Error("Competitive teams require an even player count of at least two.");
+  }
+  if (sorted.some((player) => !Number.isSafeInteger(player.rating) || player.rating < 0)) {
+    throw new Error("Competitive ratings must be non-negative safe integers.");
+  }
+
+  const teamSize = sorted.length / 2;
+  const teamA: T[] = [];
+  const teamB: T[] = [];
+  let ratingA = 0;
+  let ratingB = 0;
+  for (const player of sorted) {
+    if (teamA.length === teamSize) {
+      teamB.push(player);
+      ratingB += player.rating;
+    } else if (teamB.length === teamSize) {
+      teamA.push(player);
+      ratingA += player.rating;
+    } else if (ratingA <= ratingB) {
+      teamA.push(player);
+      ratingA += player.rating;
+    } else {
+      teamB.push(player);
+      ratingB += player.rating;
     }
   }
-  const teamASet = new Set(bestTeamA);
-  const teamA = sorted.filter((_, index) => teamASet.has(index));
-  const teamB = sorted.filter((_, index) => !teamASet.has(index));
   return teamA.flatMap((player, index) => [player, teamB[index]!]);
 }

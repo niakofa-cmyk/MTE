@@ -1,6 +1,12 @@
 export const CINDER_ROW_MAP_ID = "cinder-row-blackout" as const;
 export const CINDER_ROW_MAP_VERSION = "1.0.0" as const;
-export const CINDER_ROW_MAX_PLAYERS = 8;
+export const CINDER_ROW_RELAY_4V4_PROFILE = {
+  id: "cinder-row-relay-4v4",
+  phase: 1,
+  playersPerTeam: 4,
+  maxPlayers: 8,
+} as const;
+export const CINDER_ROW_MAX_PLAYERS = CINDER_ROW_RELAY_4V4_PROFILE.maxPlayers;
 export const CINDER_ROW_RELAY = { x: 0, z: 0, radius: 6 } as const;
 export const CINDER_ROW_ROUND_SECONDS = 180;
 export const CINDER_ROW_CAPTURE_SECONDS = 20;

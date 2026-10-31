@@ -56,6 +56,21 @@ test("Cinder Row relay awards the round after uncontested control", () => {
   assert.equal(completed.relayProgress, 100);
 });
 
+test("Cinder Row timed-out rounds finish as draws", () => {
+  const round = new CinderRowRelayRound();
+  const outside = { ...accord, position: { x: 20, z: 20 } };
+  const duskOutside = { ...dusk, position: { x: 22, z: 20 } };
+
+  for (let tick = 0; tick < 1_810; tick += 1) {
+    round.step(0.1, [outside, duskOutside]);
+  }
+
+  assert.deepEqual(
+    { phase: round.snapshot().phase, winner: round.snapshot().winner },
+    { phase: "finished", winner: null },
+  );
+});
+
 test("players outside the relay cannot capture it and non-finite time is ignored", () => {
   const round = new CinderRowRelayRound();
   const outside = { ...accord, position: { x: 20, z: 20 } };
