@@ -524,7 +524,7 @@ function Menu({
             <Radio className="size-4" />
             ACCORD FIELD COMMAND <span aria-hidden="true">/</span> NOD SECTOR 07
           </p>
-          <h1 id="operation-title" className="mt-3 font-display text-5xl font-bold leading-[.88] tracking-tight text-fg sm:text-7xl xl:text-8xl">
+          <h1 id="operation-title" className="field-menu__title mt-3 font-display text-5xl font-bold leading-[.88] tracking-tight text-fg sm:text-7xl xl:text-8xl">
             MISSION<br />TO EARTH
           </h1>
           <p className="mt-4 font-display text-lg font-semibold tracking-[.16em] text-gold">OPERATION SHAKUNA · EARTH</p>

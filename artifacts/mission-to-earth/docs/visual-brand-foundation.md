@@ -1,15 +1,13 @@
 # Mission To Earth — Visual Brand Foundation
 
-## Reference and verification record
+## Reference and review record
 
 This document translates the uploaded “Mission To Earth — Forensic Design Audit & Implementation” into a durable product and implementation reference.
 
 - Source attachment: `Pasted-Worked-for-1m-23s-Mission-To-Earth-Forensic-Design-Audi_1793435536569.txt`
-- The linked ChatGPT share (`https://chatgpt.com/s/t_6ae5a7b814b881919b21ada1a8b9ef61`) could not be read by the available page fetch or screenshot service; both returned HTTP 402. Its contents are not treated as verified.
-- GitHub PR #2 was checked on 2026-10-31. It is open, draft, and unmerged, from `design/mte-cinematic-brand-foundation` at `430c8c4a6563b2d7ef4a9fbe8312f87a6debc742`, targeting `main`.
-- The PR changes five files: this visual direction's original implementation touched `Mission.tsx`, `styles.css`, `index.html`, added `brand-system.css`, and added a visual-foundation document.
-- The PR head has one completed GitHub check named “Lint, typecheck, test, and build” with a successful conclusion. Its commit-status endpoint separately returned `pending` with no status entries. This is not the same as certification of the current MTE revision.
-- The PR was based on an older main revision. Its implementation must be checked against the current code and verified locally before adoption.
+- The shared ChatGPT page was not accessible to the available fetch/screenshot tools (HTTP 402/429). Its contents are not treated as verified; only the uploaded MTE audit was evaluated.
+- PR #2 originally pointed to `design/mte-cinematic-brand-foundation` at `430c8c4a6563b2d7ef4a9fbe8312f87a6debc742`. Its check-run passed, but the separate commit-status endpoint returned `pending` with no entries. Neither result certifies later commits.
+- The original PR version was based on an older `main` revision and included a stylesheet with generated-utility substring selectors. Current implementation keeps the equivalent visual behavior on explicit semantic hooks instead.
 
 ## Product identity
 
@@ -88,19 +86,20 @@ Before treating the visual foundation as complete:
 
 ## Current implementation and verification — 2026-10-31
 
-The field-command presentation has been applied to the current `main` worktree, without merging PR #2 wholesale or changing gameplay systems.
+The field-command presentation was implemented on `main` at `6b1471d`; the mission engine and gameplay callbacks were not changed. The visual system uses explicit semantic selectors and keeps its palette scoped to the menu.
 
-- The menu now puts the verified rescue, beacon, and recovery objective first; the existing Dossier retains the longer story.
-- Existing operator selection and Dossier, Armory, Settings, Saved Inventory, sign-in, and server-run actions use a shared field-command presentation.
-- The palette is scoped to the menu so the in-mission HUD keeps its existing colors; danger remains red and ember marks the primary action.
-- The WebGL fallback notice no longer overlaps the menu title on a narrow viewport. An unsupported “ACCORD · ACTIVE” label was replaced with the accurate “PRE-DEPLOYMENT” state.
+- The menu puts the verified rescue, beacon, and recovery objective first; the existing Dossier retains the longer story.
+- Operator selection and Dossier, Armory, Settings, Saved Inventory, sign-in, and server-run actions use the shared field-command presentation.
+- The WebGL fallback notice no longer overlaps the menu title on a narrow viewport. The inaccurate “ACCORD · ACTIVE” label was replaced with “PRE-DEPLOYMENT.”
 - Stable test IDs were added to the updated menu controls and major information panels.
-- Page title, description, Open Graph metadata, and X card metadata now reference the existing preview images. The built output includes `og.jpg` and `x-banner.jpg`.
+- Page title, description, Open Graph metadata, and X card metadata reference the existing preview images. The production build includes `og.jpg` and `x-banner.jpg`.
 
-**Verification:** the MTE typecheck and lint pass; all 167 game tests pass; the production Vite build succeeds with the existing large Three.js chunk advisory. Desktop and 390-pixel phone screenshots show the menu in the WebGL-unavailable fallback. The phone screenshot confirms the warning no longer covers the title; source CSS keeps the menu vertically scrollable and operator roster horizontally scrollable. The capture browser cannot create a WebGL context, so it did not verify the actual 3D backdrop, pointer interaction, keyboard traversal, or physical-device behavior.
+**Verification:** MTE typecheck and lint passed; all 167 game tests passed; the production Vite build succeeded with the existing large Three.js chunk advisory. Desktop and 390-pixel phone screenshots showed the menu in the WebGL-unavailable fallback. The phone capture confirmed the warning no longer covers the title; source CSS keeps the menu vertically scrollable and operator roster horizontally scrollable. The capture browser cannot create a WebGL context, so it did not verify the actual 3D backdrop, pointer interaction, keyboard traversal, or physical-device behavior.
 
-**Metadata limitation:** deployment lookup reports no active production deployment. The social asset paths build and resolve as app-root paths, but absolute production URLs and social-crawler previews cannot be verified until the app is published.
+**Metadata limitation:** no active production deployment was found. Asset paths build and resolve as app-root paths, but absolute production URLs and social-crawler previews remain unverified until the game is published.
 
-**Source-link limitation:** the supplied ChatGPT share was inaccessible to the available page fetch (HTTP 402) and screenshot service (HTTP 429). This implementation is based on the uploaded MTE audit and the separately verified MTE PR #2 only; no unrelated content from the share was assessed.
+## PR #2 reconciliation
 
-**Repository state:** local `main` is at `24051f9`; these presentation and reference-document changes remain uncommitted and were not pushed or merged into PR #2.
+The PR branch was synchronized with the current `main` implementation before making it reviewable. The older stylesheet’s generated-utility substring selectors and stale metadata were not carried forward. The remaining brand layer is a focused stylesheet attached to the existing semantic menu hooks; it adds a restrained sector frame and title accent without changing mission logic, the in-mission palette, or page metadata.
+
+After synchronization, MTE typecheck and lint passed, all 167 game tests passed, API-server typecheck passed, all 55 API-server tests passed, and the production build succeeded with the existing Three.js chunk-size advisory. Desktop and phone screenshots showed the WebGL fallback and responsive title/frame; the capture browser still cannot verify real WebGL gameplay or physical-device behavior. The original pre-sync check did not certify this branch. CI now provisions an ephemeral PostgreSQL 16 service and applies the schema before database-backed tests; the synchronized branch's GitHub check passed on 2026-10-31.

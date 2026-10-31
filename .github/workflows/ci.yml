@@ -15,6 +15,22 @@ jobs:
     name: Lint, typecheck, test, and build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mte_test
+          POSTGRES_PASSWORD: mte_test
+          POSTGRES_DB: mte_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mte_test -d mte_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://mte_test:mte_test@localhost:5432/mte_test
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -38,6 +54,9 @@ jobs:
 
       - name: Typecheck
         run: pnpm run typecheck
+
+      - name: Prepare test database schema
+        run: pnpm --filter @workspace/db run push
 
       - name: Run tests
         run: pnpm run test
