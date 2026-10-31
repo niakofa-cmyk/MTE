@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import express from "express";
 import test from "node:test";
 import { WebSocket } from "ws";
+import { db, usersTable } from "@workspace/db";
+import { inArray } from "drizzle-orm";
 import { CompetitiveMatchService } from "../src/lib/competitive-match-service.ts";
+import { PostgresCompetitiveQueueStore } from "../src/lib/competitive-queue-store.ts";
 import { MatchRealtimeGateway } from "../src/lib/match-realtime-gateway.ts";
 import { createCinderRowAuthoritativeMatch } from "../src/lib/match-bootstrap.ts";
 import { MatchSessionManager } from "../src/lib/match-session-manager.ts";
@@ -45,9 +49,12 @@ function wait(ms) {
 
 test("phase-one 4v4 supports eight concurrent ranked WebSocket clients", async () => {
   const manager = new MatchSessionManager(async () => createCinderRowAuthoritativeMatch());
-  const userIds = Array.from({ length: CLIENTS }, (_, index) => `phase-one-user-${index}`);
+  const userIds = Array.from({ length: CLIENTS }, () => `phase-one-user-${randomUUID()}`);
   const sidToUser = new Map(userIds.map((userId) => [userId, userId]));
+  const testRegion = `test-${randomUUID()}`;
+  await db.insert(usersTable).values(userIds.map((id) => ({ id })));
   const competitive = new CompetitiveMatchService(manager, {
+    queueStore: new PostgresCompetitiveQueueStore("cinder-row-relay-4v4", testRegion),
     readRating: async (_userId) => 1_000,
     persistResult: async () => undefined,
   });
@@ -178,5 +185,6 @@ test("phase-one 4v4 supports eight concurrent ranked WebSocket clients", async (
     manager.stop();
     for (const socket of sockets) socket.terminate();
     await new Promise((resolve) => server.close(resolve));
+    await db.delete(usersTable).where(inArray(usersTable.id, userIds));
   }
 });

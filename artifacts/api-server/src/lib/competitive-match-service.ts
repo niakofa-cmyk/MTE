@@ -10,6 +10,7 @@ import {
   CINDER_ROW_RELAY_4V4_PROFILE,
 } from "./cinder-row-arena.ts";
 import { logger } from "./logger.ts";
+import { SERVER_OPERATOR_PROFILES } from "./authoritative-combat-systems.ts";
 import {
   PostgresCompetitiveQueueStore,
   type CompetitiveQueueStore,
@@ -163,15 +164,24 @@ export class CompetitiveMatchService {
   }
 
   private async formMatches(): Promise<void> {
-    while (this.queue.length >= this.matchSize) {
-      const batch = this.selectClosestBatch();
-      for (const entry of batch) {
-        const index = this.queue.findIndex((candidate) => candidate.userId === entry.userId);
-        if (index >= 0) this.queue.splice(index, 1);
-      }
+    while (true) {
+      const claim = await this.queueStore.claimNextBatch(this.matchSize, this.nowMs());
+      if (!claim) return;
+      const batch: QueueEntry[] = claim.entries.map((entry) => {
+        if (!Object.hasOwn(SERVER_OPERATOR_PROFILES, entry.operatorId)) {
+          throw new Error("Ranked queue contains an unavailable operator.");
+        }
+        return {
+          ...entry,
+          operatorId: entry.operatorId as ServerOperatorId,
+        };
+      });
+      let createdMatchId: string | null = null;
       try {
         const created = await this.manager.createSession(CINDER_ROW_MAP_ID);
+        createdMatchId = created.matchId;
         const ordered = balancedTeamJoinOrder(batch);
+        const pendingTickets = new Map<string, MatchTicket>();
         for (const entry of ordered) {
           const joined = this.manager.joinSession(
             created.matchId,
@@ -182,7 +192,7 @@ export class CompetitiveMatchService {
             (candidate) => candidate.playerId === joined.playerId,
           );
           if (!player?.team) throw new Error("The match server did not assign a team.");
-          this.tickets.set(entry.userId, {
+          pendingTickets.set(entry.userId, {
             rating: entry.rating,
             matchId: created.matchId,
             playerId: joined.playerId,
@@ -191,45 +201,26 @@ export class CompetitiveMatchService {
             operatorId: entry.operatorId,
           });
         }
+        await this.queueStore.completeClaim(claim.claimId);
+        for (const [userId, ticket] of pendingTickets) this.tickets.set(userId, ticket);
         this.rankedMatchIds.add(created.matchId);
       } catch (error) {
-        for (const entry of batch) this.tickets.delete(entry.userId);
-        this.queue.unshift(...batch);
+        if (createdMatchId) {
+          for (const entry of batch) this.tickets.delete(entry.userId);
+        }
+        await this.queueStore.releaseClaim(claim.claimId);
         logger.error({ err: error }, "Could not form a ranked Cinder Row match.");
         throw error;
       }
     }
   }
 
-  private selectClosestBatch(): QueueEntry[] {
-    const oldest = this.queue[0];
-    if (!oldest) return [];
-    const maxRatingGap = Math.min(
-      1_000,
-      150 + Math.floor(Math.max(0, this.nowMs() - oldest.queuedAt) / 10_000) * 100,
-    );
-    const candidates = this.queue
-      .filter((entry) => Math.abs(entry.rating - oldest.rating) <= maxRatingGap)
-      .sort((left, right) =>
-        Math.abs(left.rating - oldest.rating) - Math.abs(right.rating - oldest.rating) ||
-        left.queuedAt - right.queuedAt,
-      )
-      .slice(0, this.matchSize);
-    if (candidates.length < this.matchSize && this.nowMs() - oldest.queuedAt < 90_000) {
-      return [];
-    }
-    return candidates.length >= this.matchSize
-      ? candidates
-      : this.queue.slice(0, this.matchSize);
-  }
-
-  private toQueuedStatus(entry: QueueEntry): CompetitiveStatus {
-    const index = this.queue.findIndex((candidate) => candidate.userId === entry.userId);
+  private toQueuedStatus(status: RankedQueueStatus): CompetitiveStatus {
     return {
       state: "queued",
-      position: index + 1,
-      rating: entry.rating,
-      queuedPlayers: this.queue.length,
+      position: status.position,
+      rating: status.entry.rating,
+      queuedPlayers: status.queuedPlayers,
     };
   }
 

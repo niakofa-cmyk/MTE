@@ -18,13 +18,13 @@ Arena warfare and planetary warfare are separate modes. Do not increase a global
 
 The currently active Cinder Row profile is eight players total, four per team. The authoritative match library has a separate general capacity setting, but Cinder Row's geometry and spawn layout limit the active ranked profile to 4v4.
 
-The local synthetic integration test creates a ranked match through the HTTP queue and connects eight authenticated WebSocket clients to one live server. It checks the 4v4 assignment, initial full-room snapshots, accepted input, and continued snapshot delivery. The latest focused run observed at least 25 snapshots per client over the sampling window and 4 ms p95 local snapshot-delivery timing.
+The local synthetic integration test creates a ranked match through the HTTP queue and connects eight authenticated WebSocket clients to one live server. It checks the 4v4 assignment, initial full-room snapshots, accepted input, and continued snapshot delivery. The latest full run observed at least 25 snapshots per client over the sampling window and 6 ms p95 local snapshot-delivery timing. A separate database test recreated the queue-store object, observed the same queued entries, verified a single active claim, and recovered the claim after its lease expired.
 
 Those numbers measure a same-process, same-host test only. They do not measure internet latency, published compute, multi-process routing, a player-facing frame rate, or physical devices. They are not production certification.
 
 ## Production blockers
 
-- Queue, active match state, and ranked tickets remain process-local. The current build must not be horizontally scaled without shared matchmaking and explicit match-owner routing.
+- The waiting queue is stored in PostgreSQL, and claimed queue batches expire so they can be recovered after a server interruption. Active match simulation, ranked tickets, and owner routing remain process-local. The current build must not be horizontally scaled without shared match ownership and explicit client routing.
 - A process restart interrupts an active match. Match state does not yet resume from a durable checkpoint.
 - No published eight-player match, network impairment test, soak test, regional latency test, or external player playtest has been run.
 - Replit's deployment guidance recommends a Reserved VM for long-lived WebSocket connections. Deployment settings have not been changed and the app has not been published.

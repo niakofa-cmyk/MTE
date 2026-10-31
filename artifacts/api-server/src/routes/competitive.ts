@@ -21,7 +21,7 @@ export function createCompetitiveRouter(
       return;
     }
     try {
-      const status = competitiveMatches.status(req.user.id);
+      const status = await competitiveMatches.status(req.user.id);
       const rating = status.state === "idle"
         ? await getCompetitiveRating(req.user.id)
         : status.rating;

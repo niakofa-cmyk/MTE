@@ -36,10 +36,16 @@ export interface CompetitiveQueueStore {
 }
 
 export class PostgresCompetitiveQueueStore implements CompetitiveQueueStore {
+  private readonly modeId: string;
+  private readonly regionId: string;
+
   constructor(
-    private readonly modeId = "cinder-row-relay-4v4",
-    private readonly regionId = "default",
-  ) {}
+    modeId = "cinder-row-relay-4v4",
+    regionId = "default",
+  ) {
+    this.modeId = modeId;
+    this.regionId = regionId;
+  }
 
   async enqueue(entry: RankedQueueEntry): Promise<void> {
     await db.transaction(async (tx) => {

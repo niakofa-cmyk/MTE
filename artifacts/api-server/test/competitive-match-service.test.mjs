@@ -7,6 +7,7 @@ import { CompetitiveMatchService } from "../src/lib/competitive-match-service.ts
 import { MatchSessionManager } from "../src/lib/match-session-manager.ts";
 import { createCompetitiveRouter } from "../src/routes/competitive.ts";
 import { balancedTeamJoinOrder } from "../src/lib/competitive-match-service.ts";
+import { MemoryCompetitiveQueueStore } from "./helpers/memory-competitive-queue-store.mjs";
 
 test("ranked team drafting minimizes average rating gap", () => {
   const players = [2_000, 1_900, 1_800, 1_700, 1_600, 1_500, 1_400, 1_300]
@@ -43,6 +44,7 @@ test("ranked queue forms a private account-owned match and supports cancellation
   const manager = new MatchSessionManager(async () => createCinderRowAuthoritativeMatch());
   const competitive = new CompetitiveMatchService(manager, {
     matchSize: 2,
+    queueStore: new MemoryCompetitiveQueueStore(),
     readRating: async (userId) => userId === "ranked-one" ? 1_200 : 1_180,
     persistResult: async () => undefined,
   });
@@ -147,6 +149,7 @@ test("a completed draw persists its result and releases matched player tickets",
   let finishedResult = null;
   const competitive = new CompetitiveMatchService(manager, {
     matchSize: 2,
+    queueStore: new MemoryCompetitiveQueueStore(),
     readRating: async () => 1_000,
     readFinishedResult: () => finishedResult,
     persistResult: async (result) => savedResults.push(result),
@@ -156,7 +159,7 @@ test("a completed draw persists its result and releases matched player tickets",
   const match = await competitive.enqueue("draw-two", "khensu");
   assert.equal(match.state, "matched");
   if (match.state !== "matched") throw new Error("Expected a ranked match ticket.");
-  assert.equal(competitive.status("draw-one").state, "matched");
+  assert.equal((await competitive.status("draw-one")).state, "matched");
 
   finishedResult = {
     matchId: match.match.matchId,
@@ -169,8 +172,8 @@ test("a completed draw persists its result and releases matched player tickets",
   await competitive.runMaintenance();
 
   assert.deepEqual(savedResults, [finishedResult]);
-  assert.equal(competitive.status("draw-one").state, "idle");
-  assert.equal(competitive.status("draw-two").state, "idle");
+  assert.equal((await competitive.status("draw-one")).state, "idle");
+  assert.equal((await competitive.status("draw-two")).state, "idle");
 });
 
 test("a completed draw releases ranked tickets without awarding a team win", async () => {
@@ -179,6 +182,7 @@ test("a completed draw releases ranked tickets without awarding a team win", asy
   const persistedResults = [];
   const competitive = new CompetitiveMatchService(manager, {
     matchSize: 2,
+    queueStore: new MemoryCompetitiveQueueStore(),
     readRating: async () => 1_000,
     readFinishedResult: () => finishedResult,
     persistResult: async (result) => persistedResults.push(result),
@@ -187,8 +191,8 @@ test("a completed draw releases ranked tickets without awarding a team win", asy
   await competitive.enqueue("draw-one", "jaya");
   const matched = await competitive.enqueue("draw-two", "khensu");
   assert.equal(matched.state, "matched");
-  assert.equal(competitive.status("draw-one").state, "matched");
-  assert.equal(competitive.status("draw-two").state, "matched");
+  assert.equal((await competitive.status("draw-one")).state, "matched");
+  assert.equal((await competitive.status("draw-two")).state, "matched");
   if (matched.state !== "matched") throw new Error("The test match was not formed.");
 
   finishedResult = {
@@ -202,6 +206,6 @@ test("a completed draw releases ranked tickets without awarding a team win", asy
   await competitive.runMaintenance();
 
   assert.deepEqual(persistedResults, [finishedResult]);
-  assert.equal(competitive.status("draw-one").state, "idle");
-  assert.equal(competitive.status("draw-two").state, "idle");
+  assert.equal((await competitive.status("draw-one")).state, "idle");
+  assert.equal((await competitive.status("draw-two")).state, "idle");
 });
