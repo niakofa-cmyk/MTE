@@ -1,11 +1,14 @@
 import { useId } from "react";
 import { Radio, Users, Timer, Shield, Swords, Signal, ArrowUpRight, Copy } from "lucide-react";
+import type { ServerPlayerSnapshot } from "@/game/server-match-client";
 
 export type CinderRowPanelProps = {
   screen: "menu" | "hud";
   serverStatus: "idle" | "connecting" | "connected" | "error";
   serverMessage: string | null;
   matchId: string | null;
+  maxPlayers: number;
+  players: Array<Pick<ServerPlayerSnapshot, "playerId" | "operatorId" | "team" | "connected">>;
   joinCode: string;
   onJoinCodeChange: (value: string) => void;
   onRankedProfileChange: (profileId: "cinder-row-relay-4v4" | "cinder-row-relay-8v8") => void;
@@ -72,6 +75,8 @@ export function CinderRowPanel({
   serverStatus,
   serverMessage,
   matchId,
+  maxPlayers,
+  players,
   joinCode,
   onJoinCodeChange,
   onRankedProfileChange,
@@ -92,7 +97,10 @@ export function CinderRowPanel({
     rankedQueue.state === "queued" ||
     rankedQueue.state === "matched";
   const progress = round ? Math.min(100, Math.max(0, round.relayProgress)) : 0;
-  const teamCapacity = rankedProfileId === "cinder-row-relay-8v8" ? 8 : 4;
+  const teamCapacity = Math.max(1, Math.floor(maxPlayers / 2));
+  const accordRoster = players.filter((player) => player.team === "accord");
+  const duskRoster = players.filter((player) => player.team === "eon-dusk");
+  const connectedPlayers = players.filter((player) => player.connected !== false).length;
   const phaseLabel = round?.phase === "active" ? "LIVE ROUND" : round?.phase === "finished" ? "ROUND COMPLETE" : "AWAITING OPERATORS";
   const controlledLabel = round?.contested
     ? "CONTESTED"
@@ -205,7 +213,7 @@ export function CinderRowPanel({
             CINDER ROW
           </h2>
           <p className="mt-2 max-w-md text-sm leading-relaxed text-muted">
-            Compact relay-control engagement. Two teams, up to {teamCapacity} operators per side.
+            Compact relay-control engagement. Private matches are 4v4; ranked supports 4v4 or 8v8.
           </p>
           <div className="mt-4 grid grid-cols-3 border-y border-line/70 py-2.5">
             {LANES.map((lane, index) => (
@@ -355,6 +363,49 @@ export function CinderRowPanel({
                 COPY ID
               </button>
             </div>
+          ) : null}
+          {matchId ? (
+            <section
+              aria-label="Cinder Row match roster"
+              className="border border-line/70 bg-background/35 p-2.5"
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="font-display text-[10px] tracking-[.16em] text-fg">MATCH ROSTER</span>
+                <span className="font-mono text-[10px] tabular-nums text-muted">
+                  {connectedPlayers}/{maxPlayers} JOINED
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { id: "accord", label: "ACCORD", entries: accordRoster, tone: "text-cyan" },
+                  { id: "eon-dusk", label: "EON DUSK", entries: duskRoster, tone: "text-gold" },
+                ] as const).map((group) => (
+                  <div key={group.id} className="min-w-0 border border-line/60 p-2">
+                    <p className={`mb-1.5 flex items-center justify-between gap-1 font-display text-[9px] tracking-widest ${group.tone}`}>
+                      <span>{group.label}</span>
+                      <span className="font-mono">{group.entries.filter((player) => player.connected !== false).length}/{teamCapacity}</span>
+                    </p>
+                    {group.entries.length ? (
+                      <ul className="space-y-1.5">
+                        {group.entries.map((player) => (
+                          <li key={player.playerId} className="flex min-w-0 items-center justify-between gap-1 text-[10px]">
+                            <span className="truncate font-display text-fg">
+                              {player.operatorId.toUpperCase()}
+                              <span className="ml-1 font-mono text-muted">#{player.playerId.slice(0, 6).toUpperCase()}</span>
+                            </span>
+                            <span className={player.connected === false ? "shrink-0 text-gold" : "shrink-0 text-muted"}>
+                              {player.connected === false ? "OFFLINE" : "JOINED"}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-[10px] text-muted">No players yet.</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
           ) : null}
           {serverStatus === "error" ? (
             <p role="alert" className="border-l-2 border-gold pl-2 text-xs leading-relaxed text-gold">

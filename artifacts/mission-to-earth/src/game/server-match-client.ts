@@ -88,6 +88,7 @@ export type ServerPlayerSnapshot = {
   isFocusAiming: boolean;
   health: number;
   team?: "accord" | "eon-dusk";
+  connected?: boolean;
 };
 
 export type ServerMatchMapId = "nod" | "cinder-row-blackout";
@@ -138,6 +139,7 @@ export type MatchSnapshot = {
   players: ServerPlayerSnapshot[];
   mapId: ServerMatchMapId;
   mapVersion: string | null;
+  maxPlayers?: number;
   arenaRound: ServerArenaRoundSnapshot | null;
 };
 type StoredSession = {
@@ -336,6 +338,13 @@ function parseSnapshot(value: unknown, matchId: string): MatchSnapshot {
   if (snapshotRecord.mapVersion !== undefined && mapVersion === null) {
     throw new Error("The match server returned an invalid map version.");
   }
+  const maxPlayers = snapshotRecord.maxPlayers;
+  if (
+    maxPlayers !== undefined &&
+    (!Number.isInteger(maxPlayers) || (maxPlayers as number) < 1 || (maxPlayers as number) > 64)
+  ) {
+    throw new Error("The match server returned an invalid player capacity.");
+  }
   const arenaRoundValue = snapshotRecord.arenaRound;
   let arenaRound: ServerArenaRoundSnapshot | null = null;
   if (arenaRoundValue !== undefined && arenaRoundValue !== null) {
@@ -390,6 +399,7 @@ function parseSnapshot(value: unknown, matchId: string): MatchSnapshot {
       !finite(player.pitch) ||
       !SERVER_OPERATOR_IDS.includes(player.operatorId as ServerOperatorId) ||
       (player.team !== undefined && player.team !== "accord" && player.team !== "eon-dusk") ||
+      (player.connected !== undefined && typeof player.connected !== "boolean") ||
       !HAND_ACTIONS.includes(player.rightHandState as ServerHandAction) ||
       !HAND_ACTIONS.includes(player.leftHandState as ServerHandAction) ||
       typeof player.isFocusAiming !== "boolean" ||
@@ -481,9 +491,19 @@ function parseSnapshot(value: unknown, matchId: string): MatchSnapshot {
       ...(player.team === "accord" || player.team === "eon-dusk"
         ? { team: player.team }
         : {}),
+      ...(typeof player.connected === "boolean"
+        ? { connected: player.connected }
+        : {}),
     };
   });
-  return { protocolVersion: 3, players, mapId, mapVersion, arenaRound };
+  return {
+    protocolVersion: 3,
+    players,
+    mapId,
+    mapVersion,
+    ...(typeof maxPlayers === "number" ? { maxPlayers } : {}),
+    arenaRound,
+  };
 }
 
 function parseGameplayState(value: unknown, matchId: string): ServerGameplayState {

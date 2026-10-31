@@ -96,8 +96,10 @@ export interface CreatedMatchSession {
 export interface MatchSessionSnapshot extends AuthoritativeWorldSnapshot {
   mapId: MatchMapId;
   mapVersion: string;
+  maxPlayers: number;
   players: Array<AuthoritativeWorldSnapshot["players"][number] & {
     team?: ArenaTeam;
+    connected: boolean;
   }>;
   arenaRound?: CinderRowRoundSnapshot;
 }
@@ -775,9 +777,14 @@ export class MatchSessionManager {
       ...snapshot,
       mapId: session.mapId,
       mapVersion: session.mapVersion,
+      maxPlayers: session.maxPlayers,
       players: snapshot.players.map((player) => {
-        const team = session.players.get(player.playerId)?.team;
-        return { ...player, ...(team ? { team } : {}) };
+        const sessionPlayer = session.players.get(player.playerId);
+        return {
+          ...player,
+          ...(sessionPlayer?.team ? { team: sessionPlayer.team } : {}),
+          connected: sessionPlayer?.connected ?? false,
+        };
       }),
       ...(session.arenaRound
         ? { arenaRound: session.arenaRound.snapshot() }

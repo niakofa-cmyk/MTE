@@ -409,3 +409,23 @@ This verifies the live engine’s hit, hurt-reaction, and defeat path for one st
 | Production builds and workflows | **PASS** | API build and `PORT=24152 BASE_PATH=/` game build succeeded. API and Vite workflows restarted successfully; existing Three.js chunk-size warning remains. |
 
 **Recovery guarantee:** once the server returns extraction readiness, the durable receipt exists first and is recoverable after an API restart. A process loss before the server has confirmed readiness does not create a receipt and cannot award rewards. Match simulation state itself remains in memory; this change does not claim to recover an unfinished match.
+
+### Cinder Row private-match invitations and roster — 2026-10-31
+
+**Reviewed HEAD:** `44d385e` on `main`; the changes below are in the working tree and are not committed or pushed.<br>
+**Files changed:** API match-session snapshots and tests; the match client, `Mission.tsx`, `CinderRowPanel.tsx`, and panel tests; this report.
+
+| Requirement | Result | Evidence / qualification |
+|---|---|---|
+| Host creates a private Cinder Row match and shares its ID | **PASS (automated coverage)** | The server API test creates a private room, joins two participants through its match ID, and verifies the server-assigned opposing teams. The game client test covers host/join session handling, and the clipboard helper and panel tests cover displaying/copying the ID. |
+| Host sees the joined roster | **PASS (automated coverage)** | Authorized match snapshots now carry server-owned player team, connection state, and room capacity. The menu renders both team rosters, short player identifiers, online/joined status, and per-team capacity. |
+| Roster refreshes while waiting in the menu | **IMPLEMENTED; live browser behavior NOT TESTED** | The menu polls the authorized snapshot once per second; active-play snapshots also update roster state. UI tests verify roster content and connection states, but no authenticated browser session was available to exercise a second user joining live. |
+| Private versus ranked capacity | **PASS (automated coverage)** | Private matches are explicitly described as 4v4; active match capacity comes from the server snapshot, so ranked 8v8 capacity is not inferred from the ranked selector for a private room. |
+| API tests and typecheck | **PASS** | API test suite: 74/74 passed. API TypeScript typecheck passed. |
+| Game tests, panel tests, typecheck, and lint | **PASS** | Mission game tests: 170/170; panel tests: 3/3; Mission To Earth typecheck and lint passed. |
+| Production web build | **PASS** | `PORT=4173 BASE_PATH=/mission-to-earth/ pnpm --filter @workspace/mission-to-earth run build`. Vite emitted the existing Three.js chunk-size advisory. |
+| Workflow restart | **PASS** | API build completed and the server listened on port 8080; the Vite workflow became ready after restart. |
+| Authenticated browser host/invitee flow | **NOT TESTED** | The capture browser was signed out, so the Cinder Row action was disabled. Authentication was not bypassed. |
+| 3D preview and physical-device test | **PARTIAL / NOT TESTED** | The screenshot preview showed the signed-out menu but could not create a WebGL context. No physical device was used. |
+
+**Result:** host/join and roster data are covered by API/client/UI tests, and the host menu now has a server-refreshed roster. The actual two-authenticated-browser invitation flow remains unverified; these results do not certify production multiplayer or physical-device behavior.

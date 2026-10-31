@@ -134,8 +134,12 @@ test("Cinder Row match creation joins two server-assigned teams at opposing spaw
     const duskPlayer = joined[1].snapshot.players.find(
       (player) => player.playerId === joined[1].playerId,
     );
+    assert.equal(joined[1].snapshot.maxPlayers, 8);
+    assert.equal(joined[1].snapshot.players.length, 2);
     assert.equal(accordPlayer.team, "accord");
+    assert.equal(accordPlayer.connected, true);
     assert.equal(duskPlayer.team, "eon-dusk");
+    assert.equal(duskPlayer.connected, true);
     assert.ok(accordPlayer.position.x < 0);
     assert.ok(duskPlayer.position.x > 0);
     assert.equal(joined[1].snapshot.mapVersion, "1.0.0");

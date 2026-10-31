@@ -11,6 +11,8 @@ const baseProps: CinderRowPanelProps = {
   serverStatus: "connected",
   serverMessage: null,
   matchId: "panel-test-match",
+  maxPlayers: 8,
+  players: [],
   joinCode: "",
   onJoinCodeChange: () => undefined,
   onRankedProfileChange: () => undefined,
@@ -38,7 +40,11 @@ test("Cinder Row HUD shows the selected ranked team capacity", () => {
     <CinderRowPanel {...baseProps} rankedProfileId="cinder-row-relay-4v4" />,
   );
   const eightVsEight = renderToStaticMarkup(
-    <CinderRowPanel {...baseProps} rankedProfileId="cinder-row-relay-8v8" />,
+    <CinderRowPanel
+      {...baseProps}
+      maxPlayers={16}
+      rankedProfileId="cinder-row-relay-8v8"
+    />,
   );
   const eightVsEightMenu = renderToStaticMarkup(
     <CinderRowPanel
@@ -50,7 +56,7 @@ test("Cinder Row HUD shows the selected ranked team capacity", () => {
 
   assert.match(fourVsFour, /\/4/);
   assert.match(eightVsEight, /\/8/);
-  assert.match(eightVsEightMenu, /up to 8 operators per side/);
+  assert.match(eightVsEightMenu, /Private matches are 4v4; ranked supports 4v4 or 8v8/);
 });
 
 test("explains private match creation and exposes a shareable ID after hosting", () => {
@@ -78,4 +84,39 @@ test("explains private match creation and exposes a shareable ID after hosting",
   assert.match(hostedMatch, /PRIVATE MATCH ID/);
   assert.match(hostedMatch, /invite-match-123/);
   assert.match(hostedMatch, /aria-label="Copy Match ID"/);
+});
+
+test("shows server-assigned players, teams, capacity, and connection state", () => {
+  const roster = renderToStaticMarkup(
+    <CinderRowPanel
+      {...baseProps}
+      screen="menu"
+      matchId="invite-match-123"
+      maxPlayers={16}
+      players={[
+        {
+          playerId: "accord-player-1234",
+          operatorId: "jaya",
+          team: "accord",
+          connected: true,
+        },
+        {
+          playerId: "dusk-player-5678",
+          operatorId: "khensu",
+          team: "eon-dusk",
+          connected: false,
+        },
+      ]}
+      rankedQueue={{ state: "idle", rating: 1_000 }}
+    />,
+  );
+
+  assert.match(roster, /MATCH ROSTER/);
+  assert.match(roster, /1\/16 JOINED/);
+  assert.match(roster, /JAYA/);
+  assert.match(roster, /#ACCORD/);
+  assert.match(roster, /KHENSU/);
+  assert.match(roster, /#DUSK-P/);
+  assert.match(roster, /0\/8/);
+  assert.match(roster, /OFFLINE/);
 });

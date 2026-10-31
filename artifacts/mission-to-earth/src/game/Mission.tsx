@@ -43,6 +43,7 @@ import {
   type ServerExtractionStatus,
   type ServerInventoryItem,
   type ServerPlayerProfile,
+  type ServerPlayerSnapshot,
   type ServerArenaRoundSnapshot,
   type ServerMatchMapId,
   type ServerOperatorId,
@@ -161,6 +162,8 @@ export function Mission() {
     "cinder-row-relay-4v4",
   );
   const [arenaMatchId, setArenaMatchId] = useState<string | null>(null);
+  const [arenaPlayers, setArenaPlayers] = useState<ServerPlayerSnapshot[]>([]);
+  const [arenaMaxPlayers, setArenaMaxPlayers] = useState(8);
   const [arenaTeam, setArenaTeam] = useState<"accord" | "eon-dusk" | null>(null);
   const [arenaRound, setArenaRound] = useState<ServerArenaRoundSnapshot | null>(null);
   const settlementInFlight = useRef(false);
@@ -297,6 +300,36 @@ export function Mission() {
   }, [auth.isAuthenticated, rankedProfileId]);
 
   useEffect(() => {
+    if (
+      screen !== "menu" ||
+      !serverClient ||
+      serverClient.mapId !== "cinder-row-blackout"
+    ) {
+      return;
+    }
+
+    let active = true;
+    const refreshLobby = async () => {
+      try {
+        const snapshot = await serverClient.getSnapshot();
+        if (!active || snapshot.mapId !== "cinder-row-blackout") return;
+        setArenaPlayers(snapshot.players);
+        setArenaMaxPlayers(snapshot.maxPlayers ?? 8);
+        setArenaRound(snapshot.arenaRound);
+      } catch {
+        // Preserve the last known roster during transient lobby sync failures.
+      }
+    };
+
+    void refreshLobby();
+    const timer = window.setInterval(() => void refreshLobby(), 1_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [screen, serverClient]);
+
+  useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !serverClient || screen !== "play") return;
 
@@ -315,6 +348,8 @@ export function Mission() {
       if (snapshot.mapId === "cinder-row-blackout") {
         setArenaRound(snapshot.arenaRound);
         setArenaMatchId(serverClient.matchId);
+        setArenaPlayers(snapshot.players);
+        setArenaMaxPlayers(snapshot.maxPlayers ?? 8);
         const localPlayer = snapshot.players.find(
           (player) => player.playerId === serverClient.localPlayerId,
         );
@@ -464,6 +499,8 @@ export function Mission() {
     setArenaMatchId(connected.client.matchId);
     setArenaTeam(connected.player.team ?? null);
     setArenaRound(connected.snapshot.arenaRound);
+    setArenaPlayers(connected.snapshot.players);
+    setArenaMaxPlayers(connected.snapshot.maxPlayers ?? 8);
     engine.capture();
   };
 
@@ -612,6 +649,8 @@ export function Mission() {
                   setArenaMatchId(null);
                   setArenaTeam(null);
                   setArenaRound(null);
+                  setArenaPlayers([]);
+                  setArenaMaxPlayers(8);
                   setMapId("nod");
                 }}
               >
@@ -622,6 +661,8 @@ export function Mission() {
                 serverStatus={serverStatus}
                 serverMessage={serverMessage}
                 matchId={arenaMatchId}
+                maxPlayers={arenaMaxPlayers}
+                players={arenaPlayers}
                 joinCode={arenaJoinCode}
                 onJoinCodeChange={setArenaJoinCode}
                 team={arenaTeam}
@@ -704,6 +745,11 @@ export function Mission() {
             setServerInventory([]);
             setServerStatus("idle");
             setServerMessage(null);
+            setArenaMatchId(null);
+            setArenaPlayers([]);
+            setArenaMaxPlayers(8);
+            setArenaTeam(null);
+            setArenaRound(null);
             engineRef.current?.start(op);
             engineRef.current?.capture();
           }}
@@ -714,6 +760,8 @@ export function Mission() {
             setServerStatus("idle");
             setServerMessage(null);
             setArenaMatchId(null);
+            setArenaPlayers([]);
+            setArenaMaxPlayers(8);
             setArenaTeam(null);
             setArenaRound(null);
             setMapId("cinder-row-blackout");
@@ -728,6 +776,8 @@ export function Mission() {
             serverStatus={serverStatus}
             serverMessage={serverMessage}
             matchId={arenaMatchId}
+            maxPlayers={arenaMaxPlayers}
+            players={arenaPlayers}
             joinCode={arenaJoinCode}
             onJoinCodeChange={setArenaJoinCode}
             team={arenaTeam}
