@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export * from './authUser';
-export * from './authUserEnvelope';
-export * from './extractionSettlementResponse';
-export * from './extractionStatusResponse';
-export * from './healthStatus';
-export * from './inventoryItem';
-export * from './playerProfileResponse';
+export * from './authUser.ts';
+export * from './authUserEnvelope.ts';
+export * from './extractionSettlementResponse.ts';
+export * from './extractionStatusResponse.ts';
+export * from './healthStatus.ts';
+export * from './inventoryItem.ts';
+export * from './playerProfileResponse.ts';

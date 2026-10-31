@@ -8,7 +8,7 @@ import {
   getServerExtractionReceipt,
   persistServerExtractionReceipt,
   settlePersistedExtraction,
-} from "../lib/profile-service";
+} from "../lib/profile-service.ts";
 import {
   MatchSessionError,
   type MatchSessionManager,

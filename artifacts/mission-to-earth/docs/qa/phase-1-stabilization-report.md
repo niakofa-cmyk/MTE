@@ -387,9 +387,25 @@ This verifies the live engine’s hit, hurt-reaction, and defeat path for one st
 | Server Loot Run to saved rewards | **NOT TESTED end-to-end** | Automated tests cover the match extraction hold and database settlement separately. No authenticated real-browser run exercised the complete mission, server extraction hold, and saved inventory readback in one session. |
 | Workspace typecheck | **PASS** | `pnpm run typecheck`. |
 | Lint | **PASS** | `pnpm run lint`. |
-| Automated tests | **PASS** | `pnpm run test`: 167 Mission To Earth tests and 54 API-server tests passed (221 total). |
+| Automated tests | **PASS** | `pnpm run test`: 167 Mission To Earth tests and 55 API-server tests passed (222 total). |
 | Production builds | **PASS** | API: `pnpm --filter @workspace/api-server run build`. Client: `PORT=24152 BASE_PATH=/ pnpm --filter @workspace/mission-to-earth run build`. The existing Three.js chunk-size advisory remains. |
 | Workflow startup | **PASS** | API listens on port 8080 and Vite is ready on port 24152. Auth/profile routes respond through the game preview proxy. |
 | Preview rendering | **PARTIAL** | The capture browser displayed the menu and the WebGL-unavailable notice; its console reported failure to create a WebGL context. This is an environment limitation, not a successful 3D gameplay run. |
 
 **Current reward boundary:** the client can display match cache contents, but durable credits and inventory are granted only by the authenticated server settlement path after the server confirms extraction. The earlier “durable settlement is not implemented” finding above records the state of that earlier run; this section supersedes it for the current working tree. A full authenticated extraction-and-readback run remains the main verification gap.
+
+### Extraction recovery and ownership hardening — 2026-10-31
+
+**Reviewed state:** current `main` revision `e919e4d`; the latest QA-report and TypeScript ESM import adjustments remain in the working tree.
+
+| Requirement | Result | Evidence / qualification |
+|---|---|---|
+| Durable ready receipt | **PASS (automated)** | When the authenticated status route first observes server-validated extraction readiness, it persists a unique player/match receipt containing the server-owned inventory and hold duration before returning `ready: true`. Conflicting later submissions cannot replace that receipt. |
+| Recovery after API restart | **PASS (automated)** | A test simulates a fresh match manager with no in-memory session. The receipt owner reads ready status and settles using their authenticated account, without a match token. The database confirms inventory and credits are saved once; a retry is idempotent. |
+| Cross-account receipt access | **PASS (automated)** | Route tests reject unauthenticated requests and a different account cannot read or settle the receipt. Live match ownership checks reject a match token paired with another account. |
+| Client-forged reward rejection | **PASS (automated)** | Non-empty reward payloads are rejected before settlement; the profile remains unchanged. Settlement reads only the immutable persisted receipt. |
+| Full mission-to-reward browser run | **NOT TESTED** | The automated recovery test covers the post-ready restart boundary. A signed-in browser run collecting loot, completing the extraction hold, and reading back the inventory was not observed. |
+| Full workspace checks | **PASS** | Typecheck and lint passed; 167 game tests and 55 API tests passed (222 total). |
+| Production builds and workflows | **PASS** | API build and `PORT=24152 BASE_PATH=/` game build succeeded. API and Vite workflows restarted successfully; existing Three.js chunk-size warning remains. |
+
+**Recovery guarantee:** once the server returns extraction readiness, the durable receipt exists first and is recoverable after an API restart. A process loss before the server has confirmed readiness does not create a receipt and cannot award rewards. Match simulation state itself remains in memory; this change does not claim to recover an unfinished match.
