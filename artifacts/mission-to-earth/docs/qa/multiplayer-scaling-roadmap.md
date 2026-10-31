@@ -7,7 +7,7 @@ Treat the user-provided milestones as staged capacity targets, not claims about 
 | Phase | Intended match scale | Status |
 | --- | ---: | --- |
 | 1 | 8 players, competitive 4v4 | Implemented and locally integration-tested |
-| 2 | 16 players, 8v8 | Full simulated relay round, 16-client WebSocket integration, and ranked settlement tested locally; not production load-tested |
+| 2 | 16 players, 8v8 | Live-time synthetic-client relay round, 16-client WebSocket integration, and ranked settlement tested locally; not production load-tested |
 | 3 | 40 players, 20v20 | Not implemented; needs a larger team-battle map and visibility/network budget |
 | 4 | 100-player planetary battlefield | Not implemented; needs a separate battle-royale world, interest management, and zone/loot systems |
 | Long term | 100–150 players | Exploratory only; depends on dedicated-server capacity and measured cost/performance |
@@ -22,12 +22,16 @@ The local synthetic integration test creates a ranked match through the HTTP que
 
 Those numbers measure a same-process, same-host test only. A gateway test also introduces client-side send delays, skips an input sequence, then reconnects with the same account ticket and continues with the next sequence. This is application-level fault simulation over localhost, not network-level packet shaping or WAN validation.
 
-The Phase 2 local test authenticates sixteen ranked WebSocket clients, verifies eight assigned players per team and spawn separation, drives authoritative movement and a hit through WebSocket input, captures the relay, and persists all sixteen ranked results exactly once. The test advances a simulated server clock, so its full round is not a player-paced browser playthrough. It does not establish sustained match quality, internet latency, published compute capacity, multi-process routing, a player-facing frame rate, or physical-device behavior.
+The Phase 2 local test authenticates sixteen ranked WebSocket clients, verifies eight assigned players per team and spawn separation, drives movement and a hit through WebSocket input, captures the relay over real elapsed time, and persists all sixteen ranked results exactly once. One client's movement inputs include deterministic application-level delay/jitter and a dropped packet; a skipped sequence is accepted and movement continues. A local run measured 72 ms acknowledgement p95 for those delayed inputs. This is synthetic client-side impairment on localhost, not WAN packet shaping or a browser-controls playthrough. It does not establish published compute capacity, multi-process routing, a player-facing frame rate, or physical-device behavior.
+
+The Cinder Row HUD is also server-rendered in a focused UI test to verify that its team capacity label matches the selected 4v4 or 8v8 profile. This does not replace an interactive browser match test.
+
+A separate headless Chromium session with SwiftShader successfully initialized WebGL and selected 8v8 in the Cinder Row menu; the menu now reports eight operators per side. That browser was signed out and showed the existing sign-in gate, so it could not join the ranked round. The Replit screenshot-capture browser itself could not create a WebGL context.
 
 ## Production blockers
 
 - The waiting queue is stored in PostgreSQL, and claimed queue batches expire so they can be recovered after a server interruption. Active match simulation, ranked tickets, and owner routing remain process-local. The current build must not be horizontally scaled without shared match ownership and explicit client routing.
-- A process restart marks active ranked sessions interrupted, awards no rating, and allows players to requeue. Live match state does not resume from a durable checkpoint.
+- A process restart marks active ranked sessions interrupted, awards no rating, and allows players to requeue. A completed result remains settled across service recreation, and a failed rating write rolls back the result transaction. Live match state does not resume from a durable checkpoint.
 - The 8v8 profile reuses Cinder Row's existing graybox; map flow, objective pressure, long-duration load, and balance still require playtesting.
 - No WAN impairment test, published match, soak test, regional latency test, or external player playtest has been run.
 - Replit's deployment guidance recommends a Reserved VM for long-lived WebSocket connections. Deployment settings have not been changed and the app has not been published.

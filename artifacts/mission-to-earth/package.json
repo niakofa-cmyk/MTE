@@ -9,7 +9,8 @@
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "lint": "eslint src",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --experimental-strip-types --test src/game/*.test.ts"
+    "test": "node --experimental-strip-types --test src/game/*.test.ts",
+    "test:ui": "tsx --tsconfig test/tsconfig.json --test test/*.test.tsx"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

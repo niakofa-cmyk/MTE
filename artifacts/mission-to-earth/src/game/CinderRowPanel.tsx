@@ -90,6 +90,7 @@ export function CinderRowPanel({
     rankedQueue.state === "queued" ||
     rankedQueue.state === "matched";
   const progress = round ? Math.min(100, Math.max(0, round.relayProgress)) : 0;
+  const teamCapacity = rankedProfileId === "cinder-row-relay-8v8" ? 8 : 4;
   const phaseLabel = round?.phase === "active" ? "LIVE ROUND" : round?.phase === "finished" ? "ROUND COMPLETE" : "AWAITING OPERATORS";
   const controlledLabel = round?.contested
     ? "CONTESTED"
@@ -123,7 +124,7 @@ export function CinderRowPanel({
               <div>
                 <p className="font-display text-[10px] tracking-widest text-cyan">ACCORD</p>
                 <p className="mt-0.5 flex items-center gap-1.5 font-display text-lg leading-none">
-                  <Users className="size-3.5 text-muted" aria-hidden="true" /> {round.accordPlayers}<span className="text-xs text-muted">/4</span>
+                  <Users className="size-3.5 text-muted" aria-hidden="true" /> {round.accordPlayers}<span className="text-xs text-muted">/{teamCapacity}</span>
                 </p>
               </div>
               <div className="text-center">
@@ -135,7 +136,7 @@ export function CinderRowPanel({
               <div className="text-right">
                 <p className="font-display text-[10px] tracking-widest text-gold">EON DUSK</p>
                 <p className="mt-0.5 flex items-center justify-end gap-1.5 font-display text-lg leading-none">
-                  <Users className="size-3.5 text-muted" aria-hidden="true" /> {round.duskPlayers}<span className="text-xs text-muted">/4</span>
+                  <Users className="size-3.5 text-muted" aria-hidden="true" /> {round.duskPlayers}<span className="text-xs text-muted">/{teamCapacity}</span>
                 </p>
               </div>
             </div>
@@ -202,7 +203,7 @@ export function CinderRowPanel({
             CINDER ROW
           </h2>
           <p className="mt-2 max-w-md text-sm leading-relaxed text-muted">
-            Compact relay-control engagement. Two teams, up to four operators per side.
+            Compact relay-control engagement. Two teams, up to {teamCapacity} operators per side.
           </p>
           <div className="mt-4 grid grid-cols-3 border-y border-line/70 py-2.5">
             {LANES.map((lane, index) => (

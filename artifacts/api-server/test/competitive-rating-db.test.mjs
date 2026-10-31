@@ -109,3 +109,24 @@ test("ranked draws preserve ratings and release one draw result per player", asy
     await db.delete(usersTable).where(inArray(usersTable.id, userIds));
   }
 });
+
+test("a failed ranked rating write rolls back the result record", async () => {
+  const matchId = randomUUID();
+  const missingUserId = `missing-ranked-user-${randomUUID()}`;
+  await assert.rejects(
+    persistCompetitiveResult({
+      matchId,
+      winner: "accord",
+      players: [{ userId: missingUserId, team: "accord" }],
+    }),
+  );
+
+  const [storedResult] = await db.select()
+    .from(competitiveMatchResultsTable)
+    .where(eq(competitiveMatchResultsTable.matchId, matchId));
+  const [storedRating] = await db.select()
+    .from(competitiveRatingsTable)
+    .where(eq(competitiveRatingsTable.userId, missingUserId));
+  assert.equal(storedResult, undefined);
+  assert.equal(storedRating, undefined);
+});

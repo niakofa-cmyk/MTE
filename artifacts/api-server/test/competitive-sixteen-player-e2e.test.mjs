@@ -68,8 +68,20 @@ async function sendInput(socket, ticket, sequences, {
   yaw = 0,
   pitch = 0,
   movementVector = { forward: 0, strafe: 0 },
+  clientDelayMs = 0,
+  drop = false,
+  networkMetrics = null,
 } = {}) {
   const sequenceNumber = (sequences.get(ticket.playerId) ?? 0) + 1;
+  sequences.set(ticket.playerId, sequenceNumber);
+  const startedAt = Date.now();
+  if (clientDelayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, clientDelayMs));
+  }
+  if (drop) {
+    if (networkMetrics) networkMetrics.droppedPackets += 1;
+    return null;
+  }
   const accepted = nextMessage(
     socket,
     (message) =>
@@ -85,18 +97,25 @@ async function sendInput(socket, ticket, sequences, {
     movementVector,
   }));
   await accepted;
-  sequences.set(ticket.playerId, sequenceNumber);
-}
-
-function advanceSimulation(manager, clock, seconds) {
-  const steps = Math.round(seconds / 0.05);
-  for (let step = 0; step < steps; step += 1) {
-    clock.nowNs += 50_000_000n;
-    manager.advanceAt(clock.nowNs);
+  if (networkMetrics) {
+    networkMetrics.deliveredPackets += 1;
+    networkMetrics.ackLatenciesMs.push(Date.now() - startedAt);
   }
+  return sequenceNumber;
 }
 
-async function movePlayerTo(manager, clock, socket, ticket, sequences, target) {
+function waitForServer(seconds) {
+  return new Promise((resolve) => setTimeout(resolve, Math.ceil(seconds * 1_000)));
+}
+
+async function movePlayerTo(
+  manager,
+  socket,
+  ticket,
+  sequences,
+  target,
+  { impaired = false, networkMetrics = null } = {},
+) {
   let previousDistance = Number.POSITIVE_INFINITY;
   let stalledSteps = 0;
   for (let step = 0; step < 160; step += 1) {
@@ -108,8 +127,11 @@ async function movePlayerTo(manager, clock, socket, ticket, sequences, target) {
     await sendInput(socket, ticket, sequences, {
       yaw: Math.atan2(dx, dz) * 180 / Math.PI,
       movementVector: { forward: 1, strafe: 0 },
+      clientDelayMs: impaired ? [0, 35, 70, 25][step % 4] : 0,
+      drop: impaired && step === 6,
+      networkMetrics: impaired ? networkMetrics : null,
     });
-    advanceSimulation(manager, clock, 0.1);
+    await waitForServer(0.1);
     const moved = playerSnapshot(manager, ticket);
     const remaining = Math.hypot(
       target.x - moved.position.x,
@@ -122,12 +144,8 @@ async function movePlayerTo(manager, clock, socket, ticket, sequences, target) {
   throw new Error(`Player ${ticket.playerId} could not reach its test waypoint.`);
 }
 
-test("phase-two 8v8 completes a simulated relay round and ranked settlement", async () => {
-  const clock = { nowNs: 1_000_000_000n };
-  const manager = new MatchSessionManager(
-    async () => createCinderRowAuthoritativeMatch(),
-    { nowNs: () => clock.nowNs },
-  );
+test("phase-two 8v8 completes a live relay round under delayed and dropped client inputs", async () => {
+  const manager = new MatchSessionManager(async () => createCinderRowAuthoritativeMatch());
   const userIds = Array.from({ length: CLIENTS }, () => `phase-two-user-${randomUUID()}`);
   const sidToUser = new Map(userIds.map((userId) => [userId, userId]));
   const regionId = `test-${randomUUID()}`;
@@ -220,7 +238,6 @@ test("phase-two 8v8 completes a simulated relay round and ranked settlement", as
       return ready;
     });
     const ready = await Promise.all(readyPromises);
-    manager.advanceAt(clock.nowNs);
     assert.ok(ready.every((message) => message.snapshot.players.length === CLIENTS));
     const teams = ready[0].snapshot.players.reduce((counts, player) => {
       counts[player.team] = (counts[player.team] ?? 0) + 1;
@@ -277,17 +294,21 @@ test("phase-two 8v8 completes a simulated relay round and ranked settlement", as
       }
     }
     assert.ok(shooterEntry?.socket && targetEntry?.socket, "Both teams need a northern-lane combat pair.");
+    const networkMetrics = {
+      droppedPackets: 0,
+      deliveredPackets: 0,
+      ackLatenciesMs: [],
+    };
     await movePlayerTo(
       manager,
-      clock,
       shooterEntry.socket,
       shooterEntry.ticket,
       sequences,
       { x: -10, z: -28 },
+      { impaired: true, networkMetrics },
     );
     await movePlayerTo(
       manager,
-      clock,
       targetEntry.socket,
       targetEntry.ticket,
       sequences,
@@ -310,7 +331,7 @@ test("phase-two 8v8 completes a simulated relay round and ranked settlement", as
       yaw: shotYaw,
       pitch: shotPitch,
     });
-    advanceSimulation(manager, clock, 0.1);
+    await waitForServer(0.1);
     const shooterAfter = playerSnapshot(manager, shooterEntry.ticket);
     const targetAfter = playerSnapshot(manager, targetEntry.ticket);
     assert.ok(
@@ -339,7 +360,6 @@ test("phase-two 8v8 completes a simulated relay round and ranked settlement", as
     assert.ok(runnerEntry?.socket, "An Accord player must remain to capture the relay.");
     await movePlayerTo(
       manager,
-      clock,
       runnerEntry.socket,
       runnerEntry.ticket,
       sequences,
@@ -356,10 +376,11 @@ test("phase-two 8v8 completes a simulated relay round and ranked settlement", as
 
     let round = manager.getSnapshot(matchId, runnerEntry.ticket.accessToken)
       .snapshot.arenaRound;
-    const captureSteps = Math.ceil(CINDER_ROW_CAPTURE_SECONDS / 0.2) + 5;
+    const captureIntervalSeconds = 0.15;
+    const captureSteps = Math.ceil(CINDER_ROW_CAPTURE_SECONDS / captureIntervalSeconds) + 5;
     for (let step = 0; step < captureSteps; step += 1) {
       await sendInput(runnerEntry.socket, runnerEntry.ticket, sequences);
-      advanceSimulation(manager, clock, 0.2);
+      await waitForServer(captureIntervalSeconds);
       round = manager.getSnapshot(matchId, runnerEntry.ticket.accessToken)
         .snapshot.arenaRound;
       if (round.phase === "finished") break;
@@ -390,8 +411,15 @@ test("phase-two 8v8 completes a simulated relay round and ranked settlement", as
       .from(competitiveRatingsTable)
       .where(inArray(competitiveRatingsTable.userId, userIds));
     assert.ok(ratingsAfterRetry.every((row) => row.gamesPlayed === 1));
+    const orderedAckLatencies = [...networkMetrics.ackLatenciesMs].sort((a, b) => a - b);
+    const ackP95 = orderedAckLatencies[
+      Math.max(0, Math.ceil(orderedAckLatencies.length * 0.95) - 1)
+    ] ?? 0;
+    assert.equal(networkMetrics.droppedPackets, 1);
+    assert.ok(networkMetrics.deliveredPackets > 20);
+    assert.ok(ackP95 < 250, `Local delayed-input acknowledgement p95 was ${ackP95}ms.`);
     console.log(
-      `Phase 2 local round: 16 clients, movement and hit verified, Accord captured the relay, 16 ratings persisted once; snapshot minimum=${Math.min(...snapshotsPerClient)}.`,
+      `Phase 2 wall-clock round: 16 clients, movement and hit verified, Accord captured the relay, 16 ratings persisted once; client input impairment=${networkMetrics.droppedPackets} drop, delayed-input ack p95=${ackP95}ms.`,
     );
   } finally {
     gateway.close();
