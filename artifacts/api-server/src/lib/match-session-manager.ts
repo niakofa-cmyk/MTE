@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { FixedStepAccumulator } from "./fixed-step-accumulator.ts";
+import { ExtractionHold, type ExtractionHoldStatus } from "./extraction-hold.ts";
 import {
   DEFAULT_MATCH_CONFIG,
   type AuthoritativeMatch,
@@ -30,7 +31,8 @@ export type MatchSessionErrorCode =
   | "not-found"
   | "unauthorized"
   | "no-safe-spawn"
-  | "player-position-unavailable";
+  | "player-position-unavailable"
+  | "extraction-not-ready";
 
 export class MatchSessionError extends Error {
   readonly code: MatchSessionErrorCode;
@@ -81,12 +83,15 @@ export interface JoinedMatchSession {
 
 interface SessionPlayer {
   accessTokenDigest: string;
+  ownerUserId: string | null;
+  extractionHold: ExtractionHold;
 }
 
 interface MatchSessionRecord {
   matchId: string;
   match: AuthoritativeMatch;
   gameplay: AuthoritativeGameplayState;
+  extractionObjective: NonNullable<GameplayRegistryAsset["objectives"][number]>;
   mapNodeCount: number;
   createdAtNs: bigint;
   lastActivityAtNs: bigint;
@@ -94,6 +99,15 @@ interface MatchSessionRecord {
   players: Map<string, SessionPlayer>;
   playerByTokenDigest: Map<string, string>;
   lastOverloadWarningAtNs: bigint;
+}
+
+export interface MatchExtractionStatus {
+  matchId: string;
+  inRange: boolean;
+  progress: number;
+  requiredSeconds: number;
+  ready: boolean;
+  settled: boolean;
 }
 
 export class MatchSessionManager {
@@ -177,12 +191,19 @@ export class MatchSessionManager {
     this.pendingCreates += 1;
     try {
       const { match, loadedGeometryCount, gameplayRegistry } = await this.bootstrap();
+      const extractionObjective = gameplayRegistry.objectives.find(
+        (objective) => objective.kind === "extraction",
+      );
+      if (!extractionObjective) {
+        throw new Error("The server gameplay registry has no extraction objective.");
+      }
       const createdAtNs = this.readClock();
       const matchId = randomUUID();
       const session: MatchSessionRecord = {
         matchId,
         match,
         gameplay: new AuthoritativeGameplayState(gameplayRegistry),
+        extractionObjective,
         mapNodeCount: loadedGeometryCount,
         createdAtNs,
         lastActivityAtNs: createdAtNs,
@@ -209,6 +230,7 @@ export class MatchSessionManager {
   joinSession(
     matchId: string,
     operatorId: ServerOperatorId = "jaya",
+    ownerUserId: string | null = null,
   ): JoinedMatchSession {
     const nowNs = this.readClock();
     const session = this.getLiveSession(matchId, nowNs);
@@ -226,7 +248,11 @@ export class MatchSessionManager {
     const accessToken = randomBytes(32).toString("base64url");
     const accessTokenDigest = digestAccessToken(accessToken);
     this.registerAtServerSelectedSpawn(session, playerId, operatorId);
-    session.players.set(playerId, { accessTokenDigest });
+    session.players.set(playerId, {
+      accessTokenDigest,
+      ownerUserId,
+      extractionHold: new ExtractionHold(),
+    });
     session.playerByTokenDigest.set(accessTokenDigest, playerId);
     session.lastActivityAtNs = nowNs;
 
@@ -321,6 +347,57 @@ export class MatchSessionManager {
     return { matchId, ...result };
   }
 
+  getExtractionStatus(
+    matchId: string,
+    accessToken: string,
+    ownerUserId: string,
+  ): MatchExtractionStatus {
+    const nowNs = this.readClock();
+    const session = this.getLiveSession(matchId, nowNs);
+    const playerId = this.resolveOwnedPlayer(session, accessToken, ownerUserId);
+    this.refreshExtractionPlayer(session, playerId, nowNs);
+    return this.toExtractionStatus(session, playerId, nowNs);
+  }
+
+  getExtractionReward(
+    matchId: string,
+    accessToken: string,
+    ownerUserId: string,
+  ): {
+    matchId: string;
+    playerId: string;
+    requiredSeconds: number;
+    inventory: GrantedGameplayItem[];
+  } {
+    const status = this.getExtractionStatus(matchId, accessToken, ownerUserId);
+    if (!status.ready && !status.settled) {
+      throw new MatchSessionError(
+        "extraction-not-ready",
+        "Remain inside the recovery zone until the extraction hold is complete.",
+      );
+    }
+    const session = this.getLiveSession(matchId, this.readClock());
+    const playerId = this.resolveOwnedPlayer(session, accessToken, ownerUserId);
+    return {
+      matchId,
+      playerId,
+      requiredSeconds: status.requiredSeconds,
+      inventory: session.gameplay.getSnapshot(playerId).inventory,
+    };
+  }
+
+  markExtractionSettled(
+    matchId: string,
+    accessToken: string,
+    ownerUserId: string,
+  ): void {
+    const session = this.getLiveSession(matchId, this.readClock());
+    const playerId = this.resolveOwnedPlayer(session, accessToken, ownerUserId);
+    const player = session.players.get(playerId);
+    if (!player) throw new MatchSessionError("unauthorized", "Player session is invalid.");
+    player.extractionHold.markSettled();
+  }
+
   leaveSession(matchId: string, accessToken: string): void {
     const nowNs = this.readClock();
     const session = this.getLiveSession(matchId, nowNs);
@@ -347,6 +424,9 @@ export class MatchSessionManager {
             session.match.tick(stepSeconds, serverNowMs);
           },
         );
+        for (const playerId of session.players.keys()) {
+          this.refreshExtractionPlayer(session, playerId, nowNs);
+        }
         if (
           result.droppedSeconds > 0 &&
           (session.lastOverloadWarningAtNs === 0n ||
@@ -407,6 +487,65 @@ export class MatchSessionManager {
       throw new MatchSessionError("unauthorized", "Player authorization failed.");
     }
     return playerId;
+  }
+
+  private resolveOwnedPlayer(
+    session: MatchSessionRecord,
+    accessToken: string,
+    ownerUserId: string,
+  ): string {
+    const playerId = this.resolvePlayer(session, accessToken);
+    const player = session.players.get(playerId);
+    if (!player || !player.ownerUserId || player.ownerUserId !== ownerUserId) {
+      throw new MatchSessionError("unauthorized", "This match is not owned by the signed-in player.");
+    }
+    return playerId;
+  }
+
+  private refreshExtractionPlayer(
+    session: MatchSessionRecord,
+    playerId: string,
+    nowNs: bigint,
+  ): ExtractionHoldStatus {
+    const player = session.players.get(playerId);
+    if (!player) {
+      return { inRange: false, progress: 0, ready: false, settled: false };
+    }
+    const position = session.match.getPlayerPosition(playerId);
+    const worldPlayer = session.match
+      .getSnapshot(Number(nowNs) / Number(NANOSECONDS_PER_MILLISECOND))
+      .players.find((entry) => entry.playerId === playerId);
+    const objective = session.extractionObjective;
+    const distance = position
+      ? Math.hypot(position.x - objective.x, position.z - objective.z)
+      : Number.POSITIVE_INFINITY;
+    const inRange =
+      Boolean(worldPlayer && worldPlayer.health > 0) &&
+      distance <= objective.interactionRadius;
+    return player.extractionHold.update(
+      inRange,
+      nowNs,
+      objective.holdSeconds ?? 6,
+    );
+  }
+
+  private toExtractionStatus(
+    session: MatchSessionRecord,
+    playerId: string,
+    nowNs: bigint,
+  ): MatchExtractionStatus {
+    const player = session.players.get(playerId);
+    if (!player) throw new MatchSessionError("unauthorized", "Player session is invalid.");
+    const requiredSeconds = session.extractionObjective.holdSeconds ?? 6;
+    const status = this.refreshExtractionPlayer(session, playerId, nowNs);
+    return {
+      matchId: session.matchId,
+      inRange: status.inRange,
+      progress: status.progress,
+      requiredSeconds,
+      ready: status.ready,
+      settled: status.settled,
+    };
   }
 
   private registerAtServerSelectedSpawn(

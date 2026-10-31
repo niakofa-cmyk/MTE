@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { Crosshair, Radio, Shield, Volume2, VolumeX } from "lucide-react";
+import { useAuth } from "@workspace/replit-auth-web";
 import { BLOODLINES, DOSSIER, OPERATORS, OPERATOR_BY_ID, type OpId, type WeaponId } from "@/game/content";
 import { MissionEngine, type MissionEvent } from "@/game/engine";
 import { CityOfNodBackdrop } from "@/game/city-of-nod-backdrop";
@@ -36,10 +37,13 @@ import {
 } from "@/game/touch-controller";
 import {
   ServerMatchClient,
+  parseServerProfile,
+  type ServerExtractionStatus,
   type ServerInventoryItem,
+  type ServerPlayerProfile,
 } from "@/game/server-match-client";
 
-type Screen = "menu" | "dossier" | "armory" | "settings" | "play" | "pause" | "dead" | "win";
+type Screen = "menu" | "dossier" | "armory" | "settings" | "inventory" | "play" | "pause" | "dead" | "win";
 const LOCAL_SAVE_WARNING = "Progress is still available in this session, but this browser could not save it locally.";
 
 function clock(seconds: number) {
@@ -48,6 +52,7 @@ function clock(seconds: number) {
 }
 
 export function Mission() {
+  const auth = useAuth();
   const hostRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<MissionEngine | null>(null);
@@ -62,6 +67,11 @@ export function Mission() {
   const [serverInventory, setServerInventory] = useState<ServerInventoryItem[]>([]);
   const [serverStatus, setServerStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle");
   const [serverMessage, setServerMessage] = useState<string | null>(null);
+  const [persistentProfile, setPersistentProfile] = useState<ServerPlayerProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [serverExtraction, setServerExtraction] = useState<ServerExtractionStatus | null>(null);
+  const settlementInFlight = useRef(false);
   const [graphicsUnavailable, setGraphicsUnavailable] = useState(false);
   const [lookSensitivity, setLookSensitivity] = useState(() => {
     try {
@@ -71,6 +81,40 @@ export function Mission() {
     }
   });
   const chosen = OPERATOR_BY_ID[op];
+
+  useEffect(() => {
+    if (!auth.isAuthenticated) {
+      setPersistentProfile(null);
+      setProfileError(null);
+      setProfileLoading(false);
+      return;
+    }
+    let active = true;
+    setProfileLoading(true);
+    setProfileError(null);
+    fetch("/api/profile", {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Could not load saved inventory (${response.status}).`);
+        return parseServerProfile(await response.json());
+      })
+      .then((profile) => {
+        if (active) setPersistentProfile(profile);
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setProfileError(error instanceof Error ? error.message : "Could not load saved inventory.");
+        }
+      })
+      .finally(() => {
+        if (active) setProfileLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [auth.isAuthenticated, auth.user?.id]);
 
   useEffect(() => {
     const recovery = recoverPendingExtraction();
@@ -161,6 +205,33 @@ export function Mission() {
         .catch((error: unknown) => {
           setServerMessage(error instanceof Error ? error.message : "Match inventory sync failed.");
         });
+      if (auth.isAuthenticated) {
+        void serverClient.getExtractionStatus()
+          .then((status) => {
+            setServerExtraction(status);
+            if (status.ready && !status.settled && !settlementInFlight.current) {
+              settlementInFlight.current = true;
+              void serverClient.settleExtraction()
+                .then((settlement) => {
+                  setPersistentProfile(settlement.profile);
+                  setServerInventory(settlement.inventory);
+                  setServerExtraction({ ...status, settled: true, ready: true, progress: 1 });
+                  setServerMessage(
+                    `Extraction secured · ${settlement.creditsAwarded} salvage credits added to your account.`,
+                  );
+                })
+                .catch((error: unknown) => {
+                  setServerMessage(error instanceof Error ? error.message : "Could not secure the extraction.");
+                })
+                .finally(() => {
+                  settlementInFlight.current = false;
+                });
+            }
+          })
+          .catch((error: unknown) => {
+            setServerMessage(error instanceof Error ? error.message : "Extraction status sync failed.");
+          });
+      }
     }, 1500);
 
     return () => {
@@ -169,12 +240,18 @@ export function Mission() {
       window.clearInterval(gameplayTimer);
       serverClient.setInputErrorHandler(null);
     };
-  }, [screen, serverClient]);
+  }, [screen, serverClient, auth.isAuthenticated]);
 
   const startServerRun = async () => {
     if (graphicsUnavailable || serverStatus === "connecting") return;
+    if (!auth.isAuthenticated) {
+      setServerMessage("Sign in before starting a server run so extracted rewards can be saved to your account.");
+      return;
+    }
     setServerStatus("connecting");
     setServerMessage(null);
+    setServerExtraction(null);
+    settlementInFlight.current = false;
     try {
       const connected = await ServerMatchClient.connect({ operatorId: op });
       const engine = engineRef.current;
@@ -231,18 +308,27 @@ export function Mission() {
           {saveWarning}
         </p>
       ) : null}
-      {screen === "menu" || screen === "dossier" || screen === "armory" || screen === "settings" ? (
+      {screen === "menu" || screen === "dossier" || screen === "armory" || screen === "settings" || screen === "inventory" ? (
         <Menu
           op={op}
           setOp={setOp}
-          panel={screen === "dossier" ? "dossier" : screen === "armory" ? "armory" : screen === "settings" ? "settings" : "ops"}
+          panel={screen === "dossier" ? "dossier" : screen === "armory" ? "armory" : screen === "settings" ? "settings" : screen === "inventory" ? "inventory" : "ops"}
           record={record}
           mars={mars}
           lookSensitivity={lookSensitivity}
           graphicsUnavailable={graphicsUnavailable}
           canStart={!graphicsUnavailable}
           serverStatus={serverStatus}
-          serverMessage={serverStatus === "error" ? serverMessage : null}
+          serverMessage={serverMessage}
+          authName={auth.user?.firstName || auth.user?.email || null}
+          authLoading={auth.isLoading}
+          isAuthenticated={auth.isAuthenticated}
+          profile={persistentProfile}
+          profileLoading={profileLoading}
+          profileError={profileError}
+          onLogin={() => auth.login("/")}
+          onLogout={() => auth.logout("/")}
+          onInventory={() => setScreen("inventory")}
           onDossier={() => setScreen("dossier")}
           onArmory={() => setScreen("armory")}
           onSettings={() => setScreen("settings")}
@@ -272,7 +358,7 @@ export function Mission() {
           onStartServer={() => void startServerRun()}
         />
       ) : null}
-      {serverClient && screen !== "menu" && screen !== "dossier" && screen !== "armory" && screen !== "settings" ? (
+      {serverClient && screen !== "menu" && screen !== "dossier" && screen !== "armory" && screen !== "settings" && screen !== "inventory" ? (
         <aside
           aria-live="polite"
           aria-label="Server match inventory"
@@ -291,6 +377,19 @@ export function Mission() {
           ) : (
             <p className="mt-2 text-xs text-muted">No claimed items in this match yet.</p>
           )}
+          {serverExtraction && (serverExtraction.inRange || serverExtraction.ready || serverExtraction.settled) ? (
+            <div className="mt-3 border-t border-cyan/30 pt-2">
+              <p className="font-display text-xs tracking-widest text-gold">
+                {serverExtraction.settled ? "EXTRACTION SECURED" : serverExtraction.ready ? "RECOVERY READY" : "RECOVERY HOLD"}
+              </p>
+              <progress className="mt-2 h-2 w-full accent-cyan" max={1} value={serverExtraction.progress} />
+              <p className="mt-1 text-xs text-muted">
+                {serverExtraction.settled
+                  ? "Rewards saved to your account."
+                  : `${Math.ceil(serverExtraction.requiredSeconds * (1 - serverExtraction.progress))}s remaining in zone`}
+              </p>
+            </div>
+          ) : null}
           {serverMessage ? <p role="status" className="mt-2 text-xs text-gold">{serverMessage}</p> : null}
         </aside>
       ) : null}
@@ -367,9 +466,18 @@ function Menu({
   canStart,
   serverStatus,
   serverMessage,
+  authName,
+  authLoading,
+  isAuthenticated,
+  profile,
+  profileLoading,
+  profileError,
   onDossier,
   onArmory,
   onSettings,
+  onInventory,
+  onLogin,
+  onLogout,
   onBack,
   onLookSensitivityChange,
   onMars,
@@ -378,7 +486,7 @@ function Menu({
 }: {
   op: OpId;
   setOp: (id: OpId) => void;
-  panel: "ops" | "dossier" | "armory" | "settings";
+  panel: "ops" | "dossier" | "armory" | "settings" | "inventory";
   record: RecordBook | null;
   mars: MarsProfile | null;
   lookSensitivity: number;
@@ -386,9 +494,18 @@ function Menu({
   canStart: boolean;
   serverStatus: "idle" | "connecting" | "connected" | "error";
   serverMessage: string | null;
+  authName: string | null;
+  authLoading: boolean;
+  isAuthenticated: boolean;
+  profile: ServerPlayerProfile | null;
+  profileLoading: boolean;
+  profileError: string | null;
   onDossier: () => void;
   onArmory: () => void;
   onSettings: () => void;
+  onInventory: () => void;
+  onLogin: () => void;
+  onLogout: () => void;
   onBack: () => void;
   onLookSensitivityChange: (value: number) => void;
   onMars: (next: MarsProfile) => void;
@@ -396,32 +513,52 @@ function Menu({
   onStartServer: () => void;
 }) {
   return (
-    <div className={`mte-command-menu absolute inset-0 overflow-y-auto ${graphicsUnavailable ? "bg-bg/65" : "bg-bg/80"}`}>
-      <div className="mte-command-layout mx-auto flex min-h-full max-w-6xl flex-col justify-end gap-8 px-5 py-10 md:justify-center md:px-10">
-        <div className="mte-command-hero max-w-xl">
-          <p className="inline-flex items-center gap-2 font-display text-sm tracking-widest text-cyan">
+    <main
+      className={`field-menu absolute inset-0 overflow-y-auto overscroll-y-contain ${graphicsUnavailable ? "field-menu--fallback" : ""}`}
+      data-field-menu
+      data-testid="screen-command-menu"
+    >
+      <div className="field-menu__layout mx-auto flex min-h-full max-w-7xl flex-col gap-7 px-4 py-6 sm:px-7 sm:py-8 lg:flex-row lg:items-center lg:gap-12 lg:px-12">
+        <section className="field-menu__brief lg:w-[34%] lg:shrink-0" aria-labelledby="operation-title">
+          <p className="inline-flex items-center gap-2 font-display text-sm tracking-[.2em] text-cyan">
             <Radio className="size-4" />
-            The Accord · Operation Shakuna
+            ACCORD FIELD COMMAND <span aria-hidden="true">/</span> NOD SECTOR 07
           </p>
-          <h1 className="mte-game-title mt-2 font-display text-6xl leading-none font-semibold text-fg md:text-8xl">
-            Mission
-            <br />
-            to Earth
+          <h1 id="operation-title" className="field-menu__title mt-3 font-display text-5xl font-bold leading-[.88] tracking-tight text-fg sm:text-7xl xl:text-8xl">
+            MISSION<br />TO EARTH
           </h1>
-          <p className="mt-4 max-w-md text-base leading-relaxed text-muted">
-            Four warriors drop on Nod. Ananda and Nefret are still in the cradles, cut open for a technology the Accord was never trained to hold. Free them. Press B, and wear what comes out.
-          </p>
+          <p className="mt-4 font-display text-lg font-semibold tracking-[.16em] text-gold">OPERATION SHAKUNA · EARTH</p>
+          <div className="field-objective mt-5 max-w-xl" role="group" aria-label="Mission objective" data-testid="text-mission-objective">
+            <p className="field-objective__label font-display text-xs tracking-[.2em] text-cyan">MISSION ORDERS</p>
+            <p className="mt-2 text-base leading-relaxed text-fg sm:text-lg">
+              Free <strong>Ananda</strong> and <strong>Nefret</strong>. Raise the <strong>Accord beacon</strong>. Reach the <strong>recovery pad</strong>.
+            </p>
+            <p className="mt-3 border-t border-line/70 pt-3 text-sm leading-relaxed text-muted">
+              Select an operator, then deploy. Press <kbd>B</kbd> near a freed captive to take up their abilities.
+            </p>
+          </div>
+          <p className="mt-4 text-sm text-muted">A four-person Accord team enters occupied Nod. Free the captives before Eon Dusk locks down the district.</p>
           {record && record.extractions > 0 ? (
-            <p className="mt-3 font-display text-sm tracking-widest text-gold">
-              Service record · {record.extractions} extractions · {record.kills} confirmed
+            <p className="mt-4 border-l-2 border-gold pl-3 font-display text-sm tracking-widest text-gold">
+              FIELD RECORD · {record.extractions} extractions · {record.kills} confirmed
               {record.scrap > 0 ? ` · ${mars?.martianCredits ?? record.scrap} salvage credits` : ""}
             </p>
           ) : null}
-        </div>
+        </section>
+        <section className="field-menu__workspace min-w-0 flex-1" aria-label="Field command console">
+          <div className="field-panel__heading">
+            <span className="font-display text-xs tracking-[.2em] text-cyan">{panel === "ops" ? "DEPLOYMENT ROSTER" : `FIELD FILE / ${panel.toUpperCase()}`}</span>
+            <span className="field-panel__rule" aria-hidden="true" />
+            <span className="font-display text-xs tracking-widest text-muted">PRE-DEPLOYMENT</span>
+          </div>
         {panel === "dossier" ? (
-          <div className="grid gap-4 border border-line bg-surface p-5 md:grid-cols-3">
+          <div className="field-panel grid gap-4 p-4 sm:p-5 md:grid-cols-3" data-testid="panel-dossier">
             {DOSSIER.map((act) => (
-              <article key={act.title}>
+              <article
+                key={act.title}
+                className="field-dossier-act"
+                data-testid={`card-dossier-${act.title.toLowerCase().replace(/\s+/g, "-")}`}
+              >
                 <p className="font-display text-xs tracking-widest text-gold">{act.kicker}</p>
                 <h2 className="mt-1 font-display text-2xl text-fg">{act.title}</h2>
                 <p className="mt-2 text-sm leading-relaxed text-muted">{act.body}</p>
@@ -432,17 +569,27 @@ function Menu({
           <Armory opWeapon={OPERATOR_BY_ID[op].weapon} profile={mars} onMars={onMars} />
         ) : panel === "settings" ? (
           <SettingsPanel sensitivity={lookSensitivity} onSensitivityChange={onLookSensitivityChange} />
+        ) : panel === "inventory" ? (
+          <InventoryPanel
+            profile={profile}
+            loading={profileLoading}
+            error={profileError}
+            isAuthenticated={isAuthenticated}
+            onLogin={onLogin}
+          />
         ) : (
           <>
-          <div className="flex gap-3 overflow-x-auto pb-2">
+          <div className="field-operator-list flex gap-3 overflow-x-auto pb-3" role="group" aria-label="Choose an operator">
             {OPERATORS.map((card) => {
               const on = card.id === op;
               return (
                 <button
                   key={card.id}
                   type="button"
+                  aria-pressed={on}
+                  data-testid={`button-operator-${card.id}`}
                   onClick={() => setOp(card.id)}
-                  className={`mte-operator-card w-64 shrink-0 border p-4 text-left ${on ? (card.tone === "cyan" ? "border-cyan bg-surface" : "border-gold bg-surface") : "border-line bg-bg/60"}`}
+                  className={`field-operator-card w-64 shrink-0 border p-4 text-left ${on ? (card.tone === "cyan" ? "field-operator-card--cyan" : "field-operator-card--gold") : ""}`}
                 >
                   <p className={`inline-flex items-center gap-2 font-display text-xs tracking-widest ${card.tone === "cyan" ? "text-cyan" : "text-gold"}`}>
                     {card.tone === "cyan" ? <Crosshair className="size-3.5" /> : <Shield className="size-3.5" />}
@@ -462,7 +609,8 @@ function Menu({
             {BLOODLINES.map((card) => (
               <article
                 key={card.id}
-                className={`w-64 shrink-0 border border-dashed p-4 ${card.tone === "cyan" ? "border-cyan/70" : "border-gold/70"} bg-bg/40`}
+                data-testid={`card-captive-${card.id}`}
+                className={`field-captive-card w-64 shrink-0 border border-dashed p-4 ${card.tone === "cyan" ? "border-cyan/70" : "border-gold/70"}`}
               >
                 <p className={`font-display text-xs tracking-widest ${card.tone === "cyan" ? "text-cyan" : "text-gold"}`}>
                   {card.faction} bloodline · imprisoned
@@ -480,54 +628,134 @@ function Menu({
           </div>
           </>
         )}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="field-command-actions flex flex-wrap items-center gap-2 sm:gap-3">
           <button
             type="button"
             disabled={!canStart}
-            className="mte-primary-action bg-cyan px-6 py-3 font-display text-xl tracking-widest text-bg disabled:cursor-not-allowed disabled:opacity-50"
+            data-testid="button-deploy-solo"
+            className="field-deploy-button px-7 py-3 font-display text-xl font-bold tracking-[.18em] disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onStart}
           >
-            Start
+            Deploy · Solo
           </button>
           {panel === "ops" ? (
             <button
               type="button"
-              disabled={!canStart || serverStatus === "connecting"}
-              className="border border-gold px-5 py-3 font-display text-lg tracking-widest text-gold disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!canStart || authLoading || !isAuthenticated || serverStatus === "connecting"}
+              data-testid="button-start-server-run"
+              className="field-action-button field-action-button--brass px-4 py-3 font-display text-base tracking-widest disabled:cursor-not-allowed disabled:opacity-50"
               onClick={onStartServer}
             >
-              {serverStatus === "connecting" ? "Connecting…" : "Server Loot Run"}
+              {serverStatus === "connecting" ? "Connecting…" : isAuthenticated ? "Server Loot Run" : "Sign in for Server Run"}
             </button>
           ) : null}
-          {serverMessage ? <p role="alert" className="basis-full text-sm text-gold">{serverMessage}</p> : null}
+          {serverMessage ? <p role="alert" data-testid="status-server-message" className="basis-full text-sm text-gold">{serverMessage}</p> : null}
           {panel === "ops" ? (
             <p className="basis-full text-xs text-muted">
               Server Loot Run uses temporary match inventory. Solo saves stay separate.
             </p>
           ) : null}
           {panel === "ops" ? (
-            <button type="button" className="border border-line px-5 py-3 font-display text-lg tracking-widest text-fg" onClick={onDossier}>
+            <button type="button" data-testid="button-menu-dossier" className="field-action-button px-4 py-3 font-display text-base tracking-widest text-fg" onClick={onDossier}>
               Dossier
             </button>
           ) : (
-            <button type="button" className="border border-line px-5 py-3 font-display text-lg tracking-widest text-fg" onClick={onBack}>
+            <button type="button" data-testid="button-menu-operators" className="field-action-button px-4 py-3 font-display text-base tracking-widest text-fg" onClick={onBack}>
               Operators
             </button>
           )}
           {panel === "armory" ? null : (
-            <button type="button" className="border border-line px-5 py-3 font-display text-lg tracking-widest text-gold" onClick={onArmory}>
+            <button type="button" data-testid="button-menu-armory" className="field-action-button px-4 py-3 font-display text-base tracking-widest text-gold" onClick={onArmory}>
               Armory
             </button>
           )}
           {panel === "settings" ? null : (
-            <button type="button" className="border border-line px-5 py-3 font-display text-lg tracking-widest text-cyan" onClick={onSettings}>
+            <button type="button" data-testid="button-menu-settings" className="field-action-button px-4 py-3 font-display text-base tracking-widest text-cyan" onClick={onSettings}>
               Settings
             </button>
           )}
-          <p className="text-sm text-muted">Click the city to seize the mouse. Esc pauses.</p>
+          <button type="button" data-testid="button-menu-saved-inventory" className="field-action-button px-4 py-3 font-display text-base tracking-widest text-cyan" onClick={onInventory}>
+            Saved Inventory
+          </button>
+          {isAuthenticated ? (
+            <button type="button" data-testid="button-sign-out" className="field-action-button px-4 py-3 text-sm text-muted" onClick={onLogout}>
+              Sign out{authName ? ` · ${authName}` : ""}
+            </button>
+          ) : (
+            <button type="button" data-testid="button-sign-in" disabled={authLoading} className="field-action-button field-action-button--brass px-4 py-3 text-sm text-gold disabled:opacity-50" onClick={onLogin}>
+              {authLoading ? "Checking account…" : "Sign in"}
+            </button>
+          )}
+          {!graphicsUnavailable ? <p className="basis-full text-sm text-muted">After deployment, click the city to take control. Esc pauses.</p> : null}
+          {panel === "ops" ? (
+            <p className="basis-full text-xs text-muted">
+              {isAuthenticated
+                ? "Server-run rewards are saved only after the server validates a complete extraction."
+                : "Sign in before a server run to attach extracted rewards to your account. Solo saves remain local."}
+            </p>
+          ) : null}
         </div>
+        </section>
       </div>
-    </div>
+    </main>
+  );
+}
+
+function InventoryPanel({
+  profile,
+  loading,
+  error,
+  isAuthenticated,
+  onLogin,
+}: {
+  profile: ServerPlayerProfile | null;
+  loading: boolean;
+  error: string | null;
+  isAuthenticated: boolean;
+  onLogin: () => void;
+}) {
+  return (
+    <section aria-label="Saved inventory" className="field-panel p-4 sm:p-5" data-testid="panel-saved-inventory">
+      <p className="font-display text-xs tracking-widest text-cyan">ACCOUNT VAULT</p>
+      <h2 className="mt-1 font-display text-3xl text-fg">Saved Inventory</h2>
+      {!isAuthenticated ? (
+        <div className="mt-4">
+          <p className="text-sm text-muted">Sign in to view inventory secured by successful server extractions.</p>
+          <button type="button" data-testid="button-inventory-sign-in" className="mt-4 border border-gold px-4 py-2 font-display tracking-widest text-gold" onClick={onLogin}>
+            Sign in
+          </button>
+        </div>
+      ) : loading ? (
+        <p role="status" className="mt-4 text-sm text-muted">Loading saved inventory…</p>
+      ) : error ? (
+        <p role="alert" className="mt-4 text-sm text-danger">{error}</p>
+      ) : profile ? (
+        <>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <p className="border border-line p-3 text-sm text-muted" data-testid="text-salvage-credits">Salvage credits <strong className="ml-2 text-gold">{profile.credits}</strong></p>
+            <p className="border border-line p-3 text-sm text-muted" data-testid="text-successful-extractions">Successful extractions <strong className="ml-2 text-cyan">{profile.extractions}</strong></p>
+          </div>
+          {profile.inventory.length ? (
+            <ul className="mt-4 max-h-56 space-y-2 overflow-y-auto" data-testid="list-saved-inventory">
+              {profile.inventory.map((item, index) => (
+                <li
+                  key={`${item.matchId}:${item.lootId}:${index}`}
+                  className="flex items-center justify-between gap-3 border-t border-line py-2 text-sm"
+                  data-testid={`row-saved-item-${item.matchId}-${item.lootId}`}
+                >
+                  <span className="min-w-0 truncate text-fg">{item.label}<span className="ml-2 text-xs uppercase text-muted">{item.kind}</span></span>
+                  <span className="shrink-0 text-gold">{item.scrap} scrap</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-4 text-sm text-muted">Your vault is empty. Complete a server-verified extraction to secure loot.</p>
+          )}
+        </>
+      ) : (
+        <p className="mt-4 text-sm text-muted">No saved profile is available yet.</p>
+      )}
+    </section>
   );
 }
 
@@ -539,7 +767,7 @@ function SettingsPanel({
   onSensitivityChange: (value: number) => void;
 }) {
   return (
-    <section className="w-full max-w-2xl border border-line bg-surface p-5">
+    <section className="field-panel w-full max-w-2xl p-4 sm:p-5">
       <p className="font-display text-xs tracking-widest text-gold">Operator controls</p>
       <h2 className="mt-1 font-display text-3xl text-fg">Look sensitivity</h2>
       <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
@@ -551,6 +779,7 @@ function SettingsPanel({
       </label>
       <input
         id="look-sensitivity"
+        data-testid="input-look-sensitivity"
         aria-label="Look sensitivity"
         aria-valuetext={`${Math.round(sensitivity * 100)} percent`}
         className="mt-3 w-full accent-cyan"
@@ -587,7 +816,7 @@ function Armory({
     { field: "magazineModId", slot: "MAGAZINE", label: "Magazine" },
   ];
   return (
-    <div className="border border-line bg-surface p-5">
+    <div className="field-panel p-4 sm:p-5" data-testid="panel-armory">
       <p className="font-display text-xs tracking-widest text-gold">Accord field cache · {bench.martianCredits} salvage credits</p>
       <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
         What leaves the pad is filed here. Pick a preset before the drop. A mod only seats if this operator's gun can hold it. Progress is saved in this browser only; it is not cloud-synced or server-verified.
@@ -597,6 +826,7 @@ function Armory({
           <button
             key={slot}
             type="button"
+            data-testid={`button-loadout-preset-${slot}`}
             onClick={() => onMars(setActiveSlot(bench, slot))}
             className={`border px-3 py-2 font-display text-sm tracking-widest ${bench.activeSlot === slot ? "border-gold text-gold" : "border-line text-muted"}`}
           >
@@ -609,11 +839,12 @@ function Armory({
           const options = bench.unlockedBlueprints.filter((id) => ATTACHMENT_BY_ID[id]?.slot === row.slot);
           const chosen = preset[row.field];
           return (
-            <div key={row.field}>
+            <div key={row.field} data-testid={`group-attachment-slot-${row.field}`}>
               <p className="font-display text-xs tracking-widest text-cyan">{row.label}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
+                  data-testid={`button-clear-${row.field}`}
                   onClick={() => onMars(setPresetMod(bench, row.field, null, opWeapon))}
                   className={`border px-2 py-1 font-display text-xs tracking-widest ${chosen ? "border-line text-muted" : "border-gold text-gold"}`}
                 >
@@ -623,6 +854,7 @@ function Armory({
                   <button
                     key={id}
                     type="button"
+                    data-testid={`button-attachment-${id}`}
                     onClick={() => onMars(setPresetMod(bench, row.field, id, opWeapon))}
                     className={`border px-2 py-1 font-display text-xs tracking-widest ${chosen === id ? "border-gold text-gold" : "border-line text-fg"}`}
                   >

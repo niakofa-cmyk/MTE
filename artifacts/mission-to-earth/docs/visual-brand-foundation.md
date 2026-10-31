@@ -1,101 +1,105 @@
-# Mission To Earth — Forensic Visual Foundation & Redesign
+# Mission To Earth — Visual Brand Foundation
 
-**Review baseline:** `main` at `340c0dfe1c0967b1227856d6c2d914f3e1a372ab` (24 October 2026).  
-**Scope:** source-level inspection of the React entry, `Mission.tsx`, `styles.css`, `index.html`, narrative guide, existing social assets, and current open Alpha gate fix. This is not a live-browser or production certification.
+## Reference and review record
 
-## Executive assessment
+This document translates the uploaded “Mission To Earth — Forensic Design Audit & Implementation” into a durable product and implementation reference.
 
-MTE already has the right raw ingredients for a distinctive tactical science-fiction identity: a Three.js first-person mission, the occupied Earth district of Nod, the Accord resistance, Eon Dusk security, Dharma and Ma'at lineages, the rescue of Ananda and Nefret, the beacon, and a timed extraction. The current opening is a functional in-game command menu rendered over the live scene, not a separate marketing landing page. It uses a large “Mission to Earth” headline, one explanatory paragraph, operator cards, and utility actions.
+- Source attachment: `Pasted-Worked-for-1m-23s-Mission-To-Earth-Forensic-Design-Audi_1793435536569.txt`
+- The shared ChatGPT page was not accessible to the available fetch/screenshot tools (HTTP 402/429). Its contents are not treated as verified; only the uploaded MTE audit was evaluated.
+- PR #2 originally pointed to `design/mte-cinematic-brand-foundation` at `430c8c4a6563b2d7ef4a9fbe8312f87a6debc742`. Its check-run passed, but the separate commit-status endpoint returned `pending` with no entries. Neither result certifies later commits.
+- The original PR version was based on an older `main` revision and included a stylesheet with generated-utility substring selectors. Current implementation keeps the equivalent visual behavior on explicit semantic hooks instead.
 
-The implementation foundation is better than the first impression suggests: the React shell is deliberately thin (`App.tsx` returns `Mission`), the game screen state lives in `Mission.tsx`, the world is rendered by a dedicated engine, and the stylesheet already has accessible reduced-motion handling for some HUD effects. The opportunity is to make the presentation as intentional as the underlying world without rewriting game systems.
+## Product identity
 
-## Forensic findings
+Mission To Earth is a cinematic first-person extraction game set in occupied Earth districts. The current playable mission is Operation Shakuna in Nod: an Accord team rescues Ananda and Nefret, raises the beacon, and reaches the recovery pad while Eon Dusk forces respond.
 
-### What is already working
+The interface should feel like a field dossier recovered from an occupied district: grounded, tactical, atmospheric, and legible over an active 3D scene. It must not read as a generic neon arcade interface or imply features the game does not yet contain. The current playable setting is Earth; Mars is part of the wider story, not the location of this mission.
 
-- **Clear opening action:** the menu offers Start, Server Loot Run, Dossier, Armory, and Settings.
-- **Faction/character selection:** operator cards surface roles, passives, active skills, and ultimate abilities; the selection already distinguishes cyan and gold tones.
-- **Readable core palette:** the existing ink/surface/paper palette provides a strong foundation for a dark tactical interface.
-- **Story identity exists:** `NARRATIVE.md` establishes Nod, Cinder Row, Red Veil Compound, Western Greenline, North Checkpoint, Cradle Alpha/Omega, the Accord Signal Facility, and the recovery pad.
-- **Social art exists:** `public/og.jpg`, `public/x-banner.jpg`, and `public/favicon.svg` are already present.
-- **Gameplay and presentation can be separated:** the menu is a React overlay, while `MissionEngine` handles gameplay. That allows controlled visual work without touching aim, combat, enemy AI, mission objectives, or extraction logic.
+## Verified game facts to use in presentation
 
-### Main visual gaps
+- The game has a React presentation layer over a Three.js mission engine.
+- The current menu provides operator selection, Start, Server Loot Run, Dossier, Armory, Settings, Saved Inventory, and account actions.
+- The Dossier includes the cradles, uprising, and beacon story acts.
+- The playable opening objective is to free Ananda and Nefret, raise the Accord beacon, and reach the recovery pad.
+- The rescue, combat, extraction, server reward, and save systems are existing gameplay. Presentation work must not replace or bypass them.
+- Existing social assets include `public/og.jpg`, `public/x-banner.jpg`, and `public/favicon.svg`.
+- Existing display and body fonts are Rajdhani and Barlow.
 
-1. **The title is generic compared with the setting.** “Mission to Earth” has no clear graphic lockup, chapter/operation label, or recurring insignia.
-2. **The menu reads as a developer HUD before it reads as a premium game.** The dark overlay and Tailwind utility styling work, but the hierarchy is mostly one heading, one paragraph, then cards.
-3. **The visual language lacks a consistent campaign frame.** There is no strong recurring system of sector labels, briefing metadata, target markers, corner framing, and signal/field typography tying the title, dossier, armory, and settings together.
-4. **The menu copy is long and lore-dense at first contact.** The rescue objective should land in one memorable sentence; deeper lore belongs in the Dossier.
-5. **Palette semantics are not fully codified.** Cyan and gold currently communicate operator variants, while the story also needs clear, repeatable meanings for resistance signal, hostile threat, salvage, and bloodline/legacy.
-6. **Social metadata is serviceable but minimal.** The page title and descriptions can more clearly communicate the playable premise and use the existing preview art.
-7. **The game and campaign should remain the source of truth.** A visual redesign must not imply a completed open world, large-scale multiplayer, or unimplemented campaign chapters.
+## Visual direction
 
-## Brand direction: “NOD FIELD COMMAND”
+### Semantic palette
 
-MTE should feel like a **field dossier recovered from an occupied district**—part cinematic extraction thriller, part improvised resistance command system. It should not look like a generic neon space game, and it should not borrow WFM's space-combat identity.
-
-### Brand principles
-
-- **Earth-first, not Mars-first:** current play is on Earth in Nod. Mars is a wider-campaign revelation, not the current location or gameplay identity.
-- **Resistance is tactile:** weathered surfaces, smoky depth, hard-edged typography, signal marks, paper/ceramic material cues, and restrained warm light.
-- **The UI has a diegetic purpose:** labels resemble operation briefings, comms, sector maps, salvage records, and target dossiers.
-- **Keep cinematic art behind functional UI:** text and controls must remain legible over the 3D scene.
-- **No fake functionality:** visual panels must correspond to actual game data and actions.
-
-### Proposed visual tokens
-
-| Token | Value | Meaning |
+| Token | Value | Use |
 |---|---|---|
-| Ink | `#080B0D` | deep field darkness |
-| Panel | `rgba(14,20,22,.88)` | smoked-glass command surfaces |
-| Paper | `#E8E5D9` | high-priority text |
-| Ash | `#A0A59D` | secondary information |
-| Ember | `#E56B45` | immediate action / extraction urgency |
-| Ember hot | `#FF8A58` | primary CTA and high-energy edge |
-| Signal | `#7AD9C5` | Accord comms / friendly system state |
-| Brass | `#D6B36A` | legacy, salvage, mission reward |
-| Stroke | `rgba(193,206,195,.2)` | fine separators and panels |
+| Field ink | `#080B0D` | Background and deep shadow |
+| Raised panel | `rgba(14, 20, 22, 0.88)` | Command and dossier surfaces |
+| Paper | `#E8E5D9` | Primary text |
+| Ash | `#A0A59D` | Secondary text and supporting copy |
+| Ember | `#E56B45` | Urgent action and extraction emphasis |
+| Hot ember | `#FF8A58` | Primary action |
+| Accord signal | `#7AD9C5` | Friendly communications and system status |
+| Brass | `#D6B36A` | Lineage, records, and rewards |
+| Fine stroke | `rgba(193, 206, 195, 0.2)` | Panel borders and dividers |
 
-Use ember for the main **Start** action, signal for friendly system information, brass for lineage and rewards, and red only for danger/damage. Avoid assigning all colors to arbitrary decoration.
+Color communicates meaning: ember is action/urgency, signal is friendly system information, brass is legacy/reward, and danger red is reserved for actual danger. Avoid decorative use that weakens these meanings.
 
-### Typography and layout
+### Opening and supporting screens
 
-- Keep Rajdhani for display/HUD headings and Barlow for reading copy.
-- Use short uppercase operational labels with generous tracking; keep story paragraphs in normal case.
-- Use one dominant title, one concise mission objective, one primary action, and a secondary row of utility actions.
-- Use asymmetrical composition and a fine map-grid texture sparingly. The grid must not obscure the 3D backdrop or text.
-- At phone widths, stack controls, allow horizontal operator-card browsing, keep touch targets comfortable, and avoid fixed content that overlaps gameplay controls.
+- Make “Mission To Earth” and “Operation Shakuna · Nod Sector 07” recognizable as a single operation identity.
+- State the immediate objective concisely: free Ananda and Nefret, raise the Accord beacon, and reach the recovery pad.
+- Keep deeper lore in the Dossier; preserve its current story content.
+- Give operator selection clear lineage, role, abilities, and selected states. Keep captive lineage cards visibly distinct from selectable operators.
+- Apply one typography, border, panel, spacing, focus, and motion language across the menu, Dossier, Armory, Settings, and Saved Inventory without changing their behavior.
+- Keep the existing Three.js environment visible enough to establish atmosphere while maintaining text contrast.
 
-## Recommended page architecture
+### Responsive and accessible behavior
 
-1. **Opening / field command:** “MISSION TO EARTH” + “OPERATION SHAKUNA / NOD SECTOR 07”; one-line objective: “Free Ananda and Nefret. Recover the intelligence. Reach the extraction pad.” Primary Start; secondary Server Loot Run; Dossier, Armory, Settings remain discoverable.
-2. **Operator selection:** clear Dharma/Ma’at lineage labels, role and ability hierarchy, selected-state border and readable card states. Captive lineage cards should be visually distinct from playable operators.
-3. **Dossier:** briefing objective, known hostile, rescue target, route risk, extraction condition, and campaign context—only where each item exists in the content model.
-4. **Armory and settings:** use the same panel, label, divider, focus, and motion rules. Do not duplicate their game logic.
-5. **In-mission HUD:** evolve separately after menu regression. Preserve current hit markers, damage direction, extraction feedback, minimap, touch overlay, and reduced-motion behavior.
+- All menu content must remain scrollable and reachable at narrow phone sizes without covering touch controls during play.
+- Keep interactive targets comfortable for touch; retain visible keyboard focus.
+- Respect `prefers-reduced-motion`.
+- Preserve readable contrast over both the live 3D scene and the WebGL-unavailable fallback.
+- Do not rely on color alone to convey selection, warnings, or status.
 
-## Architecture and implementation guardrails
+### Metadata
 
-- Keep `App.tsx` thin; keep the engine and game state in the existing game modules.
-- Use CSS tokens and a dedicated brand stylesheet rather than scattering new colors through gameplay code.
-- Presentation-only state may control menus and transitions; mission state, objective completion, rewards, and save persistence remain owned by the existing engine/progression code.
-- Do not rename `MarsProfile`, `mte-mars-v1`, or `mte-mars-v2` storage identifiers as part of a visual pass; compatibility is explicitly documented in `NARRATIVE.md`.
-- Do not replace or bypass the Alpha gate, rescue, beacon, extraction, server-match, or loot flows for the sake of a cinematic transition.
-- Reuse the existing `og.jpg`, `x-banner.jpg`, and favicon until new art is reviewed and ready.
-- Add a real browser screenshot/playtest pass after build/typecheck/lint/test; source review alone cannot certify the live look or WebGL behavior.
+Use an accurate title and description that identify the Earth-side extraction premise. Reference the existing preview images rather than inventing new artwork. Social image URLs must resolve correctly from the deployed site; do not substitute a development preview URL or guess the production host.
 
-## Implementation in this branch
+## Architecture guardrails
 
-- Added a dedicated `brand-system.css` stylesheet with MTE-specific tokens, restrained field-grid framing, a clearer opening hierarchy, action states, operator-card styling, responsive adjustments, focus-visible treatment, and reduced-motion support.
-- Added explicit CSS hooks to the existing menu root, layout, title, primary action, and operator cards. The game flow and engine calls remain unchanged.
-- Updated document/social metadata to emphasize the Earth-side extraction premise and reference the repository's existing OG and X banner images.
-- No new game modes, objectives, server behavior, save identifiers, or progression behavior were added.
+- Keep `App.tsx` thin and the mission engine as the owner of gameplay.
+- Keep presentation styles in the app stylesheet or focused brand stylesheet, using semantic component hooks rather than fragile substring selectors against generated utility classes.
+- Preserve the current menu callbacks, server-match flow, authentication, mission objectives, reward rules, and engine input.
+- Do not rename `MarsProfile`, `mte-mars-v1`, `mte-mars-v2`, or other save identifiers as part of visual work.
+- Do not claim open-world, multiplayer, cinematic cutscenes, or campaign chapters that are not implemented.
+- Reuse the existing social assets unless replacement artwork is explicitly reviewed.
 
-## Verification still required before merge/release
+## Verification checklist
 
-- `pnpm --filter @workspace/mission-to-earth typecheck`
-- `pnpm --filter @workspace/mission-to-earth lint`
-- `pnpm --filter @workspace/mission-to-earth test`
-- `pnpm --filter @workspace/mission-to-earth build`
-- Browser checks at desktop and phone widths, including keyboard focus, operator selection, Dossier/Armory/Settings navigation, Start, Server Loot Run, WebGL fallback, reduced-motion preference, and the complete rescue-to-extraction path.
-- Confirm production route/base path and OG image URLs on the actual host before declaring the presentation certified.
+Before treating the visual foundation as complete:
+
+1. Run game typecheck, lint, automated tests, and production build.
+2. Inspect the menu at desktop and phone widths; check overflow and touch reachability.
+3. Verify keyboard focus, reduced-motion behavior, and the WebGL fallback.
+4. Confirm operator selection and Start, Server Loot Run, Dossier, Armory, Settings, Saved Inventory, sign-in, and sign-out still work.
+5. Confirm no changes reached the engine, combat, rescue, extraction, or progression paths unless separately requested.
+6. Verify title, description, Open Graph, and X image references on the actual deployed host before claiming social-preview certification.
+
+## Current implementation and verification — 2026-10-31
+
+The field-command presentation was implemented on `main` at `6b1471d`; the mission engine and gameplay callbacks were not changed. The visual system uses explicit semantic selectors and keeps its palette scoped to the menu.
+
+- The menu puts the verified rescue, beacon, and recovery objective first; the existing Dossier retains the longer story.
+- Operator selection and Dossier, Armory, Settings, Saved Inventory, sign-in, and server-run actions use the shared field-command presentation.
+- The WebGL fallback notice no longer overlaps the menu title on a narrow viewport. The inaccurate “ACCORD · ACTIVE” label was replaced with “PRE-DEPLOYMENT.”
+- Stable test IDs were added to the updated menu controls and major information panels.
+- Page title, description, Open Graph metadata, and X card metadata reference the existing preview images. The production build includes `og.jpg` and `x-banner.jpg`.
+
+**Verification:** MTE typecheck and lint passed; all 167 game tests passed; the production Vite build succeeded with the existing large Three.js chunk advisory. Desktop and 390-pixel phone screenshots showed the menu in the WebGL-unavailable fallback. The phone capture confirmed the warning no longer covers the title; source CSS keeps the menu vertically scrollable and operator roster horizontally scrollable. The capture browser cannot create a WebGL context, so it did not verify the actual 3D backdrop, pointer interaction, keyboard traversal, or physical-device behavior.
+
+**Metadata limitation:** no active production deployment was found. Asset paths build and resolve as app-root paths, but absolute production URLs and social-crawler previews remain unverified until the game is published.
+
+## PR #2 reconciliation
+
+The PR branch was synchronized with the current `main` implementation before making it reviewable. The older stylesheet’s generated-utility substring selectors and stale metadata were not carried forward. The remaining brand layer is a focused stylesheet attached to the existing semantic menu hooks; it adds a restrained sector frame and title accent without changing mission logic, the in-mission palette, or page metadata.
+
+After synchronization, MTE typecheck and lint passed, all 167 game tests passed, API-server typecheck passed, all 55 API-server tests passed, and the production build succeeded with the existing Three.js chunk-size advisory. Desktop and phone screenshots showed the WebGL fallback and responsive title/frame; the capture browser still cannot verify real WebGL gameplay or physical-device behavior. The original PR-head check result does not certify the synchronized commit; the updated head needs its own GitHub checks.

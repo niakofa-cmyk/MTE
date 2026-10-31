@@ -10,6 +10,10 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Replit account sessions
+  - name: profile
+    description: Persistent player profile and rewards
 paths:
   /healthz:
     get:
@@ -24,6 +28,112 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /auth/user:
+    get:
+      operationId: getCurrentAuthUser
+      tags: [auth]
+      summary: Get the current signed-in user
+      responses:
+        "200":
+          description: Current authentication state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUserEnvelope"
+  /login:
+    get:
+      operationId: beginLogin
+      tags: [auth]
+      summary: Begin Replit OpenID Connect login
+      responses:
+        "302":
+          description: Redirect to the identity provider
+  /callback:
+    get:
+      operationId: completeLogin
+      tags: [auth]
+      summary: Complete the OpenID Connect callback
+      responses:
+        "302":
+          description: Redirect back to the game
+  /logout:
+    get:
+      operationId: logout
+      tags: [auth]
+      summary: End the current account session
+      responses:
+        "302":
+          description: Redirect after logout
+  /profile:
+    get:
+      operationId: getPlayerProfile
+      tags: [profile]
+      summary: Read the authenticated player's saved inventory
+      responses:
+        "200":
+          description: Persistent profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerProfileResponse"
+        "401":
+          description: Authentication required
+  /matches/{matchId}/extraction/status:
+    get:
+      operationId: getExtractionStatus
+      tags: [profile]
+      summary: Read server-tracked extraction hold progress
+      parameters:
+        - name: matchId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Authorization
+          in: header
+          required: false
+          description: Match access token in Bearer format; a persisted recovery receipt can be read without it.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Extraction progress from the authoritative match
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtractionStatusResponse"
+        "401":
+          description: Authentication or match ownership required
+  /matches/{matchId}/extraction/settle:
+    post:
+      operationId: settleExtraction
+      tags: [profile]
+      summary: Persist an extraction already validated by the match server
+      parameters:
+        - name: matchId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Authorization
+          in: header
+          required: false
+          description: Match access token in Bearer format; a persisted recovery receipt can be settled without it.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Idempotent settlement result and updated profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtractionSettlementResponse"
+        "409":
+          description: The server has not validated a completed extraction
+        "401":
+          description: Authentication or match ownership required
 components:
   schemas:
     HealthStatus:
@@ -33,4 +143,95 @@ components:
           type: string
       required:
         - status
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl]
+      properties:
+        id:
+          type: string
+        email:
+          type: [string, "null"]
+          format: email
+        firstName:
+          type: [string, "null"]
+        lastName:
+          type: [string, "null"]
+        profileImageUrl:
+          type: [string, "null"]
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: "#/components/schemas/AuthUser"
+            - type: "null"
+    InventoryItem:
+      type: object
+      required: [lootId, kind, label, scrap, matchId, acquiredAt]
+      properties:
+        lootId:
+          type: string
+        kind:
+          type: string
+        label:
+          type: string
+        scrap:
+          type: integer
+        weaponId:
+          type: string
+        modId:
+          type: string
+        matchId:
+          type: string
+          format: uuid
+        acquiredAt:
+          type: string
+          format: date-time
+    PlayerProfileResponse:
+      type: object
+      required: [credits, extractions, inventory]
+      properties:
+        credits:
+          type: integer
+        extractions:
+          type: integer
+        inventory:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryItem"
+    ExtractionStatusResponse:
+      type: object
+      required: [matchId, inRange, progress, requiredSeconds, ready, settled]
+      properties:
+        matchId:
+          type: string
+          format: uuid
+        inRange:
+          type: boolean
+        progress:
+          type: number
+        requiredSeconds:
+          type: number
+        ready:
+          type: boolean
+        settled:
+          type: boolean
+    ExtractionSettlementResponse:
+      type: object
+      required: [matchId, alreadySettled, creditsAwarded, inventory, profile]
+      properties:
+        matchId:
+          type: string
+          format: uuid
+        alreadySettled:
+          type: boolean
+        creditsAwarded:
+          type: integer
+        inventory:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryItem"
+        profile:
+          $ref: "#/components/schemas/PlayerProfileResponse"
 

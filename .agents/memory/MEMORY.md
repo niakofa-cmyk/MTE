@@ -9,3 +9,4 @@
 - [Nod graphics pipeline](nod-graphics-pipeline.md) — build on the bounded Three.js scene; only wire texture streaming when authored maps and a real asset manifest exist.
 - [Objective route guidance](objective-route-guidance.md) — player bearings and minimap routes must respect the same collision rules as movement.
 - [Mobile touch QA](mobile-touch-qa.md) — keep emulation active through the test; verify independent pointers in unobstructed zones.
+- [Persistent reward identity](persistent-reward-identity.md) — Replit Auth is the chosen identity for account-linked MTE reward ownership.

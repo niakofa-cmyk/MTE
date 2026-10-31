@@ -15,6 +15,7 @@ import {
 import {
   createMatchSessionsRouter,
 } from "../src/routes/matches.ts";
+import { createExtractionRouter } from "../src/routes/extractions.ts";
 
 const generatedMapPath = fileURLToPath(
   new URL("../src/data/generated/nod-level-geometry.json", import.meta.url),
@@ -46,7 +47,14 @@ test("match session routes load the map, assign server identity, and authorize a
   );
   const app = express();
   app.use(express.json({ limit: "16kb" }));
+  app.use((req, _res, next) => {
+    const userId = req.get("x-test-user-id");
+    if (userId) req.user = { id: userId };
+    req.isAuthenticated = () => Boolean(req.user);
+    next();
+  });
   app.use("/api", createMatchSessionsRouter(manager));
+  app.use("/api", createExtractionRouter(manager));
 
   const server = createServer(app);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -98,6 +106,63 @@ test("match session routes load the map, assign server identity, and authorize a
     assert.match(joined.accessToken, /^[A-Za-z0-9_-]{43}$/);
     assert.equal(joined.snapshot.players[0].playerId, joined.playerId);
     assert.deepEqual(joined.snapshot.players[0].position, { x: 0, y: 0, z: 86 });
+
+    const accountJoinResponse = await fetch(
+      `${baseUrl}/matches/${created.matchId}/players`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-user-id": "account-owner",
+        },
+        body: JSON.stringify({ operatorId: "jaya" }),
+      },
+    );
+    assert.equal(accountJoinResponse.status, 201);
+    const accountJoin = await accountJoinResponse.json();
+    const ownerStatus = await fetch(
+      `${baseUrl}/matches/${created.matchId}/extraction/status`,
+      {
+        headers: {
+          authorization: `Bearer ${accountJoin.accessToken}`,
+          "x-test-user-id": "account-owner",
+        },
+      },
+    );
+    assert.equal(ownerStatus.status, 200);
+    assert.equal((await ownerStatus.json()).ready, false);
+
+    const otherAccountStatus = await fetch(
+      `${baseUrl}/matches/${created.matchId}/extraction/status`,
+      {
+        headers: {
+          authorization: `Bearer ${accountJoin.accessToken}`,
+          "x-test-user-id": "different-account",
+        },
+      },
+    );
+    assert.equal(otherAccountStatus.status, 401);
+
+    const forgedExtraction = await fetch(
+      `${baseUrl}/matches/${created.matchId}/extraction/settle`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${accountJoin.accessToken}`,
+          "x-test-user-id": "account-owner",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ loot: [{ scrap: 500_000 }] }),
+      },
+    );
+    assert.equal(forgedExtraction.status, 400);
+
+    const unauthenticatedStatus = await fetch(
+      `${baseUrl}/matches/${created.matchId}/extraction/status`,
+      { headers: { authorization: `Bearer ${accountJoin.accessToken}` } },
+    );
+    assert.equal(unauthenticatedStatus.status, 401);
+
     const secondJoinResponse = await fetch(
       `${baseUrl}/matches/${created.matchId}/players`,
       {
