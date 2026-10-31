@@ -19,3 +19,4 @@
 
 export * from "./auth.ts";
 export * from "./rewards.ts";
+export * from "./competitive.ts";

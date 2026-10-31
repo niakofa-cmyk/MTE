@@ -114,6 +114,8 @@ interface SessionPlayer {
   ownerUserId: string | null;
   extractionHold: ExtractionHold;
   team: ArenaTeam | null;
+  connected: boolean;
+  realtimeConnectionId: number | null;
 }
 
 interface MatchSessionRecord {
@@ -313,6 +315,8 @@ export class MatchSessionManager {
       ownerUserId,
       extractionHold: new ExtractionHold(),
       team,
+      connected: true,
+      realtimeConnectionId: null,
     });
     session.playerByTokenDigest.set(accessTokenDigest, playerId);
     session.lastActivityAtNs = nowNs;
@@ -365,11 +369,12 @@ export class MatchSessionManager {
     matchId: string,
     accessToken: string,
     ownerUserId: string,
+    includeGameplay = true,
   ): {
     matchId: string;
     playerId: string;
     snapshot: MatchSessionSnapshot;
-    gameplay: AuthoritativeGameplaySnapshot;
+    gameplay?: AuthoritativeGameplaySnapshot;
   } {
     const nowNs = this.readClock();
     const session = this.getLiveSession(matchId, nowNs);
@@ -385,8 +390,64 @@ export class MatchSessionManager {
       matchId,
       playerId,
       snapshot: this.snapshotFor(session),
-      gameplay: session.gameplay.getSnapshot(playerId),
+      ...(includeGameplay ? { gameplay: session.gameplay.getSnapshot(playerId) } : {}),
     };
+  }
+
+  getFinishedArenaResult(matchId: string): {
+    matchId: string;
+    winner: "accord" | "eon-dusk";
+    players: Array<{ userId: string; team: "accord" | "eon-dusk" }>;
+  } | null {
+    const session = this.sessions.get(matchId);
+    if (!session?.arenaRound) return null;
+    const round = session.arenaRound.snapshot();
+    if (round.phase !== "finished" || !round.winner) return null;
+    const players = [...session.players.values()].flatMap((player) =>
+      player.ownerUserId && player.team
+        ? [{ userId: player.ownerUserId, team: player.team }]
+        : [],
+    );
+    if (players.length < 2) return null;
+    return { matchId, winner: round.winner, players };
+  }
+
+  setRealtimePresence(
+    matchId: string,
+    accessToken: string,
+    ownerUserId: string,
+    connectionId: number,
+    connected: boolean,
+  ): void {
+    if (!Number.isSafeInteger(connectionId) || connectionId <= 0) {
+      throw new Error("The connection identifier is invalid.");
+    }
+    const nowNs = this.readClock();
+    const session = this.getLiveSession(matchId, nowNs);
+    if (session.mapId !== CINDER_ROW_MAP_ID) {
+      throw new MatchSessionError("not-found", "The real-time match is unavailable.");
+    }
+    const playerId = this.resolveOwnedPlayer(session, accessToken, ownerUserId);
+    const player = session.players.get(playerId);
+    if (!player) throw new MatchSessionError("unauthorized", "Player session is invalid.");
+    if (connected) {
+      player.connected = true;
+      player.realtimeConnectionId = connectionId;
+    } else if (player.realtimeConnectionId === connectionId) {
+      player.connected = false;
+      player.realtimeConnectionId = null;
+    }
+    session.lastActivityAtNs = nowNs;
+  }
+
+  isRealtimePlayerConnected(
+    matchId: string,
+    accessToken: string,
+    ownerUserId: string,
+  ): boolean {
+    const session = this.getLiveSession(matchId, this.readClock());
+    const playerId = this.resolveOwnedPlayer(session, accessToken, ownerUserId);
+    return session.players.get(playerId)?.connected ?? false;
   }
 
   getGameplaySnapshot(
@@ -533,7 +594,7 @@ export class MatchSessionManager {
                     playerId,
                     team: record.team,
                     position: { x: player.position.x, z: player.position.z },
-                    alive: player.health > 0,
+                    alive: player.health > 0 && record.connected,
                   }];
                 }),
               );

@@ -948,6 +948,68 @@ export class ServerMatchClient {
     };
   }
 
+  static async connectRanked(options: {
+    matchId: string;
+    playerId: string;
+    accessToken: string;
+    operatorId: ServerOperatorId;
+    fetcher?: FetchLike;
+    storage?: StorageLike | null;
+  }): Promise<{
+    client: ServerMatchClient;
+    player: ServerPlayerSnapshot;
+    gameplay: ServerGameplayState;
+    operatorId: ServerOperatorId;
+    restored: false;
+    snapshot: MatchSnapshot;
+  }> {
+    if (
+      !MATCH_ID_PATTERN.test(options.matchId) ||
+      !/^[0-9a-f-]{36}$/i.test(options.playerId) ||
+      !PLAYER_TOKEN_PATTERN.test(options.accessToken) ||
+      !SERVER_OPERATOR_IDS.includes(options.operatorId)
+    ) {
+      throw new ServerMatchError("The ranked match ticket is invalid.", 400);
+    }
+    const mapId = "cinder-row-blackout" as const;
+    const storage = options.storage === undefined ? defaultStorage() : options.storage;
+    const storageKey = sessionStorageKey(mapId);
+    const session: StoredSession = {
+      matchId: options.matchId,
+      playerId: options.playerId,
+      accessToken: options.accessToken,
+      nextSequence: 1,
+      mapId,
+    };
+    const client = new ServerMatchClient(
+      session,
+      options.fetcher ?? fetch,
+      storage,
+      storageKey,
+    );
+    client.persistSession();
+    const snapshot = await client.getSnapshot();
+    if (snapshot.mapId !== mapId) {
+      throw new ServerMatchError("The ranked ticket belongs to another match.", 409);
+    }
+    const player = snapshot.players.find((candidate) => candidate.playerId === session.playerId);
+    if (!player || player.operatorId !== options.operatorId) {
+      throw new ServerMatchError("The ranked player session could not be verified.", 401);
+    }
+    client.nextSequence = Math.max(1, player.lastProcessedSequence + 1);
+    client.session.nextSequence = client.nextSequence;
+    client.persistSession();
+    const gameplay = await client.getGameplayState();
+    return {
+      client,
+      player,
+      gameplay,
+      operatorId: player.operatorId,
+      restored: false,
+      snapshot,
+    };
+  }
+
   async getSnapshot(): Promise<MatchSnapshot> {
     const value = await this.authorizedJson(`/api/matches/${this.matchId}/snapshot`);
     return parseSnapshot(value, this.matchId);

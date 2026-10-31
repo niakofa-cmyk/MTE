@@ -4,7 +4,7 @@
 - [Progression persistence scope](progression-scope.md) — keep prototype saves local until accounts or valuable shared rewards require server authority.
 - [Earth-first narrative identity](earth-identity-scope.md) — keep player-facing language focused on Earth and Nod; preserve legacy save identifiers until a tested migration.
 - [Dual-wield control contract](dual-wield-controls.md) — preserve independent hand inputs, reload timing, and mobile full-look controls.
-- [Authoritative match simulation](authoritative-match-simulation.md) — keep multiplayer state server-owned, validated, bounded, and disconnected until transport integration is ready.
+- [Authoritative match simulation](authoritative-match-simulation.md) — Cinder Row now has bounded WebSocket and ranked foundations; live sessions remain single-process and not scale-certified.
 - [Vite dev watcher lifecycle](vite-dev-watcher-lifecycle.md) — `configureServer` returns a post-setup hook, not a cleanup callback; keep file watchers attached until server close.
 - [Nod graphics pipeline](nod-graphics-pipeline.md) — build on the bounded Three.js scene; only wire texture streaming when authored maps and a real asset manifest exist.
 - [Objective route guidance](objective-route-guidance.md) — player bearings and minimap routes must respect the same collision rules as movement.

@@ -69,7 +69,7 @@ test("real-time gateway authenticates owned players and streams server snapshots
   const sockets = [];
 
   try {
-    const firstSocket = await openSocket(url, "one");
+    let firstSocket = await openSocket(url, "one");
     sockets.push(firstSocket);
     const firstReadyPromise = nextMessage(firstSocket, (message) => message.type === "ready");
     firstSocket.send(JSON.stringify({ type: "authenticate", accessToken: first.accessToken }));
@@ -77,6 +77,33 @@ test("real-time gateway authenticates owned players and streams server snapshots
     assert.equal(firstReady.playerId, first.playerId);
     assert.equal(firstReady.protocolVersion, 1);
     assert.equal(firstReady.snapshot.players.length, 2);
+    assert.equal(
+      manager.isRealtimePlayerConnected(created.matchId, first.accessToken, "user-one"),
+      true,
+    );
+
+    firstSocket.close();
+    await new Promise((resolve) => firstSocket.once("close", resolve));
+    assert.equal(
+      manager.isRealtimePlayerConnected(created.matchId, first.accessToken, "user-one"),
+      false,
+    );
+    const replacementSocket = await openSocket(url, "one");
+    sockets.push(replacementSocket);
+    const replacementReadyPromise = nextMessage(
+      replacementSocket,
+      (message) => message.type === "ready",
+    );
+    replacementSocket.send(JSON.stringify({
+      type: "authenticate",
+      accessToken: first.accessToken,
+    }));
+    assert.equal((await replacementReadyPromise).playerId, first.playerId);
+    firstSocket = replacementSocket;
+    assert.equal(
+      manager.isRealtimePlayerConnected(created.matchId, first.accessToken, "user-one"),
+      true,
+    );
 
     const secondSocket = await openSocket(url, "two");
     sockets.push(secondSocket);

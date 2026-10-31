@@ -63,6 +63,9 @@ test("match session routes load the map, assign server identity, and authorize a
   const baseUrl = `http://127.0.0.1:${address.port}/api`;
 
   try {
+    const anonymousCreate = await fetch(`${baseUrl}/matches`, { method: "POST" });
+    assert.equal(anonymousCreate.status, 401);
+
     const createdResponse = await fetch(`${baseUrl}/matches`, {
       method: "POST",
       headers: { "x-test-user-id": "host" },

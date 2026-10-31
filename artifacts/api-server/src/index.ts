@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { logger } from "./lib/logger";
 import { MatchRealtimeGateway } from "./lib/match-realtime-gateway.ts";
 import { matchSessionManager } from "./lib/match-session-service.ts";
+import { competitiveMatchService } from "./lib/competitive-match-service-instance.ts";
 
 const rawPort = process.env["PORT"];
 
@@ -19,6 +20,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 matchSessionManager.start();
+competitiveMatchService.start();
 const server = createServer(app);
 const matchRealtimeGateway = new MatchRealtimeGateway(matchSessionManager);
 matchRealtimeGateway.attach(server);
@@ -32,5 +34,6 @@ server.listen(port, () => {
 
 server.once("close", () => {
   matchRealtimeGateway.close();
+  competitiveMatchService.stop();
   matchSessionManager.stop();
 });

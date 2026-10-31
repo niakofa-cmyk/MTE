@@ -9,6 +9,12 @@ export type CinderRowPanelProps = {
   joinCode: string;
   onJoinCodeChange: (value: string) => void;
   team: "accord" | "eon-dusk" | null;
+  rankedQueue: {
+    state: "idle" | "queued" | "matched";
+    rating: number;
+    position?: number;
+    queuedPlayers?: number;
+  };
   round: null | {
     phase: "waiting" | "active" | "finished";
     remainingSeconds: number;
@@ -21,6 +27,7 @@ export type CinderRowPanelProps = {
   };
   onHost: () => void;
   onJoin: () => void;
+  onRankedAction: () => void;
 };
 
 const TEAM_LABELS = {
@@ -65,13 +72,16 @@ export function CinderRowPanel({
   joinCode,
   onJoinCodeChange,
   team,
+  rankedQueue,
   round,
   onHost,
   onJoin,
+  onRankedAction,
 }: CinderRowPanelProps) {
   const codeId = useId();
   const isConnecting = serverStatus === "connecting";
-  const actionsLocked = isConnecting || serverStatus === "connected";
+  const actionsLocked =
+    isConnecting || serverStatus === "connected" || rankedQueue.state !== "idle";
   const progress = round ? Math.min(100, Math.max(0, round.relayProgress)) : 0;
   const phaseLabel = round?.phase === "active" ? "LIVE ROUND" : round?.phase === "finished" ? "ROUND COMPLETE" : "AWAITING OPERATORS";
   const controlledLabel = round?.contested
@@ -249,6 +259,32 @@ export function CinderRowPanel({
               JOIN
             </button>
           </form>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 border border-line/70 bg-background/35 p-2.5">
+            <div className="min-w-0">
+              <p className="font-display text-[10px] tracking-[.16em] text-cyan">RANKED RELAY</p>
+              <p className="mt-1 text-xs text-muted">
+                {rankedQueue.state === "queued"
+                  ? `Search position ${rankedQueue.position ?? 1} · ${rankedQueue.queuedPlayers ?? 1} operators`
+                  : rankedQueue.state === "matched"
+                    ? "An eight-player match is ready."
+                    : "Rating"}
+                <span className="ml-2 font-mono tabular-nums text-fg">{rankedQueue.rating} ELO</span>
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onRankedAction}
+              disabled={isConnecting || serverStatus === "connected"}
+              className="field-action-button min-h-10 border border-cyan/60 px-3 font-display text-[10px] tracking-[.14em] text-cyan disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {rankedQueue.state === "queued"
+                ? "CANCEL SEARCH"
+                : rankedQueue.state === "matched"
+                  ? "JOIN RANKED MATCH"
+                  : "FIND RANKED MATCH"}
+            </button>
+          </div>
 
           {matchId ? (
             <p className="flex min-w-0 items-center gap-2 text-xs text-muted">

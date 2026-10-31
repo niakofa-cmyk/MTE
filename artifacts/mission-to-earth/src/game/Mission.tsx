@@ -44,14 +44,81 @@ import {
   type ServerPlayerProfile,
   type ServerArenaRoundSnapshot,
   type ServerMatchMapId,
+  type ServerOperatorId,
 } from "@/game/server-match-client";
 
 type Screen = "menu" | "dossier" | "armory" | "settings" | "inventory" | "play" | "pause" | "dead" | "win";
+type RankedQueueState =
+  | { state: "idle"; rating: number }
+  | { state: "queued"; rating: number; position: number; queuedPlayers: number }
+  | {
+      state: "matched";
+      rating: number;
+      match: {
+        matchId: string;
+        mapId: "cinder-row-blackout";
+        playerId: string;
+        accessToken: string;
+        team: "accord" | "eon-dusk";
+        operatorId: string;
+      };
+    };
 const LOCAL_SAVE_WARNING = "Progress is still available in this session, but this browser could not save it locally.";
 
 function clock(seconds: number) {
   const s = Math.max(0, Math.floor(seconds));
   return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+}
+
+function parseRankedQueueState(value: unknown): RankedQueueState | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.state === "idle" && Number.isFinite(record.rating)) {
+    return { state: "idle", rating: Number(record.rating) };
+  }
+  if (
+    record.state === "queued" &&
+    Number.isFinite(record.rating) &&
+    Number.isInteger(record.position) &&
+    Number.isInteger(record.queuedPlayers)
+  ) {
+    return {
+      state: "queued",
+      rating: Number(record.rating),
+      position: Number(record.position),
+      queuedPlayers: Number(record.queuedPlayers),
+    };
+  }
+  if (record.state === "matched" && Number.isFinite(record.rating)) {
+    const match = record.match;
+    if (
+      match &&
+      typeof match === "object" &&
+      !Array.isArray(match) &&
+      typeof (match as Record<string, unknown>).matchId === "string" &&
+      (match as Record<string, unknown>).mapId === "cinder-row-blackout" &&
+      typeof (match as Record<string, unknown>).playerId === "string" &&
+      typeof (match as Record<string, unknown>).accessToken === "string" &&
+      ((match as Record<string, unknown>).team === "accord" ||
+        (match as Record<string, unknown>).team === "eon-dusk") &&
+      typeof (match as Record<string, unknown>).operatorId === "string"
+    ) {
+      const matchRecord = match as Record<string, unknown>;
+      return {
+        state: "matched",
+        rating: Number(record.rating),
+        match: {
+          matchId: matchRecord.matchId as string,
+          mapId: "cinder-row-blackout",
+          playerId: matchRecord.playerId as string,
+          accessToken: matchRecord.accessToken as string,
+          team: matchRecord.team as "accord" | "eon-dusk",
+          operatorId: matchRecord.operatorId as string,
+        },
+      };
+    }
+  }
+  return null;
 }
 
 export function Mission() {
@@ -76,6 +143,10 @@ export function Mission() {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [serverExtraction, setServerExtraction] = useState<ServerExtractionStatus | null>(null);
   const [arenaJoinCode, setArenaJoinCode] = useState("");
+  const [rankedQueue, setRankedQueue] = useState<RankedQueueState>({
+    state: "idle",
+    rating: 1_000,
+  });
   const [arenaMatchId, setArenaMatchId] = useState<string | null>(null);
   const [arenaTeam, setArenaTeam] = useState<"accord" | "eon-dusk" | null>(null);
   const [arenaRound, setArenaRound] = useState<ServerArenaRoundSnapshot | null>(null);
@@ -180,6 +251,34 @@ export function Mission() {
   useEffect(() => {
     engineRef.current?.setLookSensitivity(lookSensitivity);
   }, [lookSensitivity]);
+
+  useEffect(() => {
+    if (!auth.isAuthenticated) {
+      setRankedQueue({ state: "idle", rating: 1_000 });
+      return;
+    }
+    let active = true;
+    const refreshRankedStatus = async () => {
+      try {
+        const response = await fetch("/api/competitive/ranked/status", {
+          credentials: "same-origin",
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) throw new Error("Ranked matchmaking status is unavailable.");
+        const parsed = parseRankedQueueState(await response.json());
+        if (!parsed) throw new Error("The ranked queue returned invalid status.");
+        if (active) setRankedQueue(parsed);
+      } catch {
+        // Keep the last queue state while the status endpoint is briefly unavailable.
+      }
+    };
+    void refreshRankedStatus();
+    const timer = window.setInterval(() => void refreshRankedStatus(), 2_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [auth.isAuthenticated]);
 
   useEffect(() => {
     const engine = engineRef.current;
@@ -320,6 +419,38 @@ export function Mission() {
     }
   };
 
+  const activateCinderClient = (
+    connected: Awaited<ReturnType<typeof ServerMatchClient.connect>>,
+  ) => {
+    const engine = engineRef.current;
+    if (!engine) throw new Error("The arena renderer is not ready.");
+    engine.disableServerGameplay();
+    engine.start(connected.operatorId, connected.player.position);
+    engine.enableServerGameplay(connected.gameplay, {
+      claimLoot: async (lootId) => {
+        const result = await connected.client.claimLoot(lootId);
+        setServerInventory(result.inventory);
+        return result;
+      },
+      openTerminal: async (terminalId) => {
+        const state = await connected.client.openTerminal(terminalId);
+        setServerInventory(state.inventory);
+        return state;
+      },
+      inventoryChanged: setServerInventory,
+    });
+    connected.client.setInputErrorHandler((error) => {
+      setServerMessage(`Input sync: ${error.message}`);
+    });
+    setServerClient(connected.client);
+    setServerInventory(connected.gameplay.inventory);
+    setServerStatus("connected");
+    setArenaMatchId(connected.client.matchId);
+    setArenaTeam(connected.player.team ?? null);
+    setArenaRound(connected.snapshot.arenaRound);
+    engine.capture();
+  };
+
   const startCinderRow = async (joinMatchId?: string) => {
     if (graphicsUnavailable || serverStatus === "connecting") return;
     if (joinMatchId !== undefined && !joinMatchId.trim()) {
@@ -340,40 +471,80 @@ export function Mission() {
         mapId: "cinder-row-blackout",
         ...(joinMatchId ? { joinMatchId } : {}),
       });
-      const engine = engineRef.current;
-      if (!engine) throw new Error("The arena renderer is not ready.");
-      engine.disableServerGameplay();
-      engine.start(connected.operatorId, connected.player.position);
-      engine.enableServerGameplay(connected.gameplay, {
-        claimLoot: async (lootId) => {
-          const result = await connected.client.claimLoot(lootId);
-          setServerInventory(result.inventory);
-          return result;
-        },
-        openTerminal: async (terminalId) => {
-          const state = await connected.client.openTerminal(terminalId);
-          setServerInventory(state.inventory);
-          return state;
-        },
-        inventoryChanged: setServerInventory,
-      });
-      connected.client.setInputErrorHandler((error) => {
-        setServerMessage(`Input sync: ${error.message}`);
-      });
-      setServerClient(connected.client);
-      setServerInventory(connected.gameplay.inventory);
-      setServerStatus("connected");
-      setArenaMatchId(connected.client.matchId);
-      setArenaTeam(connected.player.team ?? null);
-      setArenaRound(connected.snapshot.arenaRound);
-      engine.capture();
+      activateCinderClient(connected);
     } catch (error) {
       setServerStatus("error");
       setServerMessage(error instanceof Error ? error.message : "Could not connect to Cinder Row.");
     }
   };
 
+  const onRankedQueueAction = async () => {
+    if (graphicsUnavailable || serverStatus === "connecting") return;
+    if (!auth.isAuthenticated) {
+      setServerMessage("Sign in before entering ranked matchmaking.");
+      return;
+    }
+    setServerMessage(null);
+    if (rankedQueue.state === "matched") {
+      setServerStatus("connecting");
+      try {
+        const match = rankedQueue.match;
+        const connected = await ServerMatchClient.connectRanked({
+          matchId: match.matchId,
+          playerId: match.playerId,
+          accessToken: match.accessToken,
+          operatorId: match.operatorId as ServerOperatorId,
+        });
+        activateCinderClient(connected);
+      } catch (error) {
+        setServerStatus("error");
+        setServerMessage(error instanceof Error ? error.message : "Could not join the ranked match.");
+      }
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        "/api/competitive/ranked/queue",
+        rankedQueue.state === "queued"
+          ? { method: "DELETE", credentials: "same-origin" }
+          : {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ operatorId: op }),
+            },
+      );
+      const body = await response.json();
+      const parsed = parseRankedQueueState(body);
+      if (!response.ok || !parsed) {
+        throw new Error(
+          body && typeof body.error === "string"
+            ? body.error
+            : "Ranked matchmaking request failed.",
+        );
+      }
+      setRankedQueue(parsed);
+      setServerMessage(
+        parsed.state === "queued"
+          ? "Searching for a balanced Cinder Row match."
+          : parsed.state === "matched"
+            ? "Ranked match found. Join when ready."
+            : null,
+      );
+    } catch (error) {
+      setServerMessage(error instanceof Error ? error.message : "Ranked matchmaking is unavailable.");
+    }
+  };
+
   const playing = screen === "play" || screen === "pause" || screen === "dead" || screen === "win";
+  const rankedQueueDisplay = {
+    state: rankedQueue.state,
+    rating: rankedQueue.rating,
+    ...(rankedQueue.state === "queued"
+      ? { position: rankedQueue.position, queuedPlayers: rankedQueue.queuedPlayers }
+      : {}),
+  };
 
   return (
     <div ref={rootRef} className="fixed inset-0 select-none overflow-hidden bg-bg text-fg">
@@ -424,9 +595,11 @@ export function Mission() {
                 joinCode={arenaJoinCode}
                 onJoinCodeChange={setArenaJoinCode}
                 team={arenaTeam}
+                rankedQueue={rankedQueueDisplay}
                 round={arenaRound}
                 onHost={() => void startCinderRow()}
                 onJoin={() => void startCinderRow(arenaJoinCode.trim())}
+                onRankedAction={() => void onRankedQueueAction()}
               />
               {serverClient?.mapId === "cinder-row-blackout" ? (
                 <button
@@ -522,9 +695,11 @@ export function Mission() {
             joinCode={arenaJoinCode}
             onJoinCodeChange={setArenaJoinCode}
             team={arenaTeam}
+            rankedQueue={rankedQueueDisplay}
             round={arenaRound}
             onHost={() => void startCinderRow()}
             onJoin={() => void startCinderRow(arenaJoinCode.trim())}
+            onRankedAction={() => void onRankedQueueAction()}
           />
         </div>
       ) : null}

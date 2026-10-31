@@ -5,6 +5,8 @@ import { createMatchSessionsRouter } from "./matches.ts";
 import authRouter from "./auth";
 import profileRouter from "./profile";
 import { createExtractionRouter } from "./extractions";
+import { createCompetitiveRouter } from "./competitive.ts";
+import { competitiveMatchService } from "../lib/competitive-match-service-instance.ts";
 
 const router: IRouter = Router();
 
@@ -13,5 +15,6 @@ router.use(authRouter);
 router.use(profileRouter);
 router.use(createMatchSessionsRouter(matchSessionManager));
 router.use(createExtractionRouter(matchSessionManager));
+router.use(createCompetitiveRouter(competitiveMatchService));
 
 export default router;

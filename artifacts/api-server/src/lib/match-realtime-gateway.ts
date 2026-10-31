@@ -48,6 +48,7 @@ interface Peer {
   userId: string;
   accessToken: string | null;
   playerId: string | null;
+  connectionId: number | null;
   isAlive: boolean;
   invalidFrames: number;
   authTimer: ReturnType<typeof setTimeout>;
@@ -74,6 +75,7 @@ export class MatchRealtimeGateway {
   private updateTimer: ReturnType<typeof setInterval> | undefined;
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   private attachedServer: Server | null = null;
+  private connectionSequence = 0;
 
   constructor(
     manager: MatchSessionManager,
@@ -141,7 +143,7 @@ export class MatchRealtimeGateway {
       rejectUpgrade(socket, 403, "Forbidden");
       return;
     }
-    if (this.isRateLimited(request.socket.remoteAddress ?? "unknown")) {
+    if (this.isRateLimited(`ip:${request.socket.remoteAddress ?? "unknown"}`, 300)) {
       rejectUpgrade(socket, 429, "Too Many Requests");
       return;
     }
@@ -149,6 +151,10 @@ export class MatchRealtimeGateway {
       .then((userId) => {
         if (!userId) {
           rejectUpgrade(socket, 401, "Unauthorized");
+          return;
+        }
+        if (this.isRateLimited(`account:${userId}`)) {
+          rejectUpgrade(socket, 429, "Too Many Requests");
           return;
         }
         this.websocketServer.handleUpgrade(request, socket, head, (websocket) => {
@@ -168,6 +174,7 @@ export class MatchRealtimeGateway {
       userId,
       accessToken: null,
       playerId: null,
+      connectionId: null,
       isAlive: true,
       invalidFrames: 0,
       authTimer: setTimeout(() => {
@@ -276,9 +283,18 @@ export class MatchRealtimeGateway {
       value.accessToken,
       peer.userId,
     );
+    const connectionId = this.allocateConnectionId();
+    this.manager.setRealtimePresence(
+      peer.matchId,
+      value.accessToken,
+      peer.userId,
+      connectionId,
+      true,
+    );
     clearTimeout(peer.authTimer);
     peer.accessToken = value.accessToken;
     peer.playerId = realtime.playerId;
+    peer.connectionId = connectionId;
     let room = this.byMatch.get(peer.matchId);
     if (!room) {
       room = new Set();
@@ -317,6 +333,7 @@ export class MatchRealtimeGateway {
             matchId,
             peer.accessToken,
             peer.userId,
+            false,
           );
           send(peer, {
             type: "snapshot",
@@ -353,13 +370,26 @@ export class MatchRealtimeGateway {
 
   private removePeer(peer: Peer): void {
     clearTimeout(peer.authTimer);
+    if (peer.accessToken && peer.connectionId !== null) {
+      try {
+        this.manager.setRealtimePresence(
+          peer.matchId,
+          peer.accessToken,
+          peer.userId,
+          peer.connectionId,
+          false,
+        );
+      } catch {
+        // Expired or already-removed sessions need no further presence update.
+      }
+    }
     this.peers.delete(peer);
     const room = this.byMatch.get(peer.matchId);
     room?.delete(peer);
     if (room?.size === 0) this.byMatch.delete(peer.matchId);
   }
 
-  private isRateLimited(key: string): boolean {
+  private isRateLimited(key: string, limit = 30): boolean {
     const now = this.nowMs();
     let entry = this.attempts.get(key);
     if (!entry || now - entry.startedAtMs >= 60_000) {
@@ -372,9 +402,15 @@ export class MatchRealtimeGateway {
       entry = { startedAtMs: now, count: 0 };
       this.attempts.set(key, entry);
     }
-    if (entry.count >= 30) return true;
+    if (entry.count >= limit) return true;
     entry.count += 1;
     return false;
+  }
+
+  private allocateConnectionId(): number {
+    this.connectionSequence =
+      this.connectionSequence >= Number.MAX_SAFE_INTEGER ? 1 : this.connectionSequence + 1;
+    return this.connectionSequence;
   }
 }
 
