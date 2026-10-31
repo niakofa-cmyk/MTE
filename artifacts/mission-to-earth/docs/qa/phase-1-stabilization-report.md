@@ -459,3 +459,19 @@ This verifies the live engine’s hit, hurt-reaction, and defeat path for one st
 | Full interactive objective/extraction flow | **NOT TESTED** | The browser smoke covers rendering and input delivery only. It does not complete the rescue, extraction, or reward flow. |
 
 The reproducible commands are `pnpm run check:bundle-size` and `pnpm run qa:browser-smoke`; the browser smoke expects a running app at `MTE_SMOKE_URL` (default `http://127.0.0.1:80/`). Set `MTE_RENDERER_MODE=hardware` when collecting measurements on an actual GPU. The full workspace build passed with its required `PORT=4173` and `BASE_PATH=/mission-to-earth/` values; a bare `pnpm run build` stops in Vite config validation when these workspace variables are absent.
+
+### Landscape-first mobile foundation — 2026-10-31
+
+| Requirement | Result | Evidence / qualification |
+|---|---|---|
+| Preserve and apply the landscape FPS brief | **PASS** | Full 19,365-byte source is preserved verbatim at `docs/reference/landscape-fps-mobile-warfare-source.txt`; a companion status note records the current scope and deferred production requirements. |
+| Active-play landscape guidance | **PASS (browser-emulated)** | The 390×844 coarse-pointer mission displays the landscape recommendation. Fullscreen is offered as an optional browser action; the game does not force screen orientation, and portrait play can be continued. The prompt hides after the emulated device rotates to 844×390. |
+| Landscape HUD and safe areas | **PASS (browser-emulated)** | The touch overlay remained visible in landscape and the fire control remained within the 844×390 viewport. HUD groups and touch controls now adapt to landscape dimensions and CSS safe-area insets. |
+| Control presets and left-handed layout | **PASS (automated + emulated)** | Four unit tests cover safe persisted-layout parsing, all three presets, and mirrored movement/look mapping. Browser smoke found all three preset options, changed to left-handed mode, and observed the right-side movement stick respond to touch. |
+| Desktop/mobile browser smoke | **PASS (automated, SwiftShader)** | Desktop 1280×900 and mobile portrait/landscape emulation passed. WebGL2 initialized, input controls were present, and there were zero page exceptions, console errors, or console warnings. The smoke verifies input delivery/virtual-stick response, not physical touch or mission completion. |
+| Automated project checks | **PASS** | Mission game tests 178/178; API tests 74/74; UI tests 3/3; workspace lint passed; workspace typecheck and production build passed with `PORT=4173 BASE_PATH=/mission-to-earth/`; bundle-size budgets passed. |
+| Frame-time sample | **NOT A PERFORMANCE CERTIFICATION** | Latest forced SwiftShader sample: desktop p50 549.9 ms / p95 650.0 ms; mobile p50 333.3 ms / p95 766.6 ms. The software renderer cannot establish actual device performance. |
+| Physical-device/native orientation certification | **NOT TESTED** | No Android/iOS device was available. Browser fullscreen and orientation behavior vary by browser; gyro, haptics, native orientation lock, battery, and thermal behavior remain unverified. |
+| Full rescue, extraction, and 4v4 multiplayer runs | **NOT TESTED IN THIS MILESTONE** | This work targets the landscape client foundation. The smoke test does not assert actual player displacement, camera rotation, weapon damage, extraction completion, reward persistence, or a full multiplayer match. |
+
+The standard preview screenshot browser still lacks WebGL2 and displays the existing fallback notice; the automated game smoke used separate workspace Chromium with SwiftShader. Neither browser emulation nor this report certifies physical-device gameplay or GPU frame-rate targets.

@@ -4,6 +4,11 @@ The attached briefs are preserved verbatim in this directory:
 
 - `extraction-encounter-blueprint-source.txt`
 - `mobile-extraction-hud-countdown-source.txt`
+- `landscape-fps-mobile-warfare-source.txt`
+
+The landscape-first brief is applied incrementally rather than treated as a mandate to replace the current game:
+
+- `landscape-fps-mobile-warfare-status.md` records what the current client supports, what this milestone adds, and what still needs real-device or production validation.
 
 ## How the briefs are applied
 

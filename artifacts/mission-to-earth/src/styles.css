@@ -455,3 +455,154 @@
     animation: none;
   }
 }
+
+.mte-mission-shell {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.mte-landscape-prompt {
+  position: fixed;
+  z-index: 60;
+  top: max(8px, env(safe-area-inset-top));
+  left: 50%;
+  display: flex;
+  width: min(92vw, 36rem);
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  transform: translateX(-50%);
+  border: 1px solid color-mix(in srgb, var(--color-gold) 70%, transparent);
+  background: color-mix(in srgb, var(--color-bg) 92%, transparent);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, .5);
+  backdrop-filter: blur(12px);
+  pointer-events: auto;
+}
+
+.mte-landscape-prompt__actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.mte-landscape-prompt__actions button {
+  min-height: 36px;
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  padding: 6px 10px;
+  color: var(--color-fg);
+  font: 600 11px var(--font-display), sans-serif;
+  letter-spacing: .08em;
+}
+
+.mte-landscape-prompt__actions button:first-child {
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+}
+
+.mte-landscape-prompt__actions button:focus-visible {
+  outline: 2px solid var(--color-fg);
+  outline-offset: 2px;
+}
+
+.mte-hud-objective {
+  top: max(1rem, env(safe-area-inset-top));
+  left: max(1rem, env(safe-area-inset-left));
+}
+
+.mte-hud-status {
+  top: max(1rem, env(safe-area-inset-top));
+  right: max(1rem, env(safe-area-inset-right));
+}
+
+.mte-hud-squad {
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  left: max(1rem, env(safe-area-inset-left));
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  .mte-landscape-prompt {
+    display: none;
+  }
+
+  .mte-hud-objective {
+    max-width: min(30vw, 22rem);
+  }
+
+  .mte-hud-comms {
+    top: max(10px, env(safe-area-inset-top));
+    width: min(38vw, 28rem);
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .mte-hud-status {
+    max-width: 22vw;
+  }
+
+  #mte-map {
+    width: 94px;
+    height: 94px;
+    margin-top: 6px;
+  }
+
+  #mte-feed {
+    top: 9.5rem;
+    right: max(1rem, env(safe-area-inset-right));
+    font-size: 10px;
+  }
+
+  .mte-hud-squad {
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: max(16px, env(safe-area-inset-left));
+    max-width: 24vw;
+  }
+
+  .mte-hud-loadout {
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: auto;
+    width: min(27vw, 21rem);
+  }
+
+  .mte-hud-loadout #mte-q,
+  .mte-hud-loadout #mte-f {
+    padding: 6px 8px;
+  }
+}
+
+@media (pointer: coarse) and (orientation: portrait) {
+  .mte-hud-objective {
+    max-width: calc(100vw - 156px);
+  }
+
+  .mte-hud-comms {
+    top: max(5.5rem, calc(env(safe-area-inset-top) + 5rem));
+    width: 90vw;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .mte-hud-status {
+    max-width: 132px;
+  }
+
+  #mte-map {
+    width: 84px;
+    height: 84px;
+  }
+
+  .mte-hud-loadout {
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    left: max(12px, env(safe-area-inset-left));
+  }
+
+  .mte-landscape-prompt {
+    align-items: flex-start;
+  }
+}

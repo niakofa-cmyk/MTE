@@ -9,6 +9,7 @@ import { CityOfNodBackdrop } from "@/game/city-of-nod-backdrop";
 import { copyMatchIdToClipboard } from "@/game/match-invite";
 import { ATTACHMENT_BY_ID, type AttachSlot } from "@/game/loot";
 import { extractionEpilogue } from "@/game/mission-epilogue";
+import { shouldRecommendLandscape } from "@/game/landscape-presentation";
 import {
   DEFAULT_LOOK_SENSITIVITY,
   LOOK_SENSITIVITY_STORAGE_KEY,
@@ -39,6 +40,15 @@ import {
   type TouchZone,
 } from "@/game/touch-controller";
 import {
+  DEFAULT_TOUCH_LAYOUT,
+  parseTouchLayout,
+  TOUCH_CONTROL_PRESETS,
+  TOUCH_LAYOUT_STORAGE_KEY,
+  touchZoneForScreenSide,
+  type TouchControlProfile,
+  type TouchLayoutSettings,
+} from "@/game/touch-layout";
+import {
   ServerMatchClient,
   parseServerProfile,
   type ServerExtractionStatus,
@@ -52,6 +62,27 @@ import {
 
 type Screen = "menu" | "dossier" | "armory" | "settings" | "inventory" | "play" | "pause" | "dead" | "win";
 type RankedProfileId = "cinder-row-relay-4v4" | "cinder-row-relay-8v8";
+
+function isTouchPortraitViewport() {
+  return (
+    typeof window !== "undefined" &&
+    shouldRecommendLandscape(
+      window.matchMedia("(pointer: coarse)").matches,
+      window.innerWidth,
+      window.innerHeight,
+    )
+  );
+}
+
+function loadTouchLayoutSettings(): TouchLayoutSettings {
+  if (typeof window === "undefined") return { ...DEFAULT_TOUCH_LAYOUT };
+  try {
+    return parseTouchLayout(window.localStorage.getItem(TOUCH_LAYOUT_STORAGE_KEY));
+  } catch {
+    return { ...DEFAULT_TOUCH_LAYOUT };
+  }
+}
+
 type RankedQueueState =
   | { state: "idle"; rating: number }
   | { state: "interrupted"; rating: number }
@@ -167,6 +198,9 @@ export function Mission() {
   const [arenaMaxPlayers, setArenaMaxPlayers] = useState(8);
   const [arenaTeam, setArenaTeam] = useState<"accord" | "eon-dusk" | null>(null);
   const [arenaRound, setArenaRound] = useState<ServerArenaRoundSnapshot | null>(null);
+  const [touchPortrait, setTouchPortrait] = useState(isTouchPortraitViewport);
+  const [landscapePromptDismissed, setLandscapePromptDismissed] = useState(false);
+  const [fullscreenMessage, setFullscreenMessage] = useState("");
   const settlementInFlight = useRef(false);
   const [graphicsUnavailable, setGraphicsUnavailable] = useState(false);
   const [lookSensitivity, setLookSensitivity] = useState(() => {
@@ -177,6 +211,28 @@ export function Mission() {
     }
   });
   const chosen = OPERATOR_BY_ID[op];
+
+  useEffect(() => {
+    const updateOrientationHint = () => {
+      const next = isTouchPortraitViewport();
+      setTouchPortrait(next);
+      if (!next) {
+        setLandscapePromptDismissed(false);
+        setFullscreenMessage("");
+      }
+    };
+    const coarseQuery = window.matchMedia("(pointer: coarse)");
+    const portraitQuery = window.matchMedia("(orientation: portrait)");
+    coarseQuery.addEventListener("change", updateOrientationHint);
+    portraitQuery.addEventListener("change", updateOrientationHint);
+    window.addEventListener("resize", updateOrientationHint);
+    updateOrientationHint();
+    return () => {
+      coarseQuery.removeEventListener("change", updateOrientationHint);
+      portraitQuery.removeEventListener("change", updateOrientationHint);
+      window.removeEventListener("resize", updateOrientationHint);
+    };
+  }, []);
 
   useEffect(() => {
     if (!auth.isAuthenticated) {
@@ -611,6 +667,19 @@ export function Mission() {
   };
 
   const playing = screen === "play" || screen === "pause" || screen === "dead" || screen === "win";
+  const enterFullscreen = async () => {
+    const root = rootRef.current;
+    if (!root?.requestFullscreen) {
+      setFullscreenMessage("Full screen is unavailable in this browser. Rotate your device manually.");
+      return;
+    }
+    try {
+      await root.requestFullscreen();
+      setFullscreenMessage("Full screen enabled. Rotate your device to landscape for the combat HUD.");
+    } catch {
+      setFullscreenMessage("Full screen was blocked. Rotate your device manually for the landscape HUD.");
+    }
+  };
   const rankedQueueDisplay = {
     state: rankedQueue.state,
     rating: rankedQueue.rating,
@@ -620,7 +689,11 @@ export function Mission() {
   };
 
   return (
-    <div ref={rootRef} className="fixed inset-0 select-none overflow-hidden bg-bg text-fg">
+    <div
+      ref={rootRef}
+      className="mte-mission-shell fixed inset-0 select-none overflow-hidden bg-bg text-fg"
+      data-game-screen={screen}
+    >
       <div ref={hostRef} className="absolute inset-0" />
       {graphicsUnavailable ? <CityOfNodBackdrop /> : null}
       {graphicsUnavailable ? (
@@ -891,6 +964,25 @@ export function Mission() {
         </Overlay>
       ) : null}
       {screen === "play" ? <Touch engineRef={engineRef} /> : null}
+      {screen === "play" && touchPortrait && !landscapePromptDismissed ? (
+        <aside className="mte-landscape-prompt" role="status" aria-live="polite">
+          <div>
+            <p className="font-display text-xs tracking-[.18em] text-gold">LANDSCAPE COMBAT LAYOUT</p>
+            <p className="mt-1 text-xs text-fg">
+              Rotate your device for the full battlefield HUD and clearer touch spacing.
+            </p>
+            {fullscreenMessage ? <p className="mt-1 text-[11px] text-muted">{fullscreenMessage}</p> : null}
+          </div>
+          <div className="mte-landscape-prompt__actions">
+            <button type="button" onClick={() => void enterFullscreen()}>
+              Full screen
+            </button>
+            <button type="button" onClick={() => setLandscapePromptDismissed(true)}>
+              Continue portrait
+            </button>
+          </div>
+        </aside>
+      ) : null}
       <p className="sr-only">
         Playing as {chosen.name}. Mission To Earth, city of Nod.
       </p>
@@ -1365,7 +1457,7 @@ function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
   return (
     <div id="mte-hud" className={live ? "pointer-events-none absolute inset-0" : "hidden"}>
       <div id="mte-vig" className="absolute inset-0 opacity-0" />
-      <div className="absolute top-4 left-4 max-w-xs">
+      <div className="mte-hud-objective absolute top-4 left-4 max-w-xs">
         <p id="mte-act" className="font-display text-xs tracking-widest text-gold" />
         <p id="mte-tac" className="font-display text-xs tracking-widest text-cyan" />
         <h2 id="mte-obj" className="font-display text-2xl leading-none text-fg" />
@@ -1376,13 +1468,13 @@ function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
           <span id="mte-sector" />
         </p>
       </div>
-      <div className="absolute top-4 left-1/2 w-full max-w-md -translate-x-1/2 px-16 text-center">
+      <div className="mte-hud-comms absolute top-4 left-1/2 w-full max-w-md -translate-x-1/2 px-16 text-center">
         <div className="transition-opacity">
           <p id="mte-speaker" className="font-display text-xs tracking-widest text-gold" />
           <p id="mte-sub" className="text-sm leading-snug text-fg" />
         </div>
       </div>
-      <div className="absolute top-4 right-4 text-right">
+      <div className="mte-hud-status absolute top-4 right-4 text-right">
         <p id="mte-compass" className="font-display text-lg tracking-widest text-fg" />
         <p id="mte-kills" className="font-display text-sm tracking-widest text-muted" />
         <p id="mte-zone" className="mt-1 font-display text-sm tracking-widest text-danger" />
@@ -1476,11 +1568,11 @@ function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
           <div id="mte-channel" className="h-full bg-gold" style={{ width: "0%" }} />
         </div>
       </div>
-      <div className="absolute bottom-4 left-4">
+      <div className="mte-hud-squad absolute bottom-4 left-4">
         <p className="font-display text-xs tracking-widest text-muted">Squad</p>
         <pre id="mte-squad" className="mt-1 font-display text-sm tracking-widest whitespace-pre text-fg" />
       </div>
-      <div className="absolute right-4 bottom-4 left-4 md:left-auto md:w-80">
+      <div className="mte-hud-loadout absolute right-4 bottom-4 left-4 md:left-auto md:w-80">
         <div className="mb-2">
           <p id="mte-weapon" className="mb-2 font-display text-xs tracking-widest text-fg" />
           <p className="mb-2 hidden font-display text-[9px] tracking-wider text-muted md:block">
@@ -1576,6 +1668,7 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
   const readoutKey = useRef("");
   const [stick, setStick] = useState<{ x: number; y: number; nx: number; ny: number } | null>(null);
   const [wheel, setWheel] = useState<string | null>(null);
+  const [controlLayout, setControlLayout] = useState<TouchLayoutSettings>(loadTouchLayoutSettings);
   const [tune, setTune] = useState({ flick: 15, shove: SPRINT_SHOVE_PX, look: 1.7, disc: 1, discRight: 24, discTop: 55, cone: 8, magnet: 0.25, drag: 0.6 });
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [readout, setReadout] = useState<{
@@ -1628,6 +1721,14 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
       // Keep the current layout tuning for this session when storage is unavailable.
     }
   }, [tune, engineRef]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TOUCH_LAYOUT_STORAGE_KEY, JSON.stringify(controlLayout));
+    } catch {
+      // Keep the current control layout for this session when storage is unavailable.
+    }
+  }, [controlLayout]);
 
   useEffect(() => {
     let frame = 0;
@@ -1758,12 +1859,18 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
   };
 
   const setField = (key: keyof typeof tune, value: number) => setTune((prev) => ({ ...prev, [key]: value }));
+  const setProfile = (profile: TouchControlProfile) => {
+    setControlLayout((previous) => ({ ...previous, profile }));
+    setTune((previous) => ({ ...previous, ...TOUCH_CONTROL_PRESETS[profile] }));
+  };
+  const leftScreenZone = touchZoneForScreenSide("left", controlLayout.handedness);
+  const rightScreenZone = touchZoneForScreenSide("right", controlLayout.handedness);
   const actionLabel = readout.prompt.replace(/^HOLD E\s+/, "").replace(/^[EQ]\s+/, "");
 
   return (
-    <div className="touch-only touch-hud-overlay">
-      <div className="touch-zone-interactive zone-left-movement" onPointerDown={start("MOVEMENT")} onPointerMove={drag} onPointerUp={finish("MOVEMENT")} onPointerCancel={finish("MOVEMENT")} onLostPointerCapture={finish("MOVEMENT")} />
-      <div className="touch-zone-interactive zone-right-combat" onPointerDown={start("LOOK_COMBAT")} onPointerMove={drag} onPointerUp={finish("LOOK_COMBAT")} onPointerCancel={finish("LOOK_COMBAT")} onLostPointerCapture={finish("LOOK_COMBAT")} />
+    <div className={`touch-only touch-hud-overlay ${controlLayout.handedness === "left" ? "is-left-handed" : ""}`}>
+      <div className="touch-zone-interactive zone-left-movement" onPointerDown={start(leftScreenZone)} onPointerMove={drag} onPointerUp={finish(leftScreenZone)} onPointerCancel={finish(leftScreenZone)} onLostPointerCapture={finish(leftScreenZone)} />
+      <div className="touch-zone-interactive zone-right-combat" onPointerDown={start(rightScreenZone)} onPointerMove={drag} onPointerUp={finish(rightScreenZone)} onPointerCancel={finish(rightScreenZone)} onLostPointerCapture={finish(rightScreenZone)} />
       <div className="gold-disc-slot" style={{ right: tune.discRight, top: `${tune.discTop}%`, transform: `translateY(-50%) scale(${tune.disc})` }}>
         {layoutOpen ? <div className="gold-disc-bounding-box" /> : null}
         <div className="gold-disc-utility is-placed" onPointerDown={start("UTILITY")} onPointerMove={drag} onPointerUp={finish("UTILITY")} onPointerCancel={finish("UTILITY")} onLostPointerCapture={finish("UTILITY")}>
@@ -1842,6 +1949,32 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
           Touch layout
           <span>{layoutOpen ? "Close" : "Edit"}</span>
         </summary>
+        <label className="configurator-row">
+          <span className="configurator-label-group"><span>Control preset</span></span>
+          <select
+            aria-label="Touch control preset"
+            value={controlLayout.profile}
+            onChange={(event) => setProfile(event.target.value as TouchControlProfile)}
+          >
+            <option value="beginner">Beginner · assisted</option>
+            <option value="tactical">Tactical · balanced</option>
+            <option value="advanced">Advanced · direct</option>
+          </select>
+        </label>
+        <label className="configurator-row">
+          <span className="configurator-label-group"><span>Aiming hand</span></span>
+          <select
+            aria-label="Aiming hand"
+            value={controlLayout.handedness}
+            onChange={(event) => setControlLayout((previous) => ({
+              ...previous,
+              handedness: event.target.value === "left" ? "left" : "right",
+            }))}
+          >
+            <option value="right">Right-handed · move left</option>
+            <option value="left">Left-handed · move right</option>
+          </select>
+        </label>
         {(
           [
             ["Flick", "flick", 8, 80, 1],

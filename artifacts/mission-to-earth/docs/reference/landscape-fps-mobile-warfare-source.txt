@@ -1,0 +1,406 @@
+# Mission To Earth: Moving to a landscape, Call of Duty–inspired experience
+
+Yes. I think this is a strong direction for MTE, and I would make landscape orientation the primary mobile experience. I would not, however, copy Call of Duty Mobile wholesale or treat this as simply rotating the existing screen.
+
+What you're proposing is a broader shift toward a purpose-built, console-quality mobile FPS experience: a cinematic battlefield, a full-screen combat interface, intuitive dual-stick controls, richer environments, and multiplayer designed around the player experience.
+
+That fits MTE's intended identity as a cinematic, open-world first-person shooter much better than trying to make the game feel like a conventional portrait-oriented mobile app.
+
+The important distinction: borrow the proven interaction patterns and production structure of Call of Duty Mobile, but create an unmistakably MTE visual identity, world, and gameplay system.
+
+## 1. What we should learn from Call of Duty Mobile
+
+The official [Call of Duty Mobile listing](https://play.google.com/store/apps/details?id=com.activision.callofduty.shooter\&utm_source=chatgpt.com) highlights several features worth studying: 5v5 multiplayer, Battle Royale, ranked competition, multiple game modes, customizable loadouts, attachments, operator abilities, adjustable HUD layouts, and optional high-definition downloads.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://play.google.com\&sz=32)
+
+Apps on Google Play
+
+
+
+I would divide those ideas into four systems for MTE.
+
+[【CODモバイル】バトロワ新マップ解説&おすすめ降下ポイント | フクのゲーム部屋](https://images.openai.com/static-rsc-4/a1SyaluLwuhBor7ilC6pWjMtyuahTQZbNvruvfk71wJ4ZjHOxmwSVYrfYZxXVwf-jRw_HubnSMLsOW97fFvczX8VR5bLVSZjIlVbXJIcKCTRy-Sg4v4xeTJcRo55hJdYwCJMrFKh12DoSx5FS0a9AV8mHJSPBvYW1180EyncjwY?purpose=inline)
+
+A. Mobile combat interface
+
+Dual virtual joysticks, aiming and firing controls, reload, crouch, prone, jump, sprint, weapon switching, tactical equipment, and adjustable button placement.
+
+[TOP 10 Meilleures Armes COD Mobile S2 2026 : Meta & Équipements](https://images.openai.com/static-rsc-4/gyQhWfqIAgwEv6_V9IwwIE3pOexDsCC9FAwFETYQwpHBQcsrodr9RM_nz8un99K1pEzzKFZLSOE9TikApwljsaVGLnPLLpuBifswRH2Gqo4HGkurTYEdvJQL4KlCjyhi1POcPDpKlKZzIP8k4aoRj0UmBA6Pa4IBEcSVht7JlLw?purpose=inline)
+
+B. Weapon and operator systems
+
+Weapon classes, attachments, operator abilities, equipment selection, saved loadouts, and weapon progression.
+
+[The Ultimate Guide to the Call of Duty Mobile Rank System](https://images.openai.com/static-rsc-4/9eqM7pn_xGSde6CZ_p6Bpvf1W910VFS2B31E_036X57fOPHiRIGP3VPzN813koU4Gpy2e1dbQ5_Yotxz6NE11rBRNhxWsXKn644zkAU2-x41tRM-aV2LJBcXaUN9eTf07ZCCNgbjwLBqTrthhA90jOPq9QO30dy8GQhS_3QTHXQ?purpose=inline)
+
+C. Multiplayer experience
+
+Team lobbies, matchmaking, team selection, objective-based modes, private matches, ranked play, leaderboards, and post-match results.
+
+[Télécharger et Jouer à Call of Duty®: Mobile sur PC & Mac (Émulateur)](https://images.openai.com/static-rsc-4/aAeDBayGEBPfceSJHw1ifBX0t7rkNaMUWYJjgendTQ2msL0ux9kUTeYfuGGvkk2fTZ_NICfHyOTQd_NzcKKGjEgN9PkZQ1n3-Bll2oFd9pM-c1YxyCgmbJWp8Wd7z1zjHZbZhq91rzFnOnCIJv_kGKhc2s7pDoD3ASOL0_a3-zg?purpose=inline)
+
+D. Battlefield presentation
+
+Detailed environments, environmental audio, minimaps, mission objectives, combat feedback, map-specific events, and cinematic transitions.
+
+The objective isn't to reproduce Call of Duty's military identity. MTE needs to translate these systems into its own science-fiction universe, factions, technology, and story.
+
+## 2. The landscape experience I envision for MTE
+
+[Gameloft Official: We create gaming experiences](https://images.openai.com/static-rsc-4/28N6kdPCCDzl-1LKnszYd3VzOWXA7JW7w31C4OevZFTTzMj6neJTJZk43L_1oYjsHHdnrpo-8by44SWe7DqP__vmRkeC1PRNLh2TObGDyWSU3C_q7K5r7SGLhleHUllb8mmC8BvA6rtG5x625vCrAzRyZT8deGnoRVSTHmPZPZI?purpose=inline)
+
+[DeadLine - Multiplayer FPS UI Concept :: Behance](https://images.openai.com/static-rsc-4/bert6ZKYCSZO8v4wZiZjXeYITbx17FgoyejMVVmfdYIao4JgKPCXQx3fkmucC1ZVkUD0bsSFUH03mOTcCOpScFuwoKq4lFpbvRClRrEEALTLc22mn5KWTMjCgWZIa_JGabqgfv3T8jgHingKJ8fNsZYQMuzyfDEa_cb_M18g3bA?purpose=inline)
+
+[Steam Community :: StarRupture](https://images.openai.com/static-rsc-4/sqftdEAE6-88BHfQKrX1eCHcwQE3Yx1B0Sg3mFp4TsZUOkuYgbw5fGu6lKcHwDTCn6W45IzRgEyOr0tYDTDNpffAebK85n9WlMhQXihNvK79eHZX45-m-sKBwbb34r1s8k67DGSrkpr3tQgwYwOoWokG8b53Pdl4Mt6q4aj8Hlk?purpose=inline)
+
+12
+
+I would organize the game into three distinct experiences:
+
+The Command Center
+
+The player's main destination when entering MTE. This is where players see their operator, faction, available missions, equipment, multiplayer invitations, and progression.
+
+The Battlefield
+
+Full-screen landscape gameplay, with a properly designed combat HUD. No unnecessary app navigation or mobile website-style interface during active gameplay.
+
+The Operations Network
+
+The multiplayer, matchmaking, squads, competitive rankings, mission events, and faction-wide activities.
+
+This distinction is important. The game should feel like entering a living military science-fiction world, not opening a website with a game embedded inside it.
+
+## 3. The landscape combat interface
+
+[Review: Call of Duty Mobile. Call of Duty is a franchise that’s… | by Brian Rooney | The Spinchoon | Medium](https://images.openai.com/static-rsc-4/vYJnru8E2p_svKVnW0dAvy-o3yuL_d0UtuaI_UvzULKt5DrHNv4XJoAqy16ISwrD2JRLWKp6kamewzhAo_1_HadxldvRG8ikk7GZuloyAUyzqM4Ze2TrzgCDp7RYpWm-IbrLztj6vxh-g5OGGZPW0wK2zr5o6sKRDMg9wQaMlSg?purpose=inline)
+
+[medium.com](https://medium.com/the-spinchoon/review-call-of-duty-mobile-12e64d8a8767?utm_source=chatgpt.com)
+
+This is probably the most important part of the transition.
+
+I recommend the following control layout:
+
+| Screen position | Control                                        |
+| --------------- | ---------------------------------------------- |
+| Upper left      | Minimap, squad status, objectives              |
+| Lower left      | Movement joystick                              |
+| Upper right     | Score, timer, match status                     |
+| Right center    | Aim and camera control                         |
+| Lower right     | Fire, reload, crouch, jump, weapon switch      |
+| Center          | Crosshair, hit indicators, interaction prompts |
+| Bottom center   | Weapon and ammunition information              |
+
+### Controls MTE should support
+
+- Dual-stick touchscreen controls.
+- Adjustable HUD positions and button sizes.
+- Gyroscope aiming, with sensitivity settings.
+- Optional automatic firing.
+- Separate hip-fire and aim-down-sights controls.
+- Controller support.
+- Custom sensitivity profiles.
+- Left-handed and right-handed layouts.
+- Haptic feedback where supported.
+
+I would also implement three control presets: Beginner, Tactical, and Advanced.
+
+Players should be able to customize their controls without being forced to use one particular layout.
+
+## 4. Features I would implement in MTE
+
+Here is the feature priority I recommend.
+
+Phase 1 — Core FPS experience
+
+Essential
+
+[Alien Rage - Unlimited \[PC Games-Digital\] • World of Games](https://images.openai.com/static-rsc-4/1LuLp2JCbouoTM6uGAvqLqGFsj3AL-I5n13rhMfT18WZsiwNH3zA24FTm3qD_ozlW7YJhKJ6XwGKK7AUnGgF0pI56KrY2bULPS0iKcA3YHXRPLSjj5kMHdwXetocWijTmOnCuRRAKB9hQkSMuAqONK-uS3fuTHWpjn_fdMRL5V0?purpose=inline)
+
+First-person combat
+
+Movement, aiming, firing, recoil and hit feedback.
+
+[CRYSIS — KunHee Lee](https://images.openai.com/static-rsc-4/9rWqh2eBBAlkpqx1IMSpTY226Z6ZLNsMOEmRv7iULK0abeGVvKttMNBqEzCcnbiMoqmuxvysodS_cqKxSF1uN9LBd2G-DN8qdD3WqL6QNZXw25G12ae6K58Dm9RmGUie8lYEg5sVvLBxHcgcN0n2rKLXGY218KxMxolQyq5WJwc?purpose=inline)
+
+Loadout system
+
+Weapons, attachments, equipment and saved configurations.
+
+[Deadzone: Rogue - Deluxe Edition (2026) - Ocean of Games](https://images.openai.com/static-rsc-4/sSSWJJ4w_Mq_ZvIa_NbOQma1CJGuRDMmBQEoofsPsd4DmNrZ9b79X_fyPpEkQY3mgO9f3pVZk6eKWQyurNop0iQDDZcISiV3NW0dwSHrtQOcNTkZmhNOQBlTDXwmeLDLbZ2jmVaILIyMnXqfB3u9RWBaxHlINhZX6E2TVMm2jbI?purpose=inline)
+
+Battlefield HUD
+
+Minimap, objectives, health, ammo and squad information.
+
+[Farlight 84 – A Fresh Take on Battle Royale with a Sci-Fi Twist. - Farlight 84 - TapTap](https://images.openai.com/static-rsc-4/Ur90KYPlk4j5ASDtj3bZN6sgR_alsiSLJDIT7NhG2f2yJRnX1G5TC_tv9xvd3c38s8m4rU1BOz3CNQh1Pu3oxbfBBXQx9pTSWqpyNDFsYwyTLOSHWlxFjl5F3XNvbrTt22_P0VRM9Lrw5aM876qpgByAFby0xGg90tnGsUH0RU0?purpose=inline)
+
+Squad lobby
+
+Friends, invitations, team selection and match preparation.
+
+Phase 2 — Multiplayer warfare
+
+Next
+
+[Infinity Ops - APK Download for Android | Aptoide](https://images.openai.com/static-rsc-4/p3jza5Tghb8-P-e-oZs2k1H_qiEjweO-dpsyxVmOPrTBHDaXow94aC6rlM8mqHlNwbLjrTYSnstPNXUiSPxnpWYIm78AdQ83dAHhBc1RrnYQLug88lRBdBq_JGWDdmTKmqzOM_RNNtBBNV-GGWRm4eFJyDNHg5xnPjX2GNVuhms?purpose=inline)
+
+Team Deathmatch
+
+Start with 4v4, then expand to 8v8.
+
+[Dino Squad: Dinosaur Shooter para Android & iOS - MiniReview](https://images.openai.com/static-rsc-4/dpgfz8GbmVumVVFaMRT4rX4MXt1vZKEBReMtBx8AL-AoEiVrx-1x3FbqqPpbewTIlvn2lhG-YgxNA_piPBgloXr6HzJ1zBK4C9vFKhgyVCn1DE8iFxD5S3s1jugltsEBVjfhm2drzBe2FNvJ8WEJVNQ4VxwqeqolvTSLI83O_EA?purpose=inline)
+
+Domination
+
+Capture and defend battlefield locations.
+
+[无主星渊 | 机核 GCORES](https://images.openai.com/static-rsc-4/1HlLdfhJn2nzy7_JJag2EbS0ccyMZN4XLA5eZm_HPTw5DGkkFrnwAUNlxpqSSe1wLJ8Mp9xOArqhw2WJmdPsM4WhsBmvSq-zu3IXLClALB7SLqd7DuUDB5xMq11XhNl3x-DRCWmFykQNt_2-z8dyQhzAQHUZYbXdES0xfbNDToA?purpose=inline)
+
+Control Operations
+
+Rotating objectives and contested strategic locations.
+
+[EVE Vanguard on Steam](https://images.openai.com/static-rsc-4/6l2kdTwGsigpR2w_X56DJ2zIEV8-TyD-ZLzsxB70HHI2_DexAq2flKhijPP3mN85_N90d6pIswBJMWbpwifM8h2-obgaeBL5FMVx-U5fApfNIqrmzv7mTpWDnEULiq0-OfavmWDNMclHzphFiJk7AuXsKJCxMFM0jA4fnTRDm7o?purpose=inline)
+
+Extraction
+
+Squads complete objectives and escape with their rewards.
+
+Phase 3 — Advanced MTE identity
+
+Long-term
+
+- Faction-specific operator abilities.
+- Dynamic battlefield conditions.
+- Vehicles and specialized combat units.
+- Persistent faction campaigns.
+- Ranked competitions and seasonal operations.
+- Large-scale planetary warfare.
+- Cooperative PvE missions.
+
+One feature I particularly want MTE to develop is Living Operations.
+
+Instead of having every multiplayer match play out identically, the battlefield could change during the match:
+
+- A power station goes offline, disabling certain equipment.
+- An Accord communications relay becomes available for capture.
+- An environmental hazard changes the available routes.
+- A reinforcement transport arrives.
+- A temporary extraction window opens.
+- A faction-controlled area changes ownership.
+
+This creates a more dynamic experience than simply placing players on a map and having them shoot one another.
+
+## 5. How I would structurally implement the transition
+
+This is where I would be careful. We should not throw away the existing MTE prototype and rebuild everything from scratch.
+
+Based on the repository architecture we previously reviewed, MTE already has a game client, mission engine, generated Nod environment, collision infrastructure, authoritative match simulation, and API-server match sessions.
+
+Those are useful foundations.
+
+I would preserve the underlying game systems and create a new landscape-first presentation and interaction layer.
+
+## Proposed MTE architecture
+
+MISSION TO EARTH — GAME CLIENT
+
+Landscape-first mobile experience
+
+Command Center
+
+Home, operator, missions, armory, squads
+
+Combat Interface
+
+Touch controls, HUD, camera, interaction
+
+Multiplayer
+
+Matchmaking, parties, teams, results
+
+Campaign
+
+Story missions, progression, exploration
+
+SHARED GAMEPLAY SYSTEMS
+
+Mission engine · weapons · physics · animation · inventory · objectives
+
+AUTHORITATIVE RAILWAY GAME SERVICES
+
+Match sessions · combat validation · persistence · matchmaking · WebSocket transport
+
+### Proposed code organization
+
+I would establish clear ownership for these systems:
+
+```
+artifacts/mission-to-earth/src/
+  game/
+    Mission.tsx
+    MissionEngine.ts
+    controls/
+      TouchControls.ts
+      VirtualJoystick.ts
+      Gyroscope.ts
+      ControllerInput.ts
+    hud/
+      CombatHUD.tsx
+      Minimap.tsx
+      ObjectiveDisplay.tsx
+      SquadStatus.tsx
+    presentation/
+      LandscapeShell.tsx
+      CommandCenter.tsx
+      OperatorSelection.tsx
+      Armory.tsx
+      MultiplayerLobby.tsx
+    multiplayer/
+      MatchClient.ts
+      MatchmakingClient.ts
+      SquadClient.ts
+      Reconciliation.ts
+    settings/
+      ControlSettings.ts
+      GraphicsSettings.ts
+      AudioSettings.ts
+
+artifacts/api-server/src/
+  lib/
+    maps/
+    matchmaking/
+    match-lifecycle/
+    combat/
+    progression/
+    inventory/
+```
+
+This is a proposed organization, not a claim that these files already exist.
+
+### Landscape implementation
+
+I would make landscape the default for actual gameplay.
+
+For a native mobile build:
+
+- Android: configure supported landscape orientations in the application manifest.
+- iOS: configure landscape orientations in the application target and supported orientation settings.
+- Game startup: initialize the landscape gameplay shell and adapt the HUD to the actual screen dimensions.
+- Tablets: support multiple landscape aspect ratios.
+- Web prototype: provide a landscape recommendation and fullscreen experience, while recognizing that browser orientation locking is not consistently available across devices.
+
+I would not force the entire experience into landscape before the player enters gameplay. The command center can have a responsive presentation, but the combat experience should be landscape-first.
+
+Important: If the current MTE client is still primarily browser-based, orientation and native controller/haptic behavior need real-device validation. A browser page does not automatically become a native mobile game just because its layout is horizontal.
+
+## 6. The graphics and performance strategy
+
+This transition should also improve the game's visual identity.
+
+I would prioritize:
+
+- High-quality character models and animations.
+- Detailed weapons and first-person weapon animations.
+- Realistic environmental lighting.
+- Improved shadows and material quality.
+- Atmospheric effects, smoke, dust and explosions.
+- Distinct faction environments.
+- Environmental sound and positional audio.
+- Cinematic mission introductions and transitions.
+
+But I would not simply increase every texture and effect to maximum quality.
+
+I recommend three graphics presets:
+
+| Setting       | Target                                   |
+| ------------- | ---------------------------------------- |
+| Performance   | 30–60 FPS on supported lower-end devices |
+| Balanced      | 60 FPS target                            |
+| High Fidelity | 60 FPS target on capable devices         |
+
+The renderer should dynamically adjust resolution, shadows, effects and asset quality based on device capability.
+
+I would also implement optional downloadable high-definition resources, similar to COD Mobile's approach, rather than requiring every player to download every asset immediately.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://play.google.com\&sz=32)
+
+Apps on Google Play
+
+
+
+## 7. The order I would actually execute this work
+
+I would divide the transition into six deliverables.
+
+1. Audit and protect the existing game
+
+   Establish which existing campaign, mission, physics, weapon, collision and multiplayer systems can be reused. Record a baseline build and regression tests.
+2. Build the landscape game shell
+
+   Implement orientation handling, screen scaling, safe areas, responsive HUD, menus and navigation.
+3. Build the mobile combat controls
+
+   Implement dual joysticks, aiming, firing, movement, reload, crouch, jump, gyro and controller input. Test on actual Android devices.
+4. Upgrade one existing battlefield
+
+   Use Nod as the first environment. Improve its visual quality, lighting, geometry, combat readability and navigation. Do not start by creating five new maps.
+5. Integrate multiplayer
+
+   Connect the new interface to the authoritative match system. Move real-time gameplay toward WebSocket transport, with server-side combat validation, interpolation, prediction and reconciliation.
+6. Certify the experience
+
+   Test the campaign and multiplayer independently, then test the complete experience on Android and iOS. Measure FPS, memory, battery, network latency, reconnection and match stability.
+
+I would require the first milestone to demonstrate one complete landscape mission and one complete 4v4 multiplayer match before expanding the feature set.
+
+## 8. What I would not copy from Call of Duty
+
+There are some features I would deliberately approach differently.
+
+- Avoid excessive menus and confusing currencies.
+- Avoid pay-to-win weapon upgrades.
+- Avoid making paid skins or attachments affect competitive balance.
+- Avoid copying COD's maps, branding, operator designs, weapons artwork or proprietary assets.
+- Avoid launching Battle Royale before the underlying multiplayer infrastructure is ready.
+- Avoid building a massive interface before the underlying gameplay is enjoyable.
+
+MTE needs its own identity. Its factions, technology, history, planetary environments, and narrative should make it recognizable even without the Mission To Earth logo.
+
+## My final recommendation
+
+Recommended direction
+
+I would approve this as a major MTE product-direction upgrade, but implement it as a controlled evolution rather than a complete rewrite.
+
+The most important strategic decision is to make MTE a proper landscape-first FPS with two complementary experiences:
+
+[\[100+\] The Outer Worlds 2 Wallpapers | Wallpapers.com](https://images.openai.com/static-rsc-4/An97AakNTYVjXUARC09p1Yheg3ZovmeQcTGJ1hg4HWwbpcM1j2J62dMdN2Fb1EOtko5bysrvdgZJGhxyhO5NZnLDP-g2jp6OkIFbRIfAC1WCzGkVPxQu2sWsYlD68kUGA33NW7iBi6xVfuIbFqa2Q6YL7p0O3OFUPGskVpWJyuk?purpose=inline)
+
+MTE Campaign
+
+Cinematic first-person exploration, story missions, planetary environments, rescue operations and campaign progression.
+
+[‎Shadowgun Legends: Online FPS App - App Store](https://images.openai.com/static-rsc-4/GUjj0b8-1Rw6_omtepC5ruqwjtktY0resQXahX-1EjM1U8Z9UfeZkZmZT2WWuhq802i4jocLlS9gU3ryVQTFJ0qMo1yeIFO4dUohoUH32diGAUnG0sXwM3ohCP9ei6abCJjJS74KuXBEY5cejCexnpZgUgyNAQ2Tzwl2Qwnk4Tc?purpose=inline)
+
+MTE Warfare
+
+Competitive arenas, squad combat, objective missions, faction warfare and eventually large-scale planetary battles.
+
+Both should share the same underlying weapons, operators, animation, combat rules, assets and progression systems wherever practical.
+
+### The decision I would make now
+
+I would authorize a new development milestone:
+
+MTE: LANDSCAPE FPS & MOBILE WARFARE FOUNDATION
+
+Its first objective should be to transform the existing Nod mission into a polished, playable, landscape-oriented mobile FPS demonstration, then connect that experience to the first 4v4 multiplayer arena.
+
+That is a much better foundation than immediately trying to build a 100-player Battle Royale.
+
+And importantly, it gives us something tangible to evaluate: a player can open MTE on a phone, enter a cinematic environment, move, aim, shoot, interact, join a squad and participate in a multiplayer battle.
+
+That is the experience I believe MTE should be building toward.

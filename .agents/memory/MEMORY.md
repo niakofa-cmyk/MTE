@@ -11,3 +11,4 @@
 - [Objective route guidance](objective-route-guidance.md) — player bearings and minimap routes must respect the same collision rules as movement.
 - [Mobile touch QA](mobile-touch-qa.md) — keep emulation active through the test; verify independent pointers in unobstructed zones.
 - [Persistent reward identity](persistent-reward-identity.md) — Replit Auth is the chosen identity for account-linked MTE reward ownership.
+- [Landscape-first mobile FPS](landscape-first-mobile-fps.md) — make active combat landscape-first while keeping browser rotation advisory and the pre-deployment command center responsive.

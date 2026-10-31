@@ -1,9 +1,11 @@
 .touch-hud-overlay {
   position: absolute;
+  inset: 0;
   top: 0;
   left: 0;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
   overflow: hidden;
   pointer-events: none;
   user-select: none;
@@ -21,16 +23,16 @@
 .zone-left-movement {
   left: 0;
   top: 0;
-  width: 50vw;
-  height: 100vh;
+  width: 50%;
+  height: 100%;
   border-right: 1px dashed color-mix(in srgb, var(--color-gold) 12%, transparent);
 }
 
 .zone-right-combat {
   right: 0;
   top: 0;
-  width: 50vw;
-  height: 100vh;
+  width: 50%;
+  height: 100%;
 }
 
 .dynamic-virtual-stick {
@@ -239,4 +241,115 @@
 .touch-tune input {
   width: 100%;
   accent-color: var(--color-gold);
+}
+
+.configurator-panel-container select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  color: var(--color-fg);
+  padding: 6px 8px;
+  font: 600 12px var(--font-display), sans-serif;
+  letter-spacing: 0.06em;
+}
+
+.touch-hud-overlay.is-left-handed .zone-left-movement {
+  right: 0;
+  left: auto;
+  border-right: 0;
+  border-left: 1px dashed color-mix(in srgb, var(--color-gold) 12%, transparent);
+}
+
+.touch-hud-overlay.is-left-handed .zone-right-combat {
+  right: auto;
+  left: 0;
+}
+
+.touch-hud-overlay.is-left-handed .gold-disc-slot {
+  right: auto !important;
+  left: max(16px, env(safe-area-inset-left)) !important;
+}
+
+.touch-hud-overlay.is-left-handed .touch-fire {
+  right: auto;
+  left: max(16px, env(safe-area-inset-left));
+}
+
+.touch-hud-overlay.is-left-handed .touch-fire-left {
+  right: max(16px, env(safe-area-inset-right));
+  left: auto;
+}
+
+.touch-hud-overlay.is-left-handed .touch-focus,
+.touch-hud-overlay.is-left-handed .touch-weapons {
+  right: auto;
+  left: max(16px, env(safe-area-inset-left));
+}
+
+.touch-hud-overlay.is-left-handed .touch-action {
+  right: max(116px, env(safe-area-inset-right));
+  left: max(16px, env(safe-area-inset-left));
+}
+
+.touch-fire:focus-visible,
+.touch-fire-left:focus-visible,
+.touch-focus:focus-visible,
+.touch-action:focus-visible,
+.touch-weapons button:focus-visible {
+  outline: 2px solid var(--color-fg);
+  outline-offset: 3px;
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  .touch-fire {
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: 72px;
+    height: 72px;
+  }
+
+  .touch-fire-left {
+    left: max(16px, env(safe-area-inset-left));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: 64px;
+    height: 64px;
+  }
+
+  .touch-focus {
+    top: max(12px, env(safe-area-inset-top));
+    right: max(16px, env(safe-area-inset-right));
+  }
+
+  .touch-action {
+    right: max(108px, calc(env(safe-area-inset-right) + 88px));
+    bottom: max(18px, env(safe-area-inset-bottom));
+    left: max(16px, env(safe-area-inset-left));
+    min-height: 48px;
+    max-width: 36vw;
+    font-size: 13px;
+  }
+
+  .touch-weapons {
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(92px, calc(env(safe-area-inset-bottom) + 80px));
+    width: min(124px, 20vw);
+  }
+
+  .touch-hud-overlay.is-left-handed .touch-weapons {
+    right: auto;
+    left: max(16px, env(safe-area-inset-left));
+  }
+
+  .touch-hud-overlay.is-left-handed .touch-action {
+    right: max(16px, env(safe-area-inset-right));
+    left: max(108px, calc(env(safe-area-inset-left) + 88px));
+  }
+
+  .configurator-panel-container {
+    bottom: max(8px, env(safe-area-inset-bottom));
+    max-height: 72dvh;
+    overflow-y: auto;
+    padding: 10px 12px;
+  }
 }

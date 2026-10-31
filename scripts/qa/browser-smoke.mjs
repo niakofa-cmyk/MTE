@@ -98,11 +98,20 @@ try {
 } finally {
   socket?.close();
   browser.kill("SIGTERM");
-  await Promise.race([
-    new Promise((resolve) => browser.once("exit", resolve)),
-    delay(2_000).then(() => browser.kill("SIGKILL")),
+  const waitForExit = () =>
+    new Promise((resolve) => {
+      if (browser.exitCode !== null || browser.signalCode !== null) resolve();
+      else browser.once("exit", resolve);
+    });
+  const exitedGracefully = await Promise.race([
+    waitForExit().then(() => true),
+    delay(2_000).then(() => false),
   ]);
-  await rm(profileDirectory, { recursive: true, force: true });
+  if (!exitedGracefully) {
+    browser.kill("SIGKILL");
+    await waitForExit();
+  }
+  await rm(profileDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
 async function runViewport(cdp, viewport) {
@@ -157,6 +166,7 @@ async function runViewport(cdp, viewport) {
   let movementControlResponded = false;
   let lookInputDispatched = false;
   let fireControlPresent = false;
+  let landscapeHudReady = false;
   if (viewport.touch) {
     const mobileControls = await evaluate(cdp, `(() => ({
       overlayVisible: (() => {
@@ -166,12 +176,21 @@ async function runViewport(cdp, viewport) {
       movementZone: Boolean(document.querySelector(".zone-left-movement")),
       aimZone: Boolean(document.querySelector(".zone-right-combat")),
       fireButton: Boolean(document.querySelector(".touch-fire")),
+      touchPreset: document.querySelector('[aria-label="Touch control preset"]')?.options.length ?? 0,
+      handednessControl: Boolean(document.querySelector('[aria-label="Aiming hand"]')),
+      landscapePromptVisible: (() => {
+        const prompt = document.querySelector(".mte-landscape-prompt");
+        return Boolean(prompt && getComputedStyle(prompt).display !== "none");
+      })(),
     }))()`);
 
     assert(beforeStart.coarsePointer, "mobile emulation did not activate the coarse-pointer media query");
     assert(mobileControls.overlayVisible, "mobile touch overlay is hidden after deployment");
     assert(mobileControls.movementZone && mobileControls.aimZone, "mobile movement or aim zone is missing");
     assert(mobileControls.fireButton, "mobile fire control is missing");
+    assert(mobileControls.touchPreset === 3, "mobile touch preset selector is missing an option");
+    assert(mobileControls.handednessControl, "mobile handedness selector is missing");
+    assert(mobileControls.landscapePromptVisible, "portrait gameplay did not show the landscape recommendation");
     fireControlPresent = mobileControls.fireButton;
 
     const movement = await evaluate(cdp, `(() => {
@@ -223,6 +242,57 @@ async function runViewport(cdp, viewport) {
       });
       await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     }
+
+    await evaluate(cdp, `(() => {
+      const selector = document.querySelector('[aria-label="Aiming hand"]');
+      selector.value = "left";
+      selector.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    })()`);
+    await delay(100);
+    const handednessApplied = await evaluate(cdp, `document.querySelector(".touch-hud-overlay")?.classList.contains("is-left-handed") === true`);
+    assert(handednessApplied, "left-handed touch layout did not activate");
+    const rightHandMove = await evaluate(cdp, `(() => {
+      const box = document.querySelector(".zone-right-combat").getBoundingClientRect();
+      return { x: Math.round(box.left + box.width * 0.32), y: Math.round(box.top + box.height * 0.36) };
+    })()`);
+    await cdp.call("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ id: 10, x: rightHandMove.x, y: rightHandMove.y, radiusX: 5, radiusY: 5, force: 1 }],
+    });
+    await cdp.call("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ id: 10, x: rightHandMove.x - 28, y: rightHandMove.y - 20, radiusX: 5, radiusY: 5, force: 1 }],
+    });
+    await delay(100);
+    const leftHandedMovementResponded = await evaluate(cdp, `Boolean(document.querySelector(".dynamic-virtual-stick"))`);
+    await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    assert(leftHandedMovementResponded, "right-side movement did not respond in left-handed mode");
+
+    await cdp.call("Emulation.setDeviceMetricsOverride", {
+      width: 844,
+      height: 390,
+      deviceScaleFactor: 1,
+      mobile: true,
+      screenOrientation: { type: "landscapePrimary", angle: 90 },
+    });
+    await delay(180);
+    const landscape = await evaluate(cdp, `(() => {
+      const overlay = document.querySelector(".touch-hud-overlay");
+      const prompt = document.querySelector(".mte-landscape-prompt");
+      const fire = document.querySelector(".touch-fire")?.getBoundingClientRect();
+      return {
+        media: matchMedia("(orientation: landscape)").matches,
+        overlay: Boolean(overlay && getComputedStyle(overlay).display !== "none"),
+        promptHidden: !prompt || getComputedStyle(prompt).display === "none",
+        fireFits: Boolean(fire && fire.left >= 0 && fire.top >= 0 && fire.right <= innerWidth && fire.bottom <= innerHeight),
+      };
+    })()`);
+    assert(landscape.media, "mobile landscape emulation did not change the orientation media query");
+    assert(landscape.overlay, "touch overlay disappeared in landscape");
+    assert(landscape.promptHidden, "landscape advisory remained visible after rotating to landscape");
+    assert(landscape.fireFits, "landscape fire control is outside the viewport");
+    landscapeHudReady = true;
   } else {
     await cdp.call("Input.dispatchKeyEvent", {
       type: "keyDown",
@@ -280,6 +350,7 @@ async function runViewport(cdp, viewport) {
     movementControlResponded,
     lookInputDispatched,
     fireControlPresent,
+    landscapeHudReady,
     frameTimes,
   };
 }
@@ -412,7 +483,7 @@ function formatResult(result) {
   return `${result.viewport}, WebGL2=${result.webgl2}, renderer=${result.rendererName}, canvases=${result.canvasCount}, ` +
     `frames=${frame.frames}, p50=${frame.p50Ms.toFixed(2)} ms, p95=${frame.p95Ms.toFixed(2)} ms, ` +
     `movement-touch=${result.movementControlResponded}, look-touch=${result.lookInputDispatched}, ` +
-    `fire-control=${result.fireControlPresent || "desktop input"}`;
+    `fire-control=${result.fireControlPresent || "desktop input"}, landscape-HUD=${result.landscapeHudReady}`;
 }
 
 function assert(condition, message) {
