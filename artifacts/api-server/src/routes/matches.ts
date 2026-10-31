@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import {
   MatchSessionError,
+  type MatchMapId,
   type MatchSessionManager,
 } from "../lib/match-session-manager.ts";
 import { GameplayStateError } from "../lib/authoritative-gameplay-state.ts";
+import { CINDER_ROW_MAP_ID } from "../lib/cinder-row-arena.ts";
 import {
   SERVER_OPERATOR_IDS,
   type ServerOperatorId,
@@ -81,14 +83,15 @@ export function createMatchSessionsRouter(
   });
 
   router.post("/matches", async (req, res) => {
-    if (hasUnexpectedBody(req)) {
-      res.status(400).json({ error: "request-body-not-allowed" });
+    const mapId = parseMatchMapId(req.body);
+    if (mapId === null) {
+      res.status(400).json({ error: "invalid-match-map" });
       return;
     }
     if (rejectIfLimited(createLimiter, req, res)) return;
 
     try {
-      const created = await manager.createSession();
+      const created = await manager.createSession(mapId);
       res.status(201).json(created);
     } catch (error) {
       sendSessionError(res, error);
@@ -337,6 +340,15 @@ function hasUnexpectedBody(req: Request): boolean {
   return Object.keys(body).length > 0;
 }
 
+function parseMatchMapId(body: unknown): MatchMapId | null {
+  if (body === undefined || body === null) return "nod";
+  if (typeof body !== "object" || Array.isArray(body)) return null;
+  const record = body as Record<string, unknown>;
+  if (Object.keys(record).some((key) => key !== "mapId")) return null;
+  if (record.mapId === undefined || record.mapId === "nod") return "nod";
+  return record.mapId === CINDER_ROW_MAP_ID ? CINDER_ROW_MAP_ID : null;
+}
+
 function rejectIfLimited(
   limiter: FixedWindowRateLimiter,
   req: Request,
@@ -381,7 +393,8 @@ function sendSessionError(res: Response, error: unknown): void {
           ? 503
           : error.code === "player-capacity" ||
               error.code === "no-safe-spawn" ||
-              error.code === "player-position-unavailable"
+              error.code === "player-position-unavailable" ||
+              error.code === "round-finished"
             ? 409
             : 500;
   res.status(statusCode).json({ error: error.code });

@@ -84,6 +84,76 @@ function gameplay(inventory: unknown[] = []) {
 }
 
 describe("server match client", () => {
+  it("hosts and joins Cinder Row with an isolated saved session and server team", async () => {
+    const storage = new MemoryStorage();
+    const calls: Array<{ path: string; body: string | null }> = [];
+    const arena = snapshot().snapshot as ReturnType<typeof snapshot>["snapshot"] & {
+      mapId: "cinder-row-blackout";
+      mapVersion: string;
+      arenaRound: {
+        phase: "waiting";
+        remainingSeconds: number;
+        relayProgress: number;
+        controlledBy: null;
+        contested: boolean;
+        accordPlayers: number;
+        duskPlayers: number;
+        winner: null;
+      };
+      players: Array<ReturnType<typeof snapshot>["snapshot"]["players"][number] & {
+        team: "accord";
+      }>;
+    };
+    arena.mapId = "cinder-row-blackout";
+    arena.mapVersion = "1.0.0";
+    arena.arenaRound = {
+      phase: "waiting",
+      remainingSeconds: 180,
+      relayProgress: 0,
+      controlledBy: null,
+      contested: false,
+      accordPlayers: 1,
+      duskPlayers: 0,
+      winner: null,
+    };
+    arena.players[0].team = "accord";
+
+    const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      calls.push({ path, body: typeof init?.body === "string" ? init.body : null });
+      if (path === "/api/matches") return response(201, {
+        matchId,
+        mapId: "cinder-row-blackout",
+      });
+      if (path === `/api/matches/${matchId}/players`) {
+        return response(201, {
+          matchId,
+          playerId,
+          operatorId: "jaya",
+          accessToken,
+          snapshot: arena,
+        });
+      }
+      if (path === `/api/matches/${matchId}/world-state`) return response(200, gameplay());
+      throw new Error(`Unexpected request: ${path}`);
+    }) as typeof fetch;
+
+    const connected = await ServerMatchClient.connect({
+      fetcher,
+      storage,
+      mapId: "cinder-row-blackout",
+    });
+    assert.equal(connected.snapshot.mapId, "cinder-row-blackout");
+    assert.equal(connected.player.team, "accord");
+    assert.equal(connected.snapshot.arenaRound?.phase, "waiting");
+    assert.equal(
+      JSON.parse(calls.find((call) => call.path === "/api/matches")?.body ?? "{}").mapId,
+      "cinder-row-blackout",
+    );
+    assert.ok(storage.getItem("mte.server-match.v1:cinder-row-blackout"));
+    assert.equal(storage.getItem("mte.server-match.v1"), null);
+  });
+
   it("creates a match, joins it, and reads the server inventory", async () => {
     const storage = new MemoryStorage();
     const calls: string[] = [];

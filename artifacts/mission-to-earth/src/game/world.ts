@@ -518,6 +518,57 @@ function addForest(scene: THREE.Scene, trees: ForestTree[]) {
   scene.add(bark, canopy);
 }
 
+/**
+ * Compact, versioned Cinder Row graybox for the first relay-control arena.
+ * Keep this layout bounded and readable; the three lanes share one relay
+ * objective and leave clear server-selected spawn approaches on both ends.
+ */
+export function buildCinderRowWorld(): WorldData {
+  const buildings: Box[] = [
+    makeBox(-40, -39, -40, 40, 8, "red", false, "arena-boundary"),
+    makeBox(39, 40, -40, 40, 8, "cyan", false, "arena-boundary"),
+    makeBox(-39, 39, -40, -39, 8, "gold", false, "arena-boundary"),
+    makeBox(-39, 39, 39, 40, 8, "gold", false, "arena-boundary"),
+    // Closed service blocks frame the lanes without sealing their entrances.
+    makeBox(-8, 8, -36, -30, 7, "red", false, "ashway-block"),
+    makeBox(-8, 8, 30, 36, 7, "cyan", false, "undercroft-block"),
+    makeBox(-36, -29, -8, 8, 6, "gold", false, "west-transit-block"),
+    makeBox(29, 36, -8, 8, 6, "red", false, "east-transit-block"),
+  ];
+  const covers: Box[] = [
+    makeBox(-22, -17, -25, -23, 1.25, "gold", true, "ashway-cover", 180),
+    makeBox(16, 22, -20, -18, 1.25, "cyan", true, "ashway-cover", 180),
+    makeBox(-23, -18, 18, 20, 1.25, "cyan", true, "undercroft-cover", 180),
+    makeBox(17, 23, 23, 25, 1.25, "gold", true, "undercroft-cover", 180),
+    makeBox(-18, -14, -3, 3, 1.45, "cyan", true, "transit-cover", 220),
+    makeBox(14, 18, -3, 3, 1.45, "gold", true, "transit-cover", 220),
+    makeBox(-4, -2, -15, -9, 1.1, "red", true, "relay-cover", 150),
+    makeBox(2, 4, 9, 15, 1.1, "red", true, "relay-cover", 150),
+  ];
+  const nodes: Array<{ x: number; z: number }> = [];
+  for (const x of [-32, -24, -16, -8, 0, 8, 16, 24, 32]) {
+    for (const z of [-24, 0, 24]) {
+      if (!overlapsAny(x, z, 0.8, buildings)) nodes.push({ x, z });
+    }
+  }
+
+  return {
+    buildings,
+    covers,
+    sites: [],
+    loots: [],
+    nodes,
+    terminals: [],
+    guards: [],
+    beacon: { x: 0, z: 0 },
+    extract: { x: 0, z: 0 },
+    landmarks: [],
+    routes: [],
+    trees: [],
+    limit: 40,
+  };
+}
+
 export function createCity(scene: THREE.Scene, world: WorldData) {
   const buckets: Record<Glow, THREE.BufferGeometry[]> = { cyan: [], gold: [], red: [] };
   const solids: THREE.BufferGeometry[] = [];

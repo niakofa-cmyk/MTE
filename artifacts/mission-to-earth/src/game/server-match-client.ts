@@ -87,6 +87,19 @@ export type ServerPlayerSnapshot = {
   ability: ServerAbilitySnapshot;
   isFocusAiming: boolean;
   health: number;
+  team?: "accord" | "eon-dusk";
+};
+
+export type ServerMatchMapId = "nod" | "cinder-row-blackout";
+export type ServerArenaRoundSnapshot = {
+  phase: "waiting" | "active" | "finished";
+  remainingSeconds: number;
+  relayProgress: number;
+  controlledBy: "accord" | "eon-dusk" | null;
+  contested: boolean;
+  accordPlayers: number;
+  duskPlayers: number;
+  winner: "accord" | "eon-dusk" | null;
 };
 
 export type ServerOperatorId = "jaya" | "bodhi" | "khensu" | "aset" | "ananda" | "nefret";
@@ -113,18 +126,28 @@ export type ServerAbilitySnapshot = {
   activeDurationRemainingSeconds: number;
 };
 
-type MatchSnapshot = { protocolVersion: 3; players: ServerPlayerSnapshot[] };
+export type MatchSnapshot = {
+  protocolVersion: 3;
+  players: ServerPlayerSnapshot[];
+  mapId: ServerMatchMapId;
+  mapVersion: string | null;
+  arenaRound: ServerArenaRoundSnapshot | null;
+};
 type StoredSession = {
   matchId: string;
   playerId: string;
   accessToken: string;
   nextSequence: number;
+  mapId: ServerMatchMapId;
 };
 
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 type FetchLike = typeof fetch;
 
 const SESSION_STORAGE_KEY = "mte.server-match.v1";
+function sessionStorageKey(mapId: ServerMatchMapId): string {
+  return mapId === "nod" ? SESSION_STORAGE_KEY : `${SESSION_STORAGE_KEY}:${mapId}`;
+}
 const MATCH_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PLAYER_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -243,10 +266,14 @@ function isLootKind(value: unknown): value is ServerLootKind {
     value === "armor" || value === "mod" || value === "intel";
 }
 
-function readStoredSession(storage: StorageLike | null): StoredSession | null {
+function readStoredSession(
+  storage: StorageLike | null,
+  key: string,
+  mapId: ServerMatchMapId,
+): StoredSession | null {
   if (!storage) return null;
   try {
-    const raw = storage.getItem(SESSION_STORAGE_KEY);
+    const raw = storage.getItem(key);
     if (!raw) return null;
     const value: unknown = JSON.parse(raw);
     if (
@@ -260,7 +287,7 @@ function readStoredSession(storage: StorageLike | null): StoredSession | null {
       !Number.isSafeInteger(value.nextSequence) ||
       (value.nextSequence as number) < 1
     ) {
-      storage.removeItem(SESSION_STORAGE_KEY);
+      storage.removeItem(key);
       return null;
     }
     return {
@@ -268,9 +295,10 @@ function readStoredSession(storage: StorageLike | null): StoredSession | null {
       playerId: value.playerId,
       accessToken: value.accessToken,
       nextSequence: value.nextSequence as number,
+      mapId,
     };
   } catch {
-    storage.removeItem(SESSION_STORAGE_KEY);
+    storage.removeItem(key);
     return null;
   }
 }
@@ -286,6 +314,62 @@ function parseSnapshot(value: unknown, matchId: string): MatchSnapshot {
   ) {
     throw new Error("The match server returned an invalid player snapshot.");
   }
+  const snapshotRecord = value.snapshot;
+  const mapId = snapshotRecord.mapId === undefined
+    ? "nod"
+    : snapshotRecord.mapId === "nod" || snapshotRecord.mapId === "cinder-row-blackout"
+      ? snapshotRecord.mapId
+      : null;
+  if (!mapId) throw new Error("The match server returned an unknown map.");
+  const mapVersion = snapshotRecord.mapVersion === undefined
+    ? null
+    : typeof snapshotRecord.mapVersion === "string"
+      ? snapshotRecord.mapVersion
+      : null;
+  if (snapshotRecord.mapVersion !== undefined && mapVersion === null) {
+    throw new Error("The match server returned an invalid map version.");
+  }
+  const arenaRoundValue = snapshotRecord.arenaRound;
+  let arenaRound: ServerArenaRoundSnapshot | null = null;
+  if (arenaRoundValue !== undefined && arenaRoundValue !== null) {
+    if (
+      !isRecord(arenaRoundValue) ||
+      !["waiting", "active", "finished"].includes(String(arenaRoundValue.phase)) ||
+      !finite(arenaRoundValue.remainingSeconds) ||
+      arenaRoundValue.remainingSeconds < 0 ||
+      arenaRoundValue.remainingSeconds > 180 ||
+      !finite(arenaRoundValue.relayProgress) ||
+      arenaRoundValue.relayProgress < 0 ||
+      arenaRoundValue.relayProgress > 100 ||
+      typeof arenaRoundValue.contested !== "boolean" ||
+      typeof arenaRoundValue.accordPlayers !== "number" ||
+      !Number.isInteger(arenaRoundValue.accordPlayers) ||
+      arenaRoundValue.accordPlayers < 0 ||
+      arenaRoundValue.accordPlayers > 4 ||
+      typeof arenaRoundValue.duskPlayers !== "number" ||
+      !Number.isInteger(arenaRoundValue.duskPlayers) ||
+      arenaRoundValue.duskPlayers < 0 ||
+      arenaRoundValue.duskPlayers > 4 ||
+      (arenaRoundValue.controlledBy !== null &&
+        arenaRoundValue.controlledBy !== "accord" &&
+        arenaRoundValue.controlledBy !== "eon-dusk") ||
+      (arenaRoundValue.winner !== null &&
+        arenaRoundValue.winner !== "accord" &&
+        arenaRoundValue.winner !== "eon-dusk")
+    ) {
+      throw new Error("The match server returned an invalid arena round.");
+    }
+    arenaRound = {
+      phase: arenaRoundValue.phase as ServerArenaRoundSnapshot["phase"],
+      remainingSeconds: arenaRoundValue.remainingSeconds,
+      relayProgress: arenaRoundValue.relayProgress,
+      controlledBy: arenaRoundValue.controlledBy as ServerArenaRoundSnapshot["controlledBy"],
+      contested: arenaRoundValue.contested,
+      accordPlayers: arenaRoundValue.accordPlayers,
+      duskPlayers: arenaRoundValue.duskPlayers,
+      winner: arenaRoundValue.winner as ServerArenaRoundSnapshot["winner"],
+    };
+  }
   const players = value.snapshot.players.map((player): ServerPlayerSnapshot => {
     if (
       !isRecord(player) ||
@@ -298,6 +382,7 @@ function parseSnapshot(value: unknown, matchId: string): MatchSnapshot {
       !finite(player.yaw) ||
       !finite(player.pitch) ||
       !SERVER_OPERATOR_IDS.includes(player.operatorId as ServerOperatorId) ||
+      (player.team !== undefined && player.team !== "accord" && player.team !== "eon-dusk") ||
       !HAND_ACTIONS.includes(player.rightHandState as ServerHandAction) ||
       !HAND_ACTIONS.includes(player.leftHandState as ServerHandAction) ||
       typeof player.isFocusAiming !== "boolean" ||
@@ -386,9 +471,12 @@ function parseSnapshot(value: unknown, matchId: string): MatchSnapshot {
       },
       isFocusAiming: player.isFocusAiming,
       health: player.health,
+      ...(player.team === "accord" || player.team === "eon-dusk"
+        ? { team: player.team }
+        : {}),
     };
   });
-  return { protocolVersion: 3, players };
+  return { protocolVersion: 3, players, mapId, mapVersion, arenaRound };
 }
 
 function parseGameplayState(value: unknown, matchId: string): ServerGameplayState {
@@ -509,6 +597,7 @@ export class ServerMatchClient {
   private readonly session: StoredSession;
   private readonly fetcher: FetchLike;
   private readonly storage: StorageLike | null;
+  private readonly storageKey: string;
   private nextSequence: number;
   private latestInput: (MatchInput & { sequenceNumber: number }) | null = null;
   private sendingInput = false;
@@ -518,10 +607,12 @@ export class ServerMatchClient {
     session: StoredSession,
     fetcher: FetchLike,
     storage: StorageLike | null,
+    storageKey: string,
   ) {
     this.session = session;
     this.fetcher = fetcher;
     this.storage = storage;
+    this.storageKey = storageKey;
     this.nextSequence = session.nextSequence;
   }
 
@@ -533,6 +624,9 @@ export class ServerMatchClient {
     return this.session.playerId;
   }
 
+  get mapId(): ServerMatchMapId {
+    return this.session.mapId;
+  }
   get localPlayerId(): string {
     return this.session.playerId;
   }
@@ -541,25 +635,43 @@ export class ServerMatchClient {
     fetcher?: FetchLike;
     storage?: StorageLike | null;
     operatorId?: ServerOperatorId;
+    mapId?: ServerMatchMapId;
+    joinMatchId?: string;
   } = {}): Promise<{
     client: ServerMatchClient;
     player: ServerPlayerSnapshot;
     gameplay: ServerGameplayState;
     operatorId: ServerOperatorId;
     restored: boolean;
+    snapshot: MatchSnapshot;
   }> {
     const fetcher = options.fetcher ?? fetch;
     const storage = options.storage === undefined ? defaultStorage() : options.storage;
     const requestedOperatorId = options.operatorId ?? "jaya";
+    const requestedMapId = options.mapId ?? "nod";
+    const storageKey = sessionStorageKey(requestedMapId);
     if (!SERVER_OPERATOR_IDS.includes(requestedOperatorId)) {
       throw new Error("The selected operator is not available in server matches.");
     }
-    const stored = readStoredSession(storage);
+    if (
+      requestedMapId !== "nod" &&
+      requestedMapId !== "cinder-row-blackout"
+    ) {
+      throw new Error("The selected match map is not available.");
+    }
+    const joinMatchId = options.joinMatchId?.trim() || null;
+    if (joinMatchId && !MATCH_ID_PATTERN.test(joinMatchId)) {
+      throw new Error("Enter a valid match code.");
+    }
+    const stored = joinMatchId ? null : readStoredSession(storage, storageKey, requestedMapId);
 
     if (stored) {
-      const client = new ServerMatchClient(stored, fetcher, storage);
+      const client = new ServerMatchClient(stored, fetcher, storage, storageKey);
       try {
         const snapshot = await client.getSnapshot();
+        if (snapshot.mapId !== requestedMapId) {
+          throw new ServerMatchError("The saved match belongs to another mode.", 409);
+        }
         const player = snapshot.players.find((entry) => entry.playerId === stored.playerId);
         if (!player) throw new ServerMatchError("Player session has expired.", 401);
         client.nextSequence = Math.max(stored.nextSequence, player.lastProcessedSequence + 1);
@@ -571,24 +683,37 @@ export class ServerMatchClient {
           gameplay,
           operatorId: player.operatorId,
           restored: true,
+          snapshot,
         };
       } catch (error) {
         if (!(error instanceof ServerMatchError) || (error.status !== 401 && error.status !== 404)) {
           throw error;
         }
-        storage?.removeItem(SESSION_STORAGE_KEY);
+        storage?.removeItem(storageKey);
       }
     }
 
-    const createdValue = await requestJson(fetcher, "/api/matches", { method: "POST" });
-    if (
-      !isRecord(createdValue) ||
-      typeof createdValue.matchId !== "string" ||
-      !MATCH_ID_PATTERN.test(createdValue.matchId)
-    ) {
-      throw new Error("The match server did not return a valid match ID.");
+    let matchId = joinMatchId;
+    if (!matchId) {
+      const createdValue = await requestJson(fetcher, "/api/matches", {
+        method: "POST",
+        ...(requestedMapId === "nod"
+          ? {}
+          : {
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ mapId: requestedMapId }),
+            }),
+      });
+      if (
+        !isRecord(createdValue) ||
+        typeof createdValue.matchId !== "string" ||
+        !MATCH_ID_PATTERN.test(createdValue.matchId) ||
+        (createdValue.mapId ?? "nod") !== requestedMapId
+      ) {
+        throw new Error("The match server did not return a valid match ID.");
+      }
+      matchId = createdValue.matchId;
     }
-    const matchId = createdValue.matchId;
     const joinedValue = await requestJson(
       fetcher,
       `/api/matches/${matchId}/players`,
@@ -613,6 +738,9 @@ export class ServerMatchClient {
       { matchId: joinedValue.matchId, snapshot: joinedValue.snapshot },
       matchId,
     );
+    if (joinedSnapshot.mapId !== requestedMapId) {
+      throw new Error("That match code belongs to a different game mode.");
+    }
     const player = joinedSnapshot.players.find((entry) => entry.playerId === joinedValue.playerId);
     if (!player || player.operatorId !== requestedOperatorId) {
       throw new Error("The match server omitted the joined player profile.");
@@ -623,8 +751,9 @@ export class ServerMatchClient {
       playerId: joinedValue.playerId,
       accessToken: joinedValue.accessToken,
       nextSequence: Math.max(1, player.lastProcessedSequence + 1),
+      mapId: requestedMapId,
     };
-    const client = new ServerMatchClient(session, fetcher, storage);
+    const client = new ServerMatchClient(session, fetcher, storage, storageKey);
     client.persistSession();
     const gameplay = await client.getGameplayState();
     return {
@@ -633,6 +762,7 @@ export class ServerMatchClient {
       gameplay,
       operatorId: player.operatorId,
       restored: false,
+      snapshot: joinedSnapshot,
     };
   }
 
@@ -796,7 +926,7 @@ export class ServerMatchClient {
 
   private persistSession(): void {
     try {
-      this.storage?.setItem(SESSION_STORAGE_KEY, JSON.stringify(this.session));
+      this.storage?.setItem(this.storageKey, JSON.stringify(this.session));
     } catch {
       // The active session still works in memory if browser storage is unavailable.
     }

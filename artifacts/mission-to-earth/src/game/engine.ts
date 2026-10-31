@@ -65,6 +65,7 @@ import {
 import {
   RADIUS,
   buildWorld,
+  buildCinderRowWorld,
   createCity,
   floorHeight,
   hasLos,
@@ -84,6 +85,7 @@ import {
   type ServerGameplayState,
   type ServerInventoryItem,
   type ServerPlayerSnapshot,
+  type ServerMatchMapId,
 } from "@/game/server-match-client";
 
 export type MissionEvent =
@@ -477,6 +479,7 @@ export class MissionEngine {
     left: new Map(),
   };
   private world: WorldData;
+  private readonly mapId: ServerMatchMapId;
   private solids: Box[];
   private objectiveNavigator = new ObjectiveNavigator();
   private objectiveApproachCache = new Map<
@@ -698,12 +701,19 @@ export class MissionEngine {
   private onResize: () => void;
   private ro: ResizeObserver;
 
-  constructor(host: HTMLElement, hooks: { onEvent: (e: MissionEvent) => void }) {
+  constructor(
+    host: HTMLElement,
+    hooks: { onEvent: (e: MissionEvent) => void },
+    options: { mapId?: ServerMatchMapId } = {},
+  ) {
     this.host = host;
     this.hooks = hooks;
+    this.mapId = options.mapId ?? "nod";
     this.touch = window.matchMedia("(pointer: coarse)").matches;
     this.reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    this.world = buildWorld();
+    this.world = this.mapId === "cinder-row-blackout"
+      ? buildCinderRowWorld()
+      : buildWorld();
     this.solids = [...this.world.buildings, ...this.world.covers];
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -1277,12 +1287,16 @@ export class MissionEngine {
     ];
     this.slot = 0;
     this.say("ACCORD", "Ananda is under Cradle Alpha. Nefret is under Cradle Omega. The technocrats have been cutting them open.");
-    this.say("MA'AT", "Parachute in. Scavenge what the street gives you. Breach the cells.");
-    this.say("DHARMA", "Free air lights the signal fires. When a bloodline is loose, B wears it. It will not feel trained.");
-    this.say("TACTICAL", "Slums drop scrap guns. The monolith drops rails. A mod seats on the weapon in your hands.");
-    if (brought.length) this.say("ACCORD", "The field cache sent your filed mods with the weapon.");
-    this.configureSquad();
-    this.spawnInitial();
+    if (this.mapId === "cinder-row-blackout") {
+      this.say("BLACKOUT", "Cinder Row relay is live. Hold the center with your team.");
+    } else {
+      this.say("MA'AT", "Parachute in. Scavenge what the street gives you. Breach the cells.");
+      this.say("DHARMA", "Free air lights the signal fires. When a bloodline is loose, B wears it. It will not feel trained.");
+      this.say("TACTICAL", "Slums drop scrap guns. The monolith drops rails. A mod seats on the weapon in your hands.");
+      if (brought.length) this.say("ACCORD", "The field cache sent your filed mods with the weapon.");
+      this.configureSquad();
+      this.spawnInitial();
+    }
     this.sealLoadout();
     this.hooks.onEvent({ type: "mode", mode: "play" });
   }
@@ -1407,7 +1421,11 @@ export class MissionEngine {
         const body = new THREE.Mesh(
           new THREE.CapsuleGeometry(0.34, 0.92, 4, 8),
           new THREE.MeshStandardMaterial({
-            color: 0x607a83,
+            color: player.team === "accord"
+              ? 0x2ee0c8
+              : player.team === "eon-dusk"
+                ? 0xe07055
+                : 0x607a83,
             roughness: 0.72,
             metalness: 0.28,
           }),
@@ -2135,12 +2153,16 @@ export class MissionEngine {
     this.abilities();
     this.tickBlood(dt);
     this.portalsAndVoid(dt);
-    this.updateActors(dt);
-    this.updateVips(dt);
-    this.updateLoot(dt);
-    this.updateZone(dt);
-    this.objectives(dt);
-    this.director(dt);
+    if (this.mapId === "cinder-row-blackout") {
+      this.prompt = "HOLD THE RELAY · TEAM CONTROL";
+    } else {
+      this.updateActors(dt);
+      this.updateVips(dt);
+      this.updateLoot(dt);
+      this.updateZone(dt);
+      this.objectives(dt);
+      this.director(dt);
+    }
     this.tickLines(dt);
     this.footprintsUpdate(dt);
     this.decayJuice(dt);
@@ -4101,6 +4123,9 @@ export class MissionEngine {
   }
 
   private objectivePoint() {
+    if (this.mapId === "cinder-row-blackout") {
+      return { x: this.world.beacon.x, z: this.world.beacon.z, label: "RELAY" };
+    }
     const alpha = this.world.sites[0]!;
     const omega = this.world.sites[1]!;
     if (!alpha.freed) return { x: alpha.x, z: alpha.z + 18, label: "CRADLE ALPHA" };
@@ -4146,6 +4171,10 @@ export class MissionEngine {
 
   private objectives(dt: number) {
     this.prompt = "";
+    if (this.mapId === "cinder-row-blackout") {
+      this.prompt = "HOLD THE RELAY · TEAM CONTROL";
+      return;
+    }
     const alpha = this.world.sites[0]!;
     const omega = this.world.sites[1]!;
     const interact = this.held("KeyE") || this.virtual.interact;

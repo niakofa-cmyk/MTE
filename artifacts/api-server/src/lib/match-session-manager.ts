@@ -16,9 +16,21 @@ import {
   type AuthoritativeGameplaySnapshot,
   type GrantedGameplayItem,
 } from "./authoritative-gameplay-state.ts";
+import {
+  CINDER_ROW_MAP_ID,
+  CINDER_ROW_MAP_VERSION,
+  CINDER_ROW_MAX_PLAYERS,
+  CINDER_ROW_SPAWNS,
+  CinderRowRelayRound,
+  type ArenaTeam,
+  type CinderRowRoundSnapshot,
+} from "./cinder-row-arena.ts";
 import type { GameplayRegistryAsset } from "./gameplay-registry.ts";
 import { logger } from "./logger.ts";
-import { createNodAuthoritativeMatch } from "./match-bootstrap.ts";
+import {
+  createCinderRowAuthoritativeMatch,
+  createNodAuthoritativeMatch,
+} from "./match-bootstrap.ts";
 
 const NANOSECONDS_PER_MILLISECOND = 1_000_000n;
 const ACCESS_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -32,7 +44,10 @@ export type MatchSessionErrorCode =
   | "unauthorized"
   | "no-safe-spawn"
   | "player-position-unavailable"
-  | "extraction-not-ready";
+  | "extraction-not-ready"
+  | "round-finished";
+
+export type MatchMapId = "nod" | typeof CINDER_ROW_MAP_ID;
 
 export class MatchSessionError extends Error {
   readonly code: MatchSessionErrorCode;
@@ -48,7 +63,7 @@ export class MatchSessionError extends Error {
 }
 
 export interface MatchBootstrap {
-  (): Promise<{
+  (mapId: MatchMapId): Promise<{
     match: AuthoritativeMatch;
     loadedGeometryCount: number;
     gameplayRegistry: GameplayRegistryAsset;
@@ -68,30 +83,48 @@ export interface MatchSessionManagerOptions {
 
 export interface CreatedMatchSession {
   matchId: string;
+  mapId: MatchMapId;
+  mapVersion: string;
+  gameModeId: "extraction" | "relay-control";
   mapNodeCount: number;
   maxPlayers: number;
   expiresAfterMs: number;
+}
+
+export interface MatchSessionSnapshot extends AuthoritativeWorldSnapshot {
+  mapId: MatchMapId;
+  mapVersion: string;
+  players: Array<AuthoritativeWorldSnapshot["players"][number] & {
+    team?: ArenaTeam;
+  }>;
+  arenaRound?: CinderRowRoundSnapshot;
 }
 
 export interface JoinedMatchSession {
   matchId: string;
   playerId: string;
   operatorId: ServerOperatorId;
+  team: ArenaTeam | null;
   accessToken: string;
-  snapshot: AuthoritativeWorldSnapshot;
+  snapshot: MatchSessionSnapshot;
 }
 
 interface SessionPlayer {
   accessTokenDigest: string;
   ownerUserId: string | null;
   extractionHold: ExtractionHold;
+  team: ArenaTeam | null;
 }
 
 interface MatchSessionRecord {
   matchId: string;
+  mapId: MatchMapId;
+  mapVersion: string;
+  maxPlayers: number;
   match: AuthoritativeMatch;
   gameplay: AuthoritativeGameplayState;
-  extractionObjective: NonNullable<GameplayRegistryAsset["objectives"][number]>;
+  extractionObjective: GameplayRegistryAsset["objectives"][number] | null;
+  arenaRound: CinderRowRelayRound | null;
   mapNodeCount: number;
   createdAtNs: bigint;
   lastActivityAtNs: bigint;
@@ -125,7 +158,10 @@ export class MatchSessionManager {
   private readonly bootstrap: MatchBootstrap;
 
   constructor(
-    bootstrap: MatchBootstrap = () => createNodAuthoritativeMatch(),
+    bootstrap: MatchBootstrap = (mapId) =>
+      mapId === CINDER_ROW_MAP_ID
+        ? createCinderRowAuthoritativeMatch()
+        : createNodAuthoritativeMatch(),
     options: MatchSessionManagerOptions = {},
   ) {
     this.bootstrap = bootstrap;
@@ -178,7 +214,10 @@ export class MatchSessionManager {
     return this.sessions.size;
   }
 
-  async createSession(): Promise<CreatedMatchSession> {
+  async createSession(mapId: MatchMapId = "nod"): Promise<CreatedMatchSession> {
+    if (mapId !== "nod" && mapId !== CINDER_ROW_MAP_ID) {
+      throw new MatchSessionError("not-found", "The requested map is unavailable.");
+    }
     const nowNs = this.readClock();
     this.pruneExpired(nowNs);
     if (this.sessions.size + this.pendingCreates >= this.maxActiveSessions) {
@@ -190,20 +229,26 @@ export class MatchSessionManager {
 
     this.pendingCreates += 1;
     try {
-      const { match, loadedGeometryCount, gameplayRegistry } = await this.bootstrap();
+      const { match, loadedGeometryCount, gameplayRegistry } = await this.bootstrap(mapId);
       const extractionObjective = gameplayRegistry.objectives.find(
         (objective) => objective.kind === "extraction",
       );
-      if (!extractionObjective) {
+      if (mapId === "nod" && !extractionObjective) {
         throw new Error("The server gameplay registry has no extraction objective.");
       }
       const createdAtNs = this.readClock();
       const matchId = randomUUID();
       const session: MatchSessionRecord = {
         matchId,
+        mapId,
+        mapVersion: mapId === CINDER_ROW_MAP_ID ? CINDER_ROW_MAP_VERSION : "nod-current",
+        maxPlayers: mapId === CINDER_ROW_MAP_ID
+          ? CINDER_ROW_MAX_PLAYERS
+          : this.maxPlayersPerSession,
         match,
         gameplay: new AuthoritativeGameplayState(gameplayRegistry),
-        extractionObjective,
+        extractionObjective: extractionObjective ?? null,
+        arenaRound: mapId === CINDER_ROW_MAP_ID ? new CinderRowRelayRound() : null,
         mapNodeCount: loadedGeometryCount,
         createdAtNs,
         lastActivityAtNs: createdAtNs,
@@ -218,8 +263,11 @@ export class MatchSessionManager {
       this.sessions.set(matchId, session);
       return {
         matchId,
+        mapId: session.mapId,
+        mapVersion: session.mapVersion,
+        gameModeId: mapId === CINDER_ROW_MAP_ID ? "relay-control" : "extraction",
         mapNodeCount: loadedGeometryCount,
-        maxPlayers: this.maxPlayersPerSession,
+        maxPlayers: session.maxPlayers,
         expiresAfterMs: Number(this.maxSessionLifetimeNs / NANOSECONDS_PER_MILLISECOND),
       };
     } finally {
@@ -237,7 +285,7 @@ export class MatchSessionManager {
     if (!Object.hasOwn(SERVER_OPERATOR_PROFILES, operatorId)) {
       throw new MatchSessionError("invalid-operator", "Operator is not available.");
     }
-    if (session.players.size >= this.maxPlayersPerSession) {
+    if (session.players.size >= session.maxPlayers) {
       throw new MatchSessionError(
         "player-capacity",
         "This match has no open player slots.",
@@ -247,11 +295,24 @@ export class MatchSessionManager {
     const playerId = randomUUID();
     const accessToken = randomBytes(32).toString("base64url");
     const accessTokenDigest = digestAccessToken(accessToken);
-    this.registerAtServerSelectedSpawn(session, playerId, operatorId);
+    const team = session.mapId === CINDER_ROW_MAP_ID
+      ? this.selectArenaTeam(session)
+      : null;
+    if (team) {
+      const spawnIndex = [...session.players.values()].filter((player) => player.team === team).length;
+      const spawn = CINDER_ROW_SPAWNS[team][spawnIndex];
+      if (!spawn) {
+        throw new MatchSessionError("player-capacity", "This team has no open player slots.");
+      }
+      session.match.registerPlayer(playerId, spawn, operatorId);
+    } else {
+      this.registerAtServerSelectedSpawn(session, playerId, operatorId);
+    }
     session.players.set(playerId, {
       accessTokenDigest,
       ownerUserId,
       extractionHold: new ExtractionHold(),
+      team,
     });
     session.playerByTokenDigest.set(accessTokenDigest, playerId);
     session.lastActivityAtNs = nowNs;
@@ -260,8 +321,9 @@ export class MatchSessionManager {
       matchId,
       playerId,
       operatorId,
+      team,
       accessToken,
-      snapshot: session.match.getSnapshot(),
+      snapshot: this.snapshotFor(session),
     };
   }
 
@@ -273,6 +335,12 @@ export class MatchSessionManager {
     const nowNs = this.readClock();
     const session = this.getLiveSession(matchId, nowNs);
     const playerId = this.resolvePlayer(session, accessToken);
+    if (session.arenaRound?.snapshot().phase === "finished") {
+      throw new MatchSessionError(
+        "round-finished",
+        "This arena round has ended.",
+      );
+    }
     const result = session.match.submitInput(
       playerId,
       packet,
@@ -285,12 +353,12 @@ export class MatchSessionManager {
   getSnapshot(
     matchId: string,
     accessToken: string,
-  ): { matchId: string; snapshot: AuthoritativeWorldSnapshot } {
+  ): { matchId: string; snapshot: MatchSessionSnapshot } {
     const nowNs = this.readClock();
     const session = this.getLiveSession(matchId, nowNs);
     this.resolvePlayer(session, accessToken);
     session.lastActivityAtNs = nowNs;
-    return { matchId, snapshot: session.match.getSnapshot() };
+    return { matchId, snapshot: this.snapshotFor(session) };
   }
 
   getGameplaySnapshot(
@@ -421,11 +489,33 @@ export class MatchSessionManager {
         const result = session.tickAccumulator.advanceFromMonotonicNs(
           nowNs,
           (stepSeconds) => {
+            if (session.arenaRound?.snapshot().phase === "finished") return;
             session.match.tick(stepSeconds, serverNowMs);
+            if (session.arenaRound) {
+              const snapshot = session.match.getSnapshot(serverNowMs);
+              const positionById = new Map(
+                snapshot.players.map((player) => [player.playerId, player]),
+              );
+              session.arenaRound.step(
+                stepSeconds,
+                [...session.players.entries()].flatMap(([playerId, record]) => {
+                  const player = positionById.get(playerId);
+                  if (!player || !record.team) return [];
+                  return [{
+                    playerId,
+                    team: record.team,
+                    position: { x: player.position.x, z: player.position.z },
+                    alive: player.health > 0,
+                  }];
+                }),
+              );
+            }
           },
         );
-        for (const playerId of session.players.keys()) {
-          this.refreshExtractionPlayer(session, playerId, nowNs);
+        if (session.extractionObjective) {
+          for (const playerId of session.players.keys()) {
+            this.refreshExtractionPlayer(session, playerId, nowNs);
+          }
         }
         if (
           result.droppedSeconds > 0 &&
@@ -511,11 +601,17 @@ export class MatchSessionManager {
     if (!player) {
       return { inRange: false, progress: 0, ready: false, settled: false };
     }
+    const objective = session.extractionObjective;
+    if (!objective) {
+      throw new MatchSessionError(
+        "extraction-not-ready",
+        "This competitive arena has no extraction objective.",
+      );
+    }
     const position = session.match.getPlayerPosition(playerId);
     const worldPlayer = session.match
       .getSnapshot(Number(nowNs) / Number(NANOSECONDS_PER_MILLISECOND))
       .players.find((entry) => entry.playerId === playerId);
-    const objective = session.extractionObjective;
     const distance = position
       ? Math.hypot(position.x - objective.x, position.z - objective.z)
       : Number.POSITIVE_INFINITY;
@@ -536,7 +632,14 @@ export class MatchSessionManager {
   ): MatchExtractionStatus {
     const player = session.players.get(playerId);
     if (!player) throw new MatchSessionError("unauthorized", "Player session is invalid.");
-    const requiredSeconds = session.extractionObjective.holdSeconds ?? 6;
+    const objective = session.extractionObjective;
+    if (!objective) {
+      throw new MatchSessionError(
+        "extraction-not-ready",
+        "This competitive arena has no extraction objective.",
+      );
+    }
+    const requiredSeconds = objective.holdSeconds ?? 6;
     const status = this.refreshExtractionPlayer(session, playerId, nowNs);
     return {
       matchId: session.matchId,
@@ -545,6 +648,36 @@ export class MatchSessionManager {
       requiredSeconds,
       ready: status.ready,
       settled: status.settled,
+    };
+  }
+
+  private selectArenaTeam(session: MatchSessionRecord): ArenaTeam {
+    let accordCount = 0;
+    let duskCount = 0;
+    for (const player of session.players.values()) {
+      if (player.team === "accord") accordCount += 1;
+      if (player.team === "eon-dusk") duskCount += 1;
+    }
+    if (accordCount >= 4) return "eon-dusk";
+    if (duskCount >= 4) return "accord";
+    return accordCount <= duskCount ? "accord" : "eon-dusk";
+  }
+
+  private snapshotFor(session: MatchSessionRecord): MatchSessionSnapshot {
+    const snapshot = session.match.getSnapshot(
+      Number(this.readClock()) / Number(NANOSECONDS_PER_MILLISECOND),
+    );
+    return {
+      ...snapshot,
+      mapId: session.mapId,
+      mapVersion: session.mapVersion,
+      players: snapshot.players.map((player) => {
+        const team = session.players.get(player.playerId)?.team;
+        return { ...player, ...(team ? { team } : {}) };
+      }),
+      ...(session.arenaRound
+        ? { arenaRound: session.arenaRound.snapshot() }
+        : {}),
     };
   }
 

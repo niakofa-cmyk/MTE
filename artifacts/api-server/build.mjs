@@ -137,6 +137,22 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     generatedGameplayAsset,
     path.resolve(bundledAssetDir, "nod-gameplay-registry.json"),
   );
+  const cinderGeometryAsset = path.resolve(
+    artifactDir,
+    "src/data/generated/cinder-row-blackout-level-geometry.json",
+  );
+  await copyFile(
+    cinderGeometryAsset,
+    path.resolve(bundledAssetDir, "cinder-row-blackout-level-geometry.json"),
+  );
+  const cinderGameplayAsset = path.resolve(
+    artifactDir,
+    "src/data/generated/cinder-row-blackout-gameplay-registry.json",
+  );
+  await copyFile(
+    cinderGameplayAsset,
+    path.resolve(bundledAssetDir, "cinder-row-blackout-gameplay-registry.json"),
+  );
 }
 
 buildAll().catch((err) => {

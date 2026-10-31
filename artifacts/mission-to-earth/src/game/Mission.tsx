@@ -3,6 +3,7 @@ import { Crosshair, Radio, Shield, Volume2, VolumeX } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { BLOODLINES, DOSSIER, OPERATORS, OPERATOR_BY_ID, type OpId, type WeaponId } from "@/game/content";
 import { MissionEngine, type MissionEvent } from "@/game/engine";
+import { CinderRowPanel } from "@/game/CinderRowPanel";
 import { CityOfNodBackdrop } from "@/game/city-of-nod-backdrop";
 import { ATTACHMENT_BY_ID, type AttachSlot } from "@/game/loot";
 import { extractionEpilogue } from "@/game/mission-epilogue";
@@ -41,6 +42,8 @@ import {
   type ServerExtractionStatus,
   type ServerInventoryItem,
   type ServerPlayerProfile,
+  type ServerArenaRoundSnapshot,
+  type ServerMatchMapId,
 } from "@/game/server-match-client";
 
 type Screen = "menu" | "dossier" | "armory" | "settings" | "inventory" | "play" | "pause" | "dead" | "win";
@@ -57,6 +60,7 @@ export function Mission() {
   const rootRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<MissionEngine | null>(null);
   const [screen, setScreen] = useState<Screen>("menu");
+  const [mapId, setMapId] = useState<ServerMatchMapId>("nod");
   const [op, setOp] = useState<OpId>("jaya");
   const [muted, setMuted] = useState(false);
   const [stats, setStats] = useState<{ time: number; kills: number; op: OpId; scrap: number; filed: string[]; hasEonDuskPlans: boolean } | null>(null);
@@ -71,6 +75,10 @@ export function Mission() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [serverExtraction, setServerExtraction] = useState<ServerExtractionStatus | null>(null);
+  const [arenaJoinCode, setArenaJoinCode] = useState("");
+  const [arenaMatchId, setArenaMatchId] = useState<string | null>(null);
+  const [arenaTeam, setArenaTeam] = useState<"accord" | "eon-dusk" | null>(null);
+  const [arenaRound, setArenaRound] = useState<ServerArenaRoundSnapshot | null>(null);
   const settlementInFlight = useRef(false);
   const [graphicsUnavailable, setGraphicsUnavailable] = useState(false);
   const [lookSensitivity, setLookSensitivity] = useState(() => {
@@ -155,7 +163,7 @@ export function Mission() {
           }
           if (event.type === "error") setScreen("menu");
         },
-      });
+      }, { mapId });
     } catch (error) {
       setGraphicsUnavailable(true);
       console.warn("Mission To Earth needs WebGL to render the game.", error);
@@ -167,7 +175,7 @@ export function Mission() {
       engine.destroy();
       engineRef.current = null;
     };
-  }, []);
+  }, [mapId]);
 
   useEffect(() => {
     engineRef.current?.setLookSensitivity(lookSensitivity);
@@ -191,6 +199,14 @@ export function Mission() {
             snapshot.players,
             serverClient.localPlayerId,
           );
+          if (snapshot.mapId === "cinder-row-blackout") {
+            setArenaRound(snapshot.arenaRound);
+            setArenaMatchId(serverClient.matchId);
+            const localPlayer = snapshot.players.find(
+              (player) => player.playerId === serverClient.localPlayerId,
+            );
+            setArenaTeam(localPlayer?.team ?? null);
+          }
         })
         .catch((error: unknown) => {
           setServerMessage(error instanceof Error ? error.message : "Match position sync failed.");
@@ -205,7 +221,7 @@ export function Mission() {
         .catch((error: unknown) => {
           setServerMessage(error instanceof Error ? error.message : "Match inventory sync failed.");
         });
-      if (auth.isAuthenticated) {
+      if (auth.isAuthenticated && serverClient.mapId === "nod") {
         void serverClient.getExtractionStatus()
           .then((status) => {
             setServerExtraction(status);
@@ -285,6 +301,59 @@ export function Mission() {
     }
   };
 
+  const startCinderRow = async (joinMatchId?: string) => {
+    if (graphicsUnavailable || serverStatus === "connecting") return;
+    if (joinMatchId !== undefined && !joinMatchId.trim()) {
+      setServerMessage("Enter the match code shared by the host.");
+      return;
+    }
+    if (!auth.isAuthenticated) {
+      setServerMessage("Sign in before hosting or joining a competitive match.");
+      return;
+    }
+    setServerStatus("connecting");
+    setServerMessage(null);
+    setServerExtraction(null);
+    settlementInFlight.current = false;
+    try {
+      const connected = await ServerMatchClient.connect({
+        operatorId: op,
+        mapId: "cinder-row-blackout",
+        ...(joinMatchId ? { joinMatchId } : {}),
+      });
+      const engine = engineRef.current;
+      if (!engine) throw new Error("The arena renderer is not ready.");
+      engine.disableServerGameplay();
+      engine.start(connected.operatorId, connected.player.position);
+      engine.enableServerGameplay(connected.gameplay, {
+        claimLoot: async (lootId) => {
+          const result = await connected.client.claimLoot(lootId);
+          setServerInventory(result.inventory);
+          return result;
+        },
+        openTerminal: async (terminalId) => {
+          const state = await connected.client.openTerminal(terminalId);
+          setServerInventory(state.inventory);
+          return state;
+        },
+        inventoryChanged: setServerInventory,
+      });
+      connected.client.setInputErrorHandler((error) => {
+        setServerMessage(`Input sync: ${error.message}`);
+      });
+      setServerClient(connected.client);
+      setServerInventory(connected.gameplay.inventory);
+      setServerStatus("connected");
+      setArenaMatchId(connected.client.matchId);
+      setArenaTeam(connected.player.team ?? null);
+      setArenaRound(connected.snapshot.arenaRound);
+      engine.capture();
+    } catch (error) {
+      setServerStatus("error");
+      setServerMessage(error instanceof Error ? error.message : "Could not connect to Cinder Row.");
+    }
+  };
+
   const playing = screen === "play" || screen === "pause" || screen === "dead" || screen === "win";
 
   return (
@@ -309,6 +378,61 @@ export function Mission() {
         </p>
       ) : null}
       {screen === "menu" || screen === "dossier" || screen === "armory" || screen === "settings" || screen === "inventory" ? (
+        mapId === "cinder-row-blackout" ? (
+          <main className="absolute inset-0 z-30 flex items-center justify-center overflow-y-auto bg-bg/80 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-4xl">
+              <button
+                type="button"
+                className="mb-3 border border-line px-3 py-2 font-display text-xs tracking-widest text-muted hover:text-fg"
+                onClick={() => {
+                  engineRef.current?.disableServerGameplay();
+                  setServerClient(null);
+                  setServerStatus("idle");
+                  setServerMessage(null);
+                  setArenaMatchId(null);
+                  setArenaTeam(null);
+                  setArenaRound(null);
+                  setMapId("nod");
+                }}
+              >
+                Return to Shakuna briefing
+              </button>
+              <CinderRowPanel
+                screen="menu"
+                serverStatus={serverStatus}
+                serverMessage={serverMessage}
+                matchId={arenaMatchId}
+                joinCode={arenaJoinCode}
+                onJoinCodeChange={setArenaJoinCode}
+                team={arenaTeam}
+                round={arenaRound}
+                onHost={() => void startCinderRow()}
+                onJoin={() => void startCinderRow(arenaJoinCode.trim())}
+              />
+              {serverClient?.mapId === "cinder-row-blackout" ? (
+                <button
+                  type="button"
+                  className="mt-3 bg-cyan px-4 py-3 font-display text-sm tracking-widest text-bg"
+                  onClick={() => {
+                    setScreen("play");
+                    engineRef.current?.capture();
+                  }}
+                >
+                  Return to the active match
+                </button>
+              ) : null}
+              {!auth.isAuthenticated ? (
+                <button
+                  type="button"
+                  className="mt-3 border border-cyan/60 px-4 py-2 font-display text-xs tracking-widest text-cyan"
+                  onClick={() => auth.login("/")}
+                >
+                  Sign in to host or join
+                </button>
+              ) : null}
+            </div>
+          </main>
+        ) : (
         <Menu
           op={op}
           setOp={setOp}
@@ -356,9 +480,36 @@ export function Mission() {
             engineRef.current?.capture();
           }}
           onStartServer={() => void startServerRun()}
+          onOpenCinderRow={() => {
+            engineRef.current?.disableServerGameplay();
+            setServerClient(null);
+            setServerStatus("idle");
+            setServerMessage(null);
+            setArenaMatchId(null);
+            setArenaTeam(null);
+            setArenaRound(null);
+            setMapId("cinder-row-blackout");
+          }}
         />
+        )
       ) : null}
-      {serverClient && screen !== "menu" && screen !== "dossier" && screen !== "armory" && screen !== "settings" && screen !== "inventory" ? (
+      {serverClient?.mapId === "cinder-row-blackout" && screen === "play" ? (
+        <div className="fixed right-4 top-4 z-40 w-[min(27rem,calc(100%-2rem))]">
+          <CinderRowPanel
+            screen="hud"
+            serverStatus={serverStatus}
+            serverMessage={serverMessage}
+            matchId={arenaMatchId}
+            joinCode={arenaJoinCode}
+            onJoinCodeChange={setArenaJoinCode}
+            team={arenaTeam}
+            round={arenaRound}
+            onHost={() => void startCinderRow()}
+            onJoin={() => void startCinderRow(arenaJoinCode.trim())}
+          />
+        </div>
+      ) : null}
+      {serverClient?.mapId === "nod" && screen !== "menu" && screen !== "dossier" && screen !== "armory" && screen !== "settings" && screen !== "inventory" ? (
         <aside
           aria-live="polite"
           aria-label="Server match inventory"
@@ -483,6 +634,7 @@ function Menu({
   onMars,
   onStart,
   onStartServer,
+  onOpenCinderRow,
 }: {
   op: OpId;
   setOp: (id: OpId) => void;
@@ -511,6 +663,7 @@ function Menu({
   onMars: (next: MarsProfile) => void;
   onStart: () => void;
   onStartServer: () => void;
+  onOpenCinderRow: () => void;
 }) {
   return (
     <main
@@ -647,6 +800,17 @@ function Menu({
               onClick={onStartServer}
             >
               {serverStatus === "connecting" ? "Connecting…" : isAuthenticated ? "Server Loot Run" : "Sign in for Server Run"}
+            </button>
+          ) : null}
+          {panel === "ops" ? (
+            <button
+              type="button"
+              disabled={!canStart}
+              data-testid="button-open-cinder-row"
+              className="field-action-button field-action-button--brass px-4 py-3 font-display text-base tracking-widest disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={onOpenCinderRow}
+            >
+              Cinder Row · Blackout
             </button>
           ) : null}
           {serverMessage ? <p role="alert" data-testid="status-server-message" className="basis-full text-sm text-gold">{serverMessage}</p> : null}
