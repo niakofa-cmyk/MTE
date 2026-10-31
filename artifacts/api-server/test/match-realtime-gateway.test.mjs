@@ -123,6 +123,7 @@ test("real-time gateway authenticates owned players and streams server snapshots
         message.snapshot.players.find((player) => player.playerId === first.playerId)
           ?.lastProcessedSequence === 1,
     );
+    await new Promise((resolve) => setTimeout(resolve, 75));
     firstSocket.send(JSON.stringify({
       type: "input",
       sequenceNumber: 1,
@@ -141,6 +142,51 @@ test("real-time gateway authenticates owned players and streams server snapshots
         .lastProcessedSequence,
       1,
     );
+
+    // Skip input 2 to model loss; delayed delivery and sequence gaps must not
+    // desynchronize the authoritative player session.
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    const delayedInputAck = nextMessage(
+      firstSocket,
+      (message) => message.type === "input-accepted" && message.sequenceNumber === 3,
+    );
+    firstSocket.send(JSON.stringify({
+      type: "input",
+      sequenceNumber: 3,
+      inputFlags: 0,
+      yaw: 0.1,
+      pitch: 0,
+      movementVector: { forward: 0, strafe: 0 },
+    }));
+    assert.equal((await delayedInputAck).sequenceNumber, 3);
+
+    firstSocket.close();
+    await new Promise((resolve) => firstSocket.once("close", resolve));
+    const reconnectedSocket = await openSocket(url, "one");
+    sockets.push(reconnectedSocket);
+    const reconnectReady = nextMessage(
+      reconnectedSocket,
+      (message) => message.type === "ready",
+    );
+    reconnectedSocket.send(JSON.stringify({
+      type: "authenticate",
+      accessToken: first.accessToken,
+    }));
+    assert.equal((await reconnectReady).playerId, first.playerId);
+    const postReconnectAck = nextMessage(
+      reconnectedSocket,
+      (message) => message.type === "input-accepted" && message.sequenceNumber === 4,
+    );
+    reconnectedSocket.send(JSON.stringify({
+      type: "input",
+      sequenceNumber: 4,
+      inputFlags: 0,
+      yaw: 0.1,
+      pitch: 0,
+      movementVector: { forward: 0, strafe: 0 },
+    }));
+    assert.equal((await postReconnectAck).sequenceNumber, 4);
+    firstSocket = reconnectedSocket;
 
     const spoofSocket = await openSocket(url, "two");
     sockets.push(spoofSocket);

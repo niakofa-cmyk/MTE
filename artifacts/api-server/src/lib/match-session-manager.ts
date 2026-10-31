@@ -759,8 +759,11 @@ export class MatchSessionManager {
       if (player.team === "accord") accordCount += 1;
       if (player.team === "eon-dusk") duskCount += 1;
     }
-    if (accordCount >= 4) return "eon-dusk";
-    if (duskCount >= 4) return "accord";
+    const teamCapacity = session.arenaProfileId
+      ? getCinderRowRelayProfile(session.arenaProfileId).playersPerTeam
+      : CINDER_ROW_RELAY_4V4_PROFILE.playersPerTeam;
+    if (accordCount >= teamCapacity) return "eon-dusk";
+    if (duskCount >= teamCapacity) return "accord";
     return accordCount <= duskCount ? "accord" : "eon-dusk";
   }
 

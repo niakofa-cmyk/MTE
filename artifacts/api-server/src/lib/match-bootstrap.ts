@@ -59,7 +59,7 @@ export async function createNodAuthoritativeMatch(
 export async function createCinderRowAuthoritativeMatch(
   config: MatchConfig = {
     ...DEFAULT_MATCH_CONFIG,
-    maxPlayers: 8,
+    maxPlayers: 16,
     worldHalfExtent: 40,
   },
   assetPath = DEFAULT_CINDER_ROW_LEVEL_ASSET_PATH,

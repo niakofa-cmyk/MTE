@@ -173,7 +173,21 @@ test("phase-two 8v8 supports sixteen authenticated ranked WebSocket clients", as
       }));
     });
     await Promise.all(inputAcks);
-    console.log("Phase 2 local match check: 16 authenticated clients, balanced 8v8 teams, accepted input.");
+    const snapshotsPerClient = Array(CLIENTS).fill(0);
+    sockets.forEach((socket, index) => {
+      socket.on("message", (data) => {
+        const message = JSON.parse(data.toString());
+        if (message.type === "snapshot") snapshotsPerClient[index] += 1;
+      });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    assert.ok(
+      snapshotsPerClient.every((count) => count >= 8),
+      `Each 8v8 client should continue receiving snapshots; got ${snapshotsPerClient.join(",")}.`,
+    );
+    console.log(
+      `Phase 2 local match check: 16 authenticated clients, balanced 8v8 teams, accepted input, snapshot minimum=${Math.min(...snapshotsPerClient)}.`,
+    );
   } finally {
     gateway.close();
     manager.stop();
