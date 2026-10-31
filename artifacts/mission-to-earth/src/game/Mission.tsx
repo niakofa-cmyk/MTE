@@ -513,32 +513,52 @@ function Menu({
   onStartServer: () => void;
 }) {
   return (
-    <div className={`absolute inset-0 overflow-y-auto ${graphicsUnavailable ? "bg-bg/65" : "bg-bg/80"}`}>
-      <div className="mx-auto flex min-h-full max-w-6xl flex-col justify-end gap-8 px-5 py-10 md:justify-center md:px-10">
-        <div className="max-w-xl">
-          <p className="inline-flex items-center gap-2 font-display text-sm tracking-widest text-cyan">
+    <main
+      className={`field-menu absolute inset-0 overflow-y-auto overscroll-y-contain ${graphicsUnavailable ? "field-menu--fallback" : ""}`}
+      data-field-menu
+      data-testid="screen-command-menu"
+    >
+      <div className="field-menu__layout mx-auto flex min-h-full max-w-7xl flex-col gap-7 px-4 py-6 sm:px-7 sm:py-8 lg:flex-row lg:items-center lg:gap-12 lg:px-12">
+        <section className="field-menu__brief lg:w-[34%] lg:shrink-0" aria-labelledby="operation-title">
+          <p className="inline-flex items-center gap-2 font-display text-sm tracking-[.2em] text-cyan">
             <Radio className="size-4" />
-            The Accord · Operation Shakuna
+            ACCORD FIELD COMMAND <span aria-hidden="true">/</span> NOD SECTOR 07
           </p>
-          <h1 className="mt-2 font-display text-6xl leading-none font-semibold text-fg md:text-8xl">
-            Mission
-            <br />
-            to Earth
+          <h1 id="operation-title" className="mt-3 font-display text-5xl font-bold leading-[.88] tracking-tight text-fg sm:text-7xl xl:text-8xl">
+            MISSION<br />TO EARTH
           </h1>
-          <p className="mt-4 max-w-md text-base leading-relaxed text-muted">
-            Four warriors drop on Nod. Ananda and Nefret are still in the cradles, cut open for a technology the Accord was never trained to hold. Free them. Press B, and wear what comes out.
-          </p>
+          <p className="mt-4 font-display text-lg font-semibold tracking-[.16em] text-gold">OPERATION SHAKUNA · EARTH</p>
+          <div className="field-objective mt-5 max-w-xl" role="group" aria-label="Mission objective" data-testid="text-mission-objective">
+            <p className="field-objective__label font-display text-xs tracking-[.2em] text-cyan">MISSION ORDERS</p>
+            <p className="mt-2 text-base leading-relaxed text-fg sm:text-lg">
+              Free <strong>Ananda</strong> and <strong>Nefret</strong>. Raise the <strong>Accord beacon</strong>. Reach the <strong>recovery pad</strong>.
+            </p>
+            <p className="mt-3 border-t border-line/70 pt-3 text-sm leading-relaxed text-muted">
+              Select an operator, then deploy. Press <kbd>B</kbd> near a freed captive to take up their abilities.
+            </p>
+          </div>
+          <p className="mt-4 text-sm text-muted">A four-person Accord team enters occupied Nod. Free the captives before Eon Dusk locks down the district.</p>
           {record && record.extractions > 0 ? (
-            <p className="mt-3 font-display text-sm tracking-widest text-gold">
-              Service record · {record.extractions} extractions · {record.kills} confirmed
+            <p className="mt-4 border-l-2 border-gold pl-3 font-display text-sm tracking-widest text-gold">
+              FIELD RECORD · {record.extractions} extractions · {record.kills} confirmed
               {record.scrap > 0 ? ` · ${mars?.martianCredits ?? record.scrap} salvage credits` : ""}
             </p>
           ) : null}
-        </div>
+        </section>
+        <section className="field-menu__workspace min-w-0 flex-1" aria-label="Field command console">
+          <div className="field-panel__heading">
+            <span className="font-display text-xs tracking-[.2em] text-cyan">{panel === "ops" ? "DEPLOYMENT ROSTER" : `FIELD FILE / ${panel.toUpperCase()}`}</span>
+            <span className="field-panel__rule" aria-hidden="true" />
+            <span className="font-display text-xs tracking-widest text-muted">PRE-DEPLOYMENT</span>
+          </div>
         {panel === "dossier" ? (
-          <div className="grid gap-4 border border-line bg-surface p-5 md:grid-cols-3">
+          <div className="field-panel grid gap-4 p-4 sm:p-5 md:grid-cols-3" data-testid="panel-dossier">
             {DOSSIER.map((act) => (
-              <article key={act.title}>
+              <article
+                key={act.title}
+                className="field-dossier-act"
+                data-testid={`card-dossier-${act.title.toLowerCase().replace(/\s+/g, "-")}`}
+              >
                 <p className="font-display text-xs tracking-widest text-gold">{act.kicker}</p>
                 <h2 className="mt-1 font-display text-2xl text-fg">{act.title}</h2>
                 <p className="mt-2 text-sm leading-relaxed text-muted">{act.body}</p>
@@ -559,15 +579,17 @@ function Menu({
           />
         ) : (
           <>
-          <div className="flex gap-3 overflow-x-auto pb-2">
+          <div className="field-operator-list flex gap-3 overflow-x-auto pb-3" role="group" aria-label="Choose an operator">
             {OPERATORS.map((card) => {
               const on = card.id === op;
               return (
                 <button
                   key={card.id}
                   type="button"
+                  aria-pressed={on}
+                  data-testid={`button-operator-${card.id}`}
                   onClick={() => setOp(card.id)}
-                  className={`w-64 shrink-0 border p-4 text-left ${on ? (card.tone === "cyan" ? "border-cyan bg-surface" : "border-gold bg-surface") : "border-line bg-bg/60"}`}
+                  className={`field-operator-card w-64 shrink-0 border p-4 text-left ${on ? (card.tone === "cyan" ? "field-operator-card--cyan" : "field-operator-card--gold") : ""}`}
                 >
                   <p className={`inline-flex items-center gap-2 font-display text-xs tracking-widest ${card.tone === "cyan" ? "text-cyan" : "text-gold"}`}>
                     {card.tone === "cyan" ? <Crosshair className="size-3.5" /> : <Shield className="size-3.5" />}
@@ -587,7 +609,8 @@ function Menu({
             {BLOODLINES.map((card) => (
               <article
                 key={card.id}
-                className={`w-64 shrink-0 border border-dashed p-4 ${card.tone === "cyan" ? "border-cyan/70" : "border-gold/70"} bg-bg/40`}
+                data-testid={`card-captive-${card.id}`}
+                className={`field-captive-card w-64 shrink-0 border border-dashed p-4 ${card.tone === "cyan" ? "border-cyan/70" : "border-gold/70"}`}
               >
                 <p className={`font-display text-xs tracking-widest ${card.tone === "cyan" ? "text-cyan" : "text-gold"}`}>
                   {card.faction} bloodline · imprisoned
@@ -605,63 +628,65 @@ function Menu({
           </div>
           </>
         )}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="field-command-actions flex flex-wrap items-center gap-2 sm:gap-3">
           <button
             type="button"
             disabled={!canStart}
-            className="bg-cyan px-6 py-3 font-display text-xl tracking-widest text-bg disabled:cursor-not-allowed disabled:opacity-50"
+            data-testid="button-deploy-solo"
+            className="field-deploy-button px-7 py-3 font-display text-xl font-bold tracking-[.18em] disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onStart}
           >
-            Start
+            Deploy · Solo
           </button>
           {panel === "ops" ? (
             <button
               type="button"
               disabled={!canStart || authLoading || !isAuthenticated || serverStatus === "connecting"}
-              className="border border-gold px-5 py-3 font-display text-lg tracking-widest text-gold disabled:cursor-not-allowed disabled:opacity-50"
+              data-testid="button-start-server-run"
+              className="field-action-button field-action-button--brass px-4 py-3 font-display text-base tracking-widest disabled:cursor-not-allowed disabled:opacity-50"
               onClick={onStartServer}
             >
               {serverStatus === "connecting" ? "Connecting…" : isAuthenticated ? "Server Loot Run" : "Sign in for Server Run"}
             </button>
           ) : null}
-          {serverMessage ? <p role="alert" className="basis-full text-sm text-gold">{serverMessage}</p> : null}
+          {serverMessage ? <p role="alert" data-testid="status-server-message" className="basis-full text-sm text-gold">{serverMessage}</p> : null}
           {panel === "ops" ? (
             <p className="basis-full text-xs text-muted">
               Server Loot Run uses temporary match inventory. Solo saves stay separate.
             </p>
           ) : null}
           {panel === "ops" ? (
-            <button type="button" className="border border-line px-5 py-3 font-display text-lg tracking-widest text-fg" onClick={onDossier}>
+            <button type="button" data-testid="button-menu-dossier" className="field-action-button px-4 py-3 font-display text-base tracking-widest text-fg" onClick={onDossier}>
               Dossier
             </button>
           ) : (
-            <button type="button" className="border border-line px-5 py-3 font-display text-lg tracking-widest text-fg" onClick={onBack}>
+            <button type="button" data-testid="button-menu-operators" className="field-action-button px-4 py-3 font-display text-base tracking-widest text-fg" onClick={onBack}>
               Operators
             </button>
           )}
           {panel === "armory" ? null : (
-            <button type="button" className="border border-line px-5 py-3 font-display text-lg tracking-widest text-gold" onClick={onArmory}>
+            <button type="button" data-testid="button-menu-armory" className="field-action-button px-4 py-3 font-display text-base tracking-widest text-gold" onClick={onArmory}>
               Armory
             </button>
           )}
           {panel === "settings" ? null : (
-            <button type="button" className="border border-line px-5 py-3 font-display text-lg tracking-widest text-cyan" onClick={onSettings}>
+            <button type="button" data-testid="button-menu-settings" className="field-action-button px-4 py-3 font-display text-base tracking-widest text-cyan" onClick={onSettings}>
               Settings
             </button>
           )}
-          <button type="button" className="border border-line px-5 py-3 font-display text-lg tracking-widest text-cyan" onClick={onInventory}>
+          <button type="button" data-testid="button-menu-saved-inventory" className="field-action-button px-4 py-3 font-display text-base tracking-widest text-cyan" onClick={onInventory}>
             Saved Inventory
           </button>
           {isAuthenticated ? (
-            <button type="button" className="border border-line px-4 py-3 text-sm text-muted" onClick={onLogout}>
+            <button type="button" data-testid="button-sign-out" className="field-action-button px-4 py-3 text-sm text-muted" onClick={onLogout}>
               Sign out{authName ? ` · ${authName}` : ""}
             </button>
           ) : (
-            <button type="button" disabled={authLoading} className="border border-gold px-4 py-3 text-sm text-gold disabled:opacity-50" onClick={onLogin}>
+            <button type="button" data-testid="button-sign-in" disabled={authLoading} className="field-action-button field-action-button--brass px-4 py-3 text-sm text-gold disabled:opacity-50" onClick={onLogin}>
               {authLoading ? "Checking account…" : "Sign in"}
             </button>
           )}
-          <p className="text-sm text-muted">Click the city to seize the mouse. Esc pauses.</p>
+          {!graphicsUnavailable ? <p className="basis-full text-sm text-muted">After deployment, click the city to take control. Esc pauses.</p> : null}
           {panel === "ops" ? (
             <p className="basis-full text-xs text-muted">
               {isAuthenticated
@@ -670,8 +695,9 @@ function Menu({
             </p>
           ) : null}
         </div>
+        </section>
       </div>
-    </div>
+    </main>
   );
 }
 
@@ -689,13 +715,13 @@ function InventoryPanel({
   onLogin: () => void;
 }) {
   return (
-    <section aria-label="Saved inventory" className="border border-line bg-surface p-5">
+    <section aria-label="Saved inventory" className="field-panel p-4 sm:p-5" data-testid="panel-saved-inventory">
       <p className="font-display text-xs tracking-widest text-cyan">ACCOUNT VAULT</p>
       <h2 className="mt-1 font-display text-3xl text-fg">Saved Inventory</h2>
       {!isAuthenticated ? (
         <div className="mt-4">
           <p className="text-sm text-muted">Sign in to view inventory secured by successful server extractions.</p>
-          <button type="button" className="mt-4 border border-gold px-4 py-2 font-display tracking-widest text-gold" onClick={onLogin}>
+          <button type="button" data-testid="button-inventory-sign-in" className="mt-4 border border-gold px-4 py-2 font-display tracking-widest text-gold" onClick={onLogin}>
             Sign in
           </button>
         </div>
@@ -706,13 +732,17 @@ function InventoryPanel({
       ) : profile ? (
         <>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <p className="border border-line p-3 text-sm text-muted">Salvage credits <strong className="ml-2 text-gold">{profile.credits}</strong></p>
-            <p className="border border-line p-3 text-sm text-muted">Successful extractions <strong className="ml-2 text-cyan">{profile.extractions}</strong></p>
+            <p className="border border-line p-3 text-sm text-muted" data-testid="text-salvage-credits">Salvage credits <strong className="ml-2 text-gold">{profile.credits}</strong></p>
+            <p className="border border-line p-3 text-sm text-muted" data-testid="text-successful-extractions">Successful extractions <strong className="ml-2 text-cyan">{profile.extractions}</strong></p>
           </div>
           {profile.inventory.length ? (
-            <ul className="mt-4 max-h-56 space-y-2 overflow-y-auto">
+            <ul className="mt-4 max-h-56 space-y-2 overflow-y-auto" data-testid="list-saved-inventory">
               {profile.inventory.map((item, index) => (
-                <li key={`${item.matchId}:${item.lootId}:${index}`} className="flex items-center justify-between gap-3 border-t border-line py-2 text-sm">
+                <li
+                  key={`${item.matchId}:${item.lootId}:${index}`}
+                  className="flex items-center justify-between gap-3 border-t border-line py-2 text-sm"
+                  data-testid={`row-saved-item-${item.matchId}-${item.lootId}`}
+                >
                   <span className="min-w-0 truncate text-fg">{item.label}<span className="ml-2 text-xs uppercase text-muted">{item.kind}</span></span>
                   <span className="shrink-0 text-gold">{item.scrap} scrap</span>
                 </li>
@@ -737,7 +767,7 @@ function SettingsPanel({
   onSensitivityChange: (value: number) => void;
 }) {
   return (
-    <section className="w-full max-w-2xl border border-line bg-surface p-5">
+    <section className="field-panel w-full max-w-2xl p-4 sm:p-5">
       <p className="font-display text-xs tracking-widest text-gold">Operator controls</p>
       <h2 className="mt-1 font-display text-3xl text-fg">Look sensitivity</h2>
       <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
@@ -749,6 +779,7 @@ function SettingsPanel({
       </label>
       <input
         id="look-sensitivity"
+        data-testid="input-look-sensitivity"
         aria-label="Look sensitivity"
         aria-valuetext={`${Math.round(sensitivity * 100)} percent`}
         className="mt-3 w-full accent-cyan"
@@ -785,7 +816,7 @@ function Armory({
     { field: "magazineModId", slot: "MAGAZINE", label: "Magazine" },
   ];
   return (
-    <div className="border border-line bg-surface p-5">
+    <div className="field-panel p-4 sm:p-5" data-testid="panel-armory">
       <p className="font-display text-xs tracking-widest text-gold">Accord field cache · {bench.martianCredits} salvage credits</p>
       <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
         What leaves the pad is filed here. Pick a preset before the drop. A mod only seats if this operator's gun can hold it. Progress is saved in this browser only; it is not cloud-synced or server-verified.
@@ -795,6 +826,7 @@ function Armory({
           <button
             key={slot}
             type="button"
+            data-testid={`button-loadout-preset-${slot}`}
             onClick={() => onMars(setActiveSlot(bench, slot))}
             className={`border px-3 py-2 font-display text-sm tracking-widest ${bench.activeSlot === slot ? "border-gold text-gold" : "border-line text-muted"}`}
           >
@@ -807,11 +839,12 @@ function Armory({
           const options = bench.unlockedBlueprints.filter((id) => ATTACHMENT_BY_ID[id]?.slot === row.slot);
           const chosen = preset[row.field];
           return (
-            <div key={row.field}>
+            <div key={row.field} data-testid={`group-attachment-slot-${row.field}`}>
               <p className="font-display text-xs tracking-widest text-cyan">{row.label}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
+                  data-testid={`button-clear-${row.field}`}
                   onClick={() => onMars(setPresetMod(bench, row.field, null, opWeapon))}
                   className={`border px-2 py-1 font-display text-xs tracking-widest ${chosen ? "border-line text-muted" : "border-gold text-gold"}`}
                 >
@@ -821,6 +854,7 @@ function Armory({
                   <button
                     key={id}
                     type="button"
+                    data-testid={`button-attachment-${id}`}
                     onClick={() => onMars(setPresetMod(bench, row.field, id, opWeapon))}
                     className={`border px-2 py-1 font-display text-xs tracking-widest ${chosen === id ? "border-gold text-gold" : "border-line text-fg"}`}
                   >
