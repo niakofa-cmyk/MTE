@@ -58,3 +58,4 @@ export interface ExtractionSettlementResponse {
   inventory: InventoryItem[];
   profile: PlayerProfileResponse;
 }
+

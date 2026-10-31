@@ -76,7 +76,7 @@ export const GetExtractionStatusParams = zod.object({
 })
 
 export const GetExtractionStatusHeader = zod.object({
-  "Authorization": zod.string().describe('Match access token in Bearer format.')
+  "Authorization": zod.string().optional().describe('Match access token in Bearer format; a persisted recovery receipt can be read without it.')
 })
 
 export const GetExtractionStatusResponse = zod.object({
@@ -97,7 +97,7 @@ export const SettleExtractionParams = zod.object({
 })
 
 export const SettleExtractionHeader = zod.object({
-  "Authorization": zod.string().describe('Match access token in Bearer format.')
+  "Authorization": zod.string().optional().describe('Match access token in Bearer format; a persisted recovery receipt can be settled without it.')
 })
 
 export const SettleExtractionResponse = zod.object({
@@ -129,3 +129,5 @@ export const SettleExtractionResponse = zod.object({
 }))
 })
 })
+
+

@@ -3,7 +3,11 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { getPlayerProfile, settleServerExtraction } from "../src/lib/profile-service.ts";
+import {
+  getPlayerProfile,
+  persistServerExtractionReceipt,
+  settlePersistedExtraction,
+} from "../src/lib/profile-service.ts";
 
 test("server extraction settlement is transactional and idempotent per player and match", async () => {
   const userId = `test-${randomUUID()}`;
@@ -26,13 +30,17 @@ test("server extraction settlement is transactional and idempotent per player an
         weaponId: "rail",
       },
     ];
-    const first = await settleServerExtraction(userId, matchId, grants);
-    const duplicate = await settleServerExtraction(userId, matchId, [
+    const firstReceipt = await persistServerExtractionReceipt(userId, matchId, grants, 6);
+    const first = await settlePersistedExtraction(userId, matchId);
+    const duplicateReceipt = await persistServerExtractionReceipt(userId, matchId, [
       { ...grants[0], label: "Forged replacement", scrap: 1 },
-    ]);
+    ], 6);
+    const duplicate = await settlePersistedExtraction(userId, matchId);
     const profile = await getPlayerProfile(userId);
 
     assert.equal(first.alreadySettled, false);
+    assert.equal(firstReceipt.inventory[0]?.label, "Test Weapon");
+    assert.equal(duplicateReceipt.inventory[0]?.label, "Test Weapon");
     assert.equal(first.creditsAwarded, 500);
     assert.equal(duplicate.alreadySettled, true);
     assert.equal(duplicate.creditsAwarded, 500);

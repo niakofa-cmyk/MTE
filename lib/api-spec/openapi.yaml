@@ -92,8 +92,8 @@ paths:
             format: uuid
         - name: Authorization
           in: header
-          required: true
-          description: Match access token in Bearer format.
+          required: false
+          description: Match access token in Bearer format; a persisted recovery receipt can be read without it.
           schema:
             type: string
       responses:
@@ -119,8 +119,8 @@ paths:
             format: uuid
         - name: Authorization
           in: header
-          required: true
-          description: Match access token in Bearer format.
+          required: false
+          description: Match access token in Bearer format; a persisted recovery receipt can be settled without it.
           schema:
             type: string
       responses:

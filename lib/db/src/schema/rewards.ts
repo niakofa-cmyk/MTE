@@ -4,6 +4,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  real,
   timestamp,
   uniqueIndex,
   uuid,
@@ -46,6 +47,24 @@ export const extractionSettlementsTable = pgTable(
   (table) => [
     uniqueIndex("extraction_settlement_match_user").on(table.matchId, table.userId),
     index("extraction_settlement_user_created").on(table.userId, table.createdAt),
+  ],
+);
+
+export const extractionReceiptsTable = pgTable(
+  "extraction_receipts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    matchId: uuid("match_id").notNull(),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    requiredSeconds: real("required_seconds").notNull(),
+    inventory: jsonb("inventory").notNull().$type<PersistedInventoryItem[]>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("extraction_receipt_match_user").on(table.matchId, table.userId),
+    index("extraction_receipt_user_created").on(table.userId, table.createdAt),
   ],
 );
 

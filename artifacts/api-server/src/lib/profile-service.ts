@@ -1,6 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import {
   db,
+  extractionReceiptsTable,
   extractionSettlementsTable,
   playerInventoryTable,
   playerProfilesTable,
@@ -12,6 +13,20 @@ export interface PlayerProfile {
   credits: number;
   extractions: number;
   inventory: PersistedInventoryItem[];
+}
+
+export interface ServerExtractionReceipt {
+  matchId: string;
+  requiredSeconds: number;
+  inventory: PersistedInventoryItem[];
+  settled: boolean;
+}
+
+export class ExtractionReceiptNotFoundError extends Error {
+  constructor() {
+    super("No server-verified extraction receipt was found for this player.");
+    this.name = "ExtractionReceiptNotFoundError";
+  }
 }
 
 export async function getPlayerProfile(userId: string): Promise<PlayerProfile> {
@@ -33,28 +48,92 @@ export async function getPlayerProfile(userId: string): Promise<PlayerProfile> {
   };
 }
 
-export async function settleServerExtraction(
+export async function persistServerExtractionReceipt(
   userId: string,
   matchId: string,
   grants: GrantedGameplayItem[],
-): Promise<{
-  alreadySettled: boolean;
-  creditsAwarded: number;
-  inventory: PersistedInventoryItem[];
-  profile: PlayerProfile;
-}> {
+  requiredSeconds: number,
+): Promise<ServerExtractionReceipt> {
+  if (!Number.isFinite(requiredSeconds) || requiredSeconds <= 0 || requiredSeconds > 300) {
+    throw new Error("Extraction receipt duration is invalid.");
+  }
   const acquiredAt = new Date().toISOString();
   const inventory = grants.slice(0, 100).map((grant) => ({
     ...grant,
     matchId,
     acquiredAt,
   }));
-  const creditsAwarded = Math.min(
-    500,
-    inventory.reduce((sum, item) => sum + Math.max(0, Math.trunc(item.scrap)), 0),
-  );
+  await db
+    .insert(extractionReceiptsTable)
+    .values({ userId, matchId, requiredSeconds, inventory })
+    .onConflictDoNothing({
+      target: [extractionReceiptsTable.matchId, extractionReceiptsTable.userId],
+    });
+  const receipt = await getServerExtractionReceipt(userId, matchId);
+  if (!receipt) throw new Error("The server could not persist its extraction receipt.");
+  return receipt;
+}
 
+export async function getServerExtractionReceipt(
+  userId: string,
+  matchId: string,
+): Promise<ServerExtractionReceipt | null> {
+  const [receipt] = await db
+    .select()
+    .from(extractionReceiptsTable)
+    .where(
+      and(
+        eq(extractionReceiptsTable.matchId, matchId),
+        eq(extractionReceiptsTable.userId, userId),
+      ),
+    )
+    .limit(1);
+  if (!receipt) return null;
+  const [settlement] = await db
+    .select({ id: extractionSettlementsTable.id })
+    .from(extractionSettlementsTable)
+    .where(
+      and(
+        eq(extractionSettlementsTable.matchId, matchId),
+        eq(extractionSettlementsTable.userId, userId),
+      ),
+    )
+    .limit(1);
+  return {
+    matchId: receipt.matchId,
+    requiredSeconds: receipt.requiredSeconds,
+    inventory: receipt.inventory,
+    settled: Boolean(settlement),
+  };
+}
+
+export async function settlePersistedExtraction(
+  userId: string,
+  matchId: string,
+): Promise<{
+  alreadySettled: boolean;
+  creditsAwarded: number;
+  inventory: PersistedInventoryItem[];
+  profile: PlayerProfile;
+}> {
   return db.transaction(async (tx) => {
+    const [receipt] = await tx
+      .select()
+      .from(extractionReceiptsTable)
+      .where(
+        and(
+          eq(extractionReceiptsTable.matchId, matchId),
+          eq(extractionReceiptsTable.userId, userId),
+        ),
+      )
+      .limit(1);
+    if (!receipt) throw new ExtractionReceiptNotFoundError();
+    const inventory = receipt.inventory;
+    const creditsAwarded = Math.min(
+      500,
+      inventory.reduce((sum, item) => sum + Math.max(0, Math.trunc(item.scrap)), 0),
+    );
+
     const [settlement] = await tx
       .insert(extractionSettlementsTable)
       .values({
@@ -96,7 +175,7 @@ export async function settleServerExtraction(
         .limit(1);
       return {
         alreadySettled: true,
-        creditsAwarded: existing?.creditsAwarded ?? 0,
+        creditsAwarded: existing?.creditsAwarded ?? creditsAwarded,
         inventory: savedRows.map((row) => row.item),
         profile: await profileInTransaction(tx, userId, profile),
       };

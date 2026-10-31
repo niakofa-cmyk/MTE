@@ -363,7 +363,12 @@ export class MatchSessionManager {
     matchId: string,
     accessToken: string,
     ownerUserId: string,
-  ): { matchId: string; playerId: string; inventory: GrantedGameplayItem[] } {
+  ): {
+    matchId: string;
+    playerId: string;
+    requiredSeconds: number;
+    inventory: GrantedGameplayItem[];
+  } {
     const status = this.getExtractionStatus(matchId, accessToken, ownerUserId);
     if (!status.ready && !status.settled) {
       throw new MatchSessionError(
@@ -376,6 +381,7 @@ export class MatchSessionManager {
     return {
       matchId,
       playerId,
+      requiredSeconds: status.requiredSeconds,
       inventory: session.gameplay.getSnapshot(playerId).inventory,
     };
   }

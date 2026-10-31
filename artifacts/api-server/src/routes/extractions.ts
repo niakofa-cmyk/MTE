@@ -3,7 +3,12 @@ import {
   SettleExtractionResponse,
 } from "@workspace/api-zod";
 import { Router, type IRouter } from "express";
-import { settleServerExtraction } from "../lib/profile-service";
+import {
+  ExtractionReceiptNotFoundError,
+  getServerExtractionReceipt,
+  persistServerExtractionReceipt,
+  settlePersistedExtraction,
+} from "../lib/profile-service";
 import {
   MatchSessionError,
   type MatchSessionManager,
@@ -15,7 +20,14 @@ function getMatchAccessToken(authorization: string | undefined): string | null {
   return /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null;
 }
 
+const MATCH_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function sendError(res: Parameters<Parameters<IRouter["get"]>[1]>[1], error: unknown) {
+  if (error instanceof ExtractionReceiptNotFoundError) {
+    res.status(404).json({ error: error.message });
+    return;
+  }
   if (error instanceof MatchSessionError) {
     const status =
       error.code === "unauthorized" ? 401 :
@@ -31,20 +43,60 @@ function sendError(res: Parameters<Parameters<IRouter["get"]>[1]>[1], error: unk
 export function createExtractionRouter(manager: MatchSessionManager): IRouter {
   const router: IRouter = Router();
 
-  router.get("/matches/:matchId/extraction/status", (req, res) => {
+  router.get("/matches/:matchId/extraction/status", async (req, res) => {
     if (!req.isAuthenticated()) {
       res.status(401).json({ error: "Sign in to secure extracted rewards." });
       return;
     }
+    if (!MATCH_ID_PATTERN.test(req.params.matchId)) {
+      res.status(400).json({ error: "A valid match ID is required." });
+      return;
+    }
     const accessToken = getMatchAccessToken(req.headers.authorization);
     if (!accessToken) {
-      res.status(401).json({ error: "A valid match session is required." });
+      const receipt = await getServerExtractionReceipt(req.user.id, req.params.matchId);
+      if (!receipt) {
+        res.status(401).json({ error: "A valid match session or saved extraction is required." });
+        return;
+      }
+      res.json(GetExtractionStatusResponse.parse({
+        matchId: receipt.matchId,
+        inRange: false,
+        progress: 1,
+        requiredSeconds: receipt.requiredSeconds,
+        ready: true,
+        settled: receipt.settled,
+      }));
       return;
     }
     try {
       const status = manager.getExtractionStatus(req.params.matchId, accessToken, req.user.id);
+      if (status.ready) {
+        const reward = manager.getExtractionReward(req.params.matchId, accessToken, req.user.id);
+        const receipt = await persistServerExtractionReceipt(
+          req.user.id,
+          req.params.matchId,
+          reward.inventory,
+          reward.requiredSeconds,
+        );
+        status.settled = receipt.settled;
+      }
       res.json(GetExtractionStatusResponse.parse(status));
     } catch (error) {
+      if (error instanceof MatchSessionError && error.code === "not-found") {
+        const receipt = await getServerExtractionReceipt(req.user.id, req.params.matchId);
+        if (receipt) {
+          res.json(GetExtractionStatusResponse.parse({
+            matchId: receipt.matchId,
+            inRange: false,
+            progress: 1,
+            requiredSeconds: receipt.requiredSeconds,
+            ready: true,
+            settled: receipt.settled,
+          }));
+          return;
+        }
+      }
       sendError(res, error);
     }
   });
@@ -62,25 +114,50 @@ export function createExtractionRouter(manager: MatchSessionManager): IRouter {
       res.status(400).json({ error: "Reward values are calculated by the match server." });
       return;
     }
-    const accessToken = getMatchAccessToken(req.headers.authorization);
-    if (!accessToken) {
-      res.status(401).json({ error: "A valid match session is required." });
+    if (!MATCH_ID_PATTERN.test(req.params.matchId)) {
+      res.status(400).json({ error: "A valid match ID is required." });
       return;
     }
+    const accessToken = getMatchAccessToken(req.headers.authorization);
     try {
-      const candidate = manager.getExtractionReward(
-        req.params.matchId,
-        accessToken,
-        req.user.id,
-      );
-      const result = await settleServerExtraction(
-        req.user.id,
-        candidate.matchId,
-        candidate.inventory,
-      );
-      manager.markExtractionSettled(req.params.matchId, accessToken, req.user.id);
+      let receipt = null;
+      let matchSessionError: unknown = null;
+      if (accessToken) {
+        try {
+          const candidate = manager.getExtractionReward(
+            req.params.matchId,
+            accessToken,
+            req.user.id,
+          );
+          receipt = await persistServerExtractionReceipt(
+            req.user.id,
+            candidate.matchId,
+            candidate.inventory,
+            candidate.requiredSeconds,
+          );
+        } catch (error) {
+          if (
+            error instanceof MatchSessionError &&
+            (error.code === "not-found" || error.code === "extraction-not-ready")
+          ) {
+            matchSessionError = error;
+          } else {
+            throw error;
+          }
+        }
+      }
+      receipt ??= await getServerExtractionReceipt(req.user.id, req.params.matchId);
+      if (!receipt) {
+        if (matchSessionError) throw matchSessionError;
+        if (!accessToken) {
+          res.status(401).json({ error: "A valid match session or saved extraction is required." });
+          return;
+        }
+        throw new ExtractionReceiptNotFoundError();
+      }
+      const result = await settlePersistedExtraction(req.user.id, req.params.matchId);
       res.json(SettleExtractionResponse.parse({
-        matchId: candidate.matchId,
+        matchId: receipt.matchId,
         ...result,
       }));
     } catch (error) {
