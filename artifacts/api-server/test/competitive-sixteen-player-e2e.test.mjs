@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import express from "express";
-import { competitiveMatchSessionsTable, db, usersTable } from "@workspace/db";
+import {
+  competitiveMatchResultsTable,
+  competitiveMatchSessionsTable,
+  competitiveQueueEntriesTable,
+  competitiveRatingsTable,
+  db,
+  usersTable,
+} from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import test from "node:test";
 import { WebSocket } from "ws";
@@ -13,7 +20,12 @@ import { MatchRealtimeGateway } from "../src/lib/match-realtime-gateway.ts";
 import { createCinderRowAuthoritativeMatch } from "../src/lib/match-bootstrap.ts";
 import { MatchSessionManager } from "../src/lib/match-session-manager.ts";
 import { createCompetitiveRouter } from "../src/routes/competitive.ts";
-import { CINDER_ROW_RELAY_8V8_PROFILE } from "../src/lib/cinder-row-arena.ts";
+import {
+  CINDER_ROW_CAPTURE_SECONDS,
+  CINDER_ROW_RELAY,
+  CINDER_ROW_RELAY_8V8_PROFILE,
+} from "../src/lib/cinder-row-arena.ts";
+import { ClientInputFlags } from "../src/lib/authoritative-match.ts";
 
 const CLIENTS = 16;
 
@@ -42,6 +54,72 @@ function openSocket(url, sid) {
     socket.once("open", () => resolve(socket));
     socket.once("error", reject);
   });
+}
+
+function playerSnapshot(manager, ticket) {
+  const snapshot = manager.getSnapshot(ticket.matchId, ticket.accessToken).snapshot;
+  const player = snapshot.players.find((entry) => entry.playerId === ticket.playerId);
+  assert.ok(player, "Ticket owner must remain in the authoritative match.");
+  return player;
+}
+
+async function sendInput(socket, ticket, sequences, {
+  inputFlags = 0,
+  yaw = 0,
+  pitch = 0,
+  movementVector = { forward: 0, strafe: 0 },
+} = {}) {
+  const sequenceNumber = (sequences.get(ticket.playerId) ?? 0) + 1;
+  const accepted = nextMessage(
+    socket,
+    (message) =>
+      message.type === "input-accepted" &&
+      message.sequenceNumber === sequenceNumber,
+  );
+  socket.send(JSON.stringify({
+    type: "input",
+    sequenceNumber,
+    inputFlags,
+    yaw,
+    pitch,
+    movementVector,
+  }));
+  await accepted;
+  sequences.set(ticket.playerId, sequenceNumber);
+}
+
+function advanceSimulation(manager, clock, seconds) {
+  const steps = Math.round(seconds / 0.05);
+  for (let step = 0; step < steps; step += 1) {
+    clock.nowNs += 50_000_000n;
+    manager.advanceAt(clock.nowNs);
+  }
+}
+
+async function movePlayerTo(manager, clock, socket, ticket, sequences, target) {
+  let previousDistance = Number.POSITIVE_INFINITY;
+  let stalledSteps = 0;
+  for (let step = 0; step < 160; step += 1) {
+    const player = playerSnapshot(manager, ticket);
+    const dx = target.x - player.position.x;
+    const dz = target.z - player.position.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance <= 1.5) return player;
+    await sendInput(socket, ticket, sequences, {
+      yaw: Math.atan2(dx, dz) * 180 / Math.PI,
+      movementVector: { forward: 1, strafe: 0 },
+    });
+    advanceSimulation(manager, clock, 0.1);
+    const moved = playerSnapshot(manager, ticket);
+    const remaining = Math.hypot(
+      target.x - moved.position.x,
+      target.z - moved.position.z,
+    );
+    stalledSteps = remaining >= previousDistance - 0.01 ? stalledSteps + 1 : 0;
+    assert.ok(stalledSteps < 12, "Server-authoritative movement became stuck en route.");
+    previousDistance = remaining;
+  }
+  throw new Error(`Player ${ticket.playerId} could not reach its test waypoint.`);
 }
 
 test("phase-two 8v8 supports sixteen authenticated ranked WebSocket clients", async () => {
