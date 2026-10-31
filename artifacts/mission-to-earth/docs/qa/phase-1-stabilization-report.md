@@ -378,7 +378,7 @@ This verifies the live engine’s hit, hurt-reaction, and defeat path for one st
 
 | Requirement | Result | Evidence / qualification |
 |---|---|---|
-| Replit Auth OIDC login flow | **PARTIAL** | The API starts an OIDC authorization redirect with PKCE, state, nonce, secure HttpOnly cookies, and the correct public preview callback URL. The actual user sign-in and callback were not completed in the unauthenticated test browser. |
+| Replit Auth OIDC login flow | **PASS (live preview sign-in)** | The API log records `/api/login` and `/api/callback`; the callback returned 302, followed by successful `/api/auth/user` and `/api/profile` responses (200). This confirms sign-in and profile loading, but not a server match or extraction. |
 | Signed-out auth/profile behavior | **PASS** | Through the game preview proxy, `/api/auth/user` returns `{ "user": null }`; `/api/profile` returns 401 with a sign-in-required response. |
 | Server-owned extraction eligibility | **PASS (automated)** | The server tracks a continuous extraction-area hold using match state and grants rewards only for a matching authenticated account and valid match access token. Client-supplied reward payloads are rejected. |
 | Durable profile and inventory | **PASS (database integration test)** | Settlement writes profile totals and inventory transactionally to PostgreSQL. The test verifies persisted profile and item data. |
