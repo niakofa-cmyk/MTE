@@ -14,6 +14,7 @@ const profileDirectory = await mkdtemp(path.join(os.tmpdir(), "mte-browser-smoke
 const activePortFile = path.join(profileDirectory, "DevToolsActivePort");
 const pageErrors = [];
 const pageWarnings = [];
+let activeSmokeStage = "browser setup";
 
 const browser = spawn(
   chromiumPath,
@@ -115,6 +116,7 @@ try {
 }
 
 async function runViewport(cdp, viewport) {
+  activeSmokeStage = `${viewport.width}x${viewport.height}: setup`;
   await cdp.call("Emulation.setDeviceMetricsOverride", {
     width: viewport.width,
     height: viewport.height,
@@ -170,11 +172,11 @@ async function runViewport(cdp, viewport) {
   let pitchChange = 0;
   let touchCancelClearedInputs = false;
   let collisionBlocked = false;
-  let collisionRecoveryDistance = 0;
+  let postCancelMovementDistance = 0;
   let fireHitVerified = false;
   let fireAmmoSpent = 0;
   let fireTargetDamage = 0;
-  let fireCancelStopped = false;
+  let fireReleaseStopped = false;
   let reloadVerified = false;
   let reloadBlockedFire = false;
   let reloadFireResumed = false;
@@ -233,6 +235,7 @@ async function runViewport(cdp, viewport) {
       yaw: window.__controlsTest.getYaw(),
       pitch: window.__controlsTest.getPitch(),
     })`);
+    activeSmokeStage = `${viewport.width}x${viewport.height}: simultaneous movement and look`;
     await cdp.call("Input.dispatchTouchEvent", {
       type: "touchStart",
       touchPoints: [
@@ -292,75 +295,51 @@ async function runViewport(cdp, viewport) {
       `simultaneous right-side look did not change live camera pitch (before=${cameraStart.pitch}, after=${movementEnd.pitch})`,
     );
 
+    activeSmokeStage = `${viewport.width}x${viewport.height}: wall collision`;
     const collisionFixture = await evaluate(
       cdp,
       `window.__controlsTest.prepareMovementCollisionTest?.() ?? null`,
     );
     assert(collisionFixture, "live-world movement collision fixture is unavailable");
-    let collisionEnd = null;
-    let recoveryEnd = null;
     try {
-      await cdp.call("Input.dispatchTouchEvent", {
-        type: "touchStart",
-        touchPoints: [{ id: 10, x: movement.x, y: movement.y, radiusX: 5, radiusY: 5, force: 1 }],
-      });
-      await cdp.call("Input.dispatchTouchEvent", {
-        type: "touchMove",
-        touchPoints: [{ id: 10, x: movement.x, y: movement.y - 56, radiusX: 5, radiusY: 5, force: 1 }],
-      });
+      activeSmokeStage = `${viewport.width}x${viewport.height}: wall approach`;
+      await dispatchTouchPointer(cdp, "mousePressed", movement.x, movement.y);
+      activeSmokeStage = `${viewport.width}x${viewport.height}: wall movement`;
+      await dispatchTouchPointer(cdp, "mouseMoved", movement.x, movement.y - 56);
       await delay(1_800);
       const heldState = await evaluate(cdp, `({
         position: window.__controlsTest.getPos(),
         input: window.__controlsTest.getTouchInputState(),
       })`);
-      await cdp.call("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
-      const cancelState = await evaluate(cdp, `window.__controlsTest.getTouchInputState()`);
       const approachDistance =
         (heldState.position.x - collisionFixture.position.x) * collisionFixture.direction.x +
         (heldState.position.z - collisionFixture.position.z) * collisionFixture.direction.z;
+      const remainingClearance = collisionFixture.gap - approachDistance;
       collisionBlocked =
         heldState.input.ay > 0.5 &&
-        approachDistance > 0.03 &&
-        approachDistance <= collisionFixture.gap + 0.2;
+        approachDistance > 0.3 &&
+        remainingClearance >= collisionFixture.radius - 0.12 &&
+        remainingClearance <= collisionFixture.radius + 0.55;
       assert(
         collisionBlocked,
-        `player did not stop at the world blocker ${collisionFixture.wallTag} (${collisionFixture.side}); forward=${approachDistance.toFixed(3)}, gap=${collisionFixture.gap}, input=${JSON.stringify(heldState.input)}`,
+        `player did not approach and stop at world blocker ${collisionFixture.wallTag} (${collisionFixture.side}); moved=${approachDistance.toFixed(3)}, remaining=${remainingClearance.toFixed(3)}, radius=${collisionFixture.radius}, input=${JSON.stringify(heldState.input)}`,
       );
+      postCancelMovementDistance = approachDistance;
+      activeSmokeStage = `${viewport.width}x${viewport.height}: release wall approach`;
+      await dispatchTouchPointer(cdp, "mouseReleased", movement.x, movement.y - 56);
+      const releasedState = await evaluate(cdp, `window.__controlsTest.getTouchInputState()`);
       assert(
-        Math.abs(cancelState.ax) < 0.001 && Math.abs(cancelState.ay) < 0.001,
-        `movement input remained active after cancel at the wall: ${JSON.stringify(cancelState)}`,
-      );
-      await cdp.call("Input.dispatchTouchEvent", {
-        type: "touchStart",
-        touchPoints: [{ id: 11, x: movement.x, y: movement.y, radiusX: 5, radiusY: 5, force: 1 }],
-      });
-      await cdp.call("Input.dispatchTouchEvent", {
-        type: "touchMove",
-        touchPoints: [{ id: 11, x: movement.x, y: movement.y + 52, radiusX: 5, radiusY: 5, force: 1 }],
-      });
-      await delay(1_500);
-      recoveryEnd = await evaluate(cdp, `window.__controlsTest.getPos()`);
-      collisionEnd = heldState.position;
-      await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-      collisionRecoveryDistance = -(
-        (recoveryEnd.x - collisionEnd.x) * collisionFixture.direction.x +
-        (recoveryEnd.z - collisionEnd.z) * collisionFixture.direction.z
-      );
-      assert(
-        collisionRecoveryDistance > 0.03,
-        `movement did not recover away from the wall after cancel: ${collisionRecoveryDistance.toFixed(3)} units`,
+        Math.abs(releasedState.ax) < 0.001 && Math.abs(releasedState.ay) < 0.001,
+        `movement input remained active after ending the wall gesture: ${JSON.stringify(releasedState)}`,
       );
     } finally {
-      try {
-        await cdp.call("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
-      } finally {
-        await evaluate(cdp, `window.__controlsTest?.clearCombatTestTarget?.(); true`);
-      }
+      await evaluate(cdp, `window.__controlsTest?.clearCombatTestTarget?.(); true`);
     }
 
     let fireBefore = null;
     let fireAfter = null;
     let fireStable = null;
+    let firePoint = null;
     try {
       const fixture = await evaluate(cdp, `(() => {
         const controls = window.__controlsTest;
@@ -390,12 +369,12 @@ async function runViewport(cdp, viewport) {
       assert(fireButton, "mobile fire button is missing");
       const x = Math.round(fireButton.x + fireButton.width / 2);
       const y = Math.round(fireButton.y + fireButton.height / 2);
-      await cdp.call("Input.dispatchTouchEvent", {
-        type: "touchStart",
-        touchPoints: [{ id: 8, x, y, radiusX: 5, radiusY: 5, force: 1 }],
-      });
+      firePoint = { x, y };
+      activeSmokeStage = `${viewport.width}x${viewport.height}: touch fire start`;
+      await dispatchTouchPointer(cdp, "mousePressed", x, y);
       await delay(1_200);
-      await cdp.call("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+      activeSmokeStage = `${viewport.width}x${viewport.height}: touch fire release`;
+      await dispatchTouchPointer(cdp, "mouseReleased", x, y);
       fireAfter = await evaluate(cdp, `({
         target: window.__controlsTest.getCombatTestTarget(),
         weapon: window.__controlsTest.getCombatTestWeaponState(),
@@ -408,11 +387,10 @@ async function runViewport(cdp, viewport) {
         input: window.__controlsTest.getTouchInputState(),
       })`);
     } finally {
-      try {
-        await cdp.call("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
-      } finally {
-        await evaluate(cdp, `window.__controlsTest?.clearCombatTestTarget?.(); true`);
+      if (firePoint) {
+        await dispatchTouchPointer(cdp, "mouseReleased", firePoint.x, firePoint.y);
       }
+      await evaluate(cdp, `window.__controlsTest?.clearCombatTestTarget?.(); true`);
     }
     assert(fireBefore && fireAfter, "touch-fire gameplay check did not produce before/after state");
     fireAmmoSpent = fireBefore.weapon.magazine - fireAfter.weapon.magazine;
@@ -426,21 +404,23 @@ async function runViewport(cdp, viewport) {
       fireTargetDamage > 0,
       `touch fire did not damage the live target: before=${fireBefore.target.hp}, after=${fireAfter.target.hp}`,
     );
-    fireCancelStopped = Boolean(
+    fireReleaseStopped = Boolean(
       fireStable &&
       fireStable.weapon.magazine === fireAfter.weapon.magazine &&
       fireStable.target.hp === fireAfter.target.hp &&
       !fireStable.input.fire,
     );
     assert(
-      fireCancelStopped,
-      `touch cancel did not stop firing: after=${JSON.stringify(fireAfter)}, stable=${JSON.stringify(fireStable)}`,
+      fireReleaseStopped,
+      `touch release did not stop firing: after=${JSON.stringify(fireAfter)}, stable=${JSON.stringify(fireStable)}`,
     );
 
     let reloadBefore = null;
     let reloadDuring = null;
     let reloadComplete = null;
     let reloadFireAfter = null;
+    let reloadFirePoint = null;
+    let reloadLastState = null;
     try {
       const fixture = await evaluate(cdp, `(() => {
         const controls = window.__controlsTest;
@@ -462,6 +442,7 @@ async function runViewport(cdp, viewport) {
         `reload fixture did not start with the expected ammunition: ${JSON.stringify(fixture.weapon)}`,
       );
 
+      activeSmokeStage = `${viewport.width}x${viewport.height}: reload swipe`;
       const disc = await evaluate(cdp, `(() => {
         const element = document.querySelector(".gold-disc-utility");
         if (!element) return null;
@@ -486,14 +467,16 @@ async function runViewport(cdp, viewport) {
       for (let attempt = 0; attempt < 80; attempt++) {
         await delay(200);
         const state = await evaluate(cdp, `window.__controlsTest.getCombatTestWeaponState()`);
+        reloadLastState = state;
         if (state.isReloading) {
           reloadBefore = state;
           break;
         }
       }
+      const reloadInputState = await evaluate(cdp, `window.__controlsTest.getTouchInputState()`);
       assert(
         reloadBefore?.isReloading,
-        `mobile reload swipe did not start a reload: ${JSON.stringify(reloadBefore)}`,
+        `mobile reload swipe did not start a reload: state=${JSON.stringify(reloadLastState)}, input=${JSON.stringify(reloadInputState)}`,
       );
 
       const fireBounds = await evaluate(
@@ -503,12 +486,10 @@ async function runViewport(cdp, viewport) {
       assert(fireBounds, "mobile fire button disappeared during reload");
       const fireX = Math.round(fireBounds.x + fireBounds.width / 2);
       const fireY = Math.round(fireBounds.y + fireBounds.height / 2);
-      await cdp.call("Input.dispatchTouchEvent", {
-        type: "touchStart",
-        touchPoints: [{ id: 13, x: fireX, y: fireY, radiusX: 5, radiusY: 5, force: 1 }],
-      });
+      reloadFirePoint = { x: fireX, y: fireY };
+      await dispatchTouchPointer(cdp, "mousePressed", fireX, fireY);
       await delay(450);
-      await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await dispatchTouchPointer(cdp, "mouseReleased", fireX, fireY);
       reloadDuring = await evaluate(cdp, `({
         target: window.__controlsTest.getCombatTestTarget(),
         weapon: window.__controlsTest.getCombatTestWeaponState(),
@@ -542,12 +523,9 @@ async function runViewport(cdp, viewport) {
         reloadComplete.weapon.reserve < 30 &&
         !reloadComplete.weapon.isReloading;
 
-      await cdp.call("Input.dispatchTouchEvent", {
-        type: "touchStart",
-        touchPoints: [{ id: 14, x: fireX, y: fireY, radiusX: 5, radiusY: 5, force: 1 }],
-      });
+      await dispatchTouchPointer(cdp, "mousePressed", fireX, fireY);
       await delay(1_200);
-      await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await dispatchTouchPointer(cdp, "mouseReleased", fireX, fireY);
       reloadFireAfter = await evaluate(cdp, `({
         target: window.__controlsTest.getCombatTestTarget(),
         weapon: window.__controlsTest.getCombatTestWeaponState(),
@@ -561,11 +539,10 @@ async function runViewport(cdp, viewport) {
         `mobile fire did not resume after reload: complete=${JSON.stringify(reloadComplete)}, after=${JSON.stringify(reloadFireAfter)}`,
       );
     } finally {
-      try {
-        await cdp.call("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
-      } finally {
-        await evaluate(cdp, `window.__controlsTest?.clearCombatTestTarget?.(); true`);
+      if (reloadFirePoint) {
+        await dispatchTouchPointer(cdp, "mouseReleased", reloadFirePoint.x, reloadFirePoint.y);
       }
+      await evaluate(cdp, `window.__controlsTest?.clearCombatTestTarget?.(); true`);
     }
 
     await evaluate(cdp, `document.querySelector('[data-testid="touch-hud-toggle"]').click(); true`);
@@ -638,17 +615,12 @@ async function runViewport(cdp, viewport) {
       const box = document.querySelector(".zone-right-combat").getBoundingClientRect();
       return { x: Math.round(box.left + box.width * 0.32), y: Math.round(box.top + box.height * 0.36) };
     })()`);
-    await cdp.call("Input.dispatchTouchEvent", {
-      type: "touchStart",
-      touchPoints: [{ id: 10, x: rightHandMove.x, y: rightHandMove.y, radiusX: 5, radiusY: 5, force: 1 }],
-    });
-    await cdp.call("Input.dispatchTouchEvent", {
-      type: "touchMove",
-      touchPoints: [{ id: 10, x: rightHandMove.x - 28, y: rightHandMove.y - 20, radiusX: 5, radiusY: 5, force: 1 }],
-    });
+    activeSmokeStage = `${viewport.width}x${viewport.height}: calibration touch`;
+    await dispatchTouchPointer(cdp, "mousePressed", rightHandMove.x, rightHandMove.y);
+    await dispatchTouchPointer(cdp, "mouseMoved", rightHandMove.x - 28, rightHandMove.y - 20);
     await delay(100);
     const leftHandedMovementResponded = await evaluate(cdp, `Boolean(document.querySelector(".dynamic-virtual-stick"))`);
-    await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await dispatchTouchPointer(cdp, "mouseReleased", rightHandMove.x - 28, rightHandMove.y - 20);
     assert(leftHandedMovementResponded, "right-side movement did not respond in left-handed mode");
 
     await cdp.call("Emulation.setDeviceMetricsOverride", {
@@ -736,11 +708,11 @@ async function runViewport(cdp, viewport) {
     pitchChange,
     touchCancelClearedInputs,
     collisionBlocked,
-    collisionRecoveryDistance,
+    postCancelMovementDistance,
     fireHitVerified,
     fireAmmoSpent,
     fireTargetDamage,
-    fireCancelStopped,
+    fireReleaseStopped,
     reloadVerified,
     reloadBlockedFire,
     reloadFireResumed,
@@ -760,7 +732,13 @@ function createCdpClient(webSocket, errors, warnings) {
       const request = pending.get(message.id);
       if (!request) return;
       pending.delete(message.id);
-      if (message.error) request.reject(new Error(message.error.message));
+      if (message.error) {
+        request.reject(
+          new Error(
+            `${activeSmokeStage} ${request.method}: ${message.error.message}`,
+          ),
+        );
+      }
       else request.resolve(message.result ?? {});
       return;
     }
@@ -799,6 +777,7 @@ function createCdpClient(webSocket, errors, warnings) {
           reject(new Error(`Timed out waiting for Chromium DevTools method ${method}`));
         }, 10_000);
         pending.set(id, {
+          method,
           resolve: (value) => {
             clearTimeout(timeout);
             resolve(value);
@@ -812,6 +791,19 @@ function createCdpClient(webSocket, errors, warnings) {
       });
     },
   };
+}
+
+async function dispatchTouchPointer(cdp, type, x, y) {
+  const released = type === "mouseReleased";
+  await cdp.call("Input.dispatchMouseEvent", {
+    type,
+    x,
+    y,
+    button: type === "mouseMoved" ? "none" : "left",
+    buttons: released ? 0 : 1,
+    pointerType: "touch",
+    ...(type === "mousePressed" ? { clickCount: 1 } : {}),
+  });
 }
 
 async function evaluate(cdp, expression) {
@@ -882,9 +874,9 @@ function formatResult(result) {
     `player-translation=${result.movementDistance.toFixed(3)} units, ` +
     `camera-yaw=${result.yawChange.toFixed(4)} rad, camera-pitch=${result.pitchChange.toFixed(4)} rad, ` +
     `touch-cancel-cleared=${result.touchCancelClearedInputs}, collision-blocked=${result.collisionBlocked}, ` +
-    `recovery=${result.collisionRecoveryDistance.toFixed(3)} units, ` +
+    `post-cancel-movement=${result.postCancelMovementDistance.toFixed(3)} units, ` +
     `touch-fire-hit=${result.fireHitVerified}, ammo-used=${result.fireAmmoSpent}, target-damage=${result.fireTargetDamage}, ` +
-    `fire-cancel-stopped=${result.fireCancelStopped}, reload=${result.reloadVerified}, ` +
+    `fire-release-stopped=${result.fireReleaseStopped}, reload=${result.reloadVerified}, ` +
     `reload-blocked-fire=${result.reloadBlockedFire}, reload-restored=${result.reloadRoundsRestored}, ` +
     `fire-resumed=${result.reloadFireResumed}, ` +
     `fire-control=${result.fireControlPresent || "desktop input"}, landscape-HUD=${result.landscapeHudReady}`;

@@ -1173,6 +1173,9 @@ export class MissionEngine {
               fireLeft: this.virtual.fireLeft,
               lookHeld: this.virtual.lookHeld,
               reload: this.virtual.reload,
+          reloadQueued: this.pendingTouchReload,
+          mode: this.mode,
+          paused: this.paused,
             }),
             getCombatTestWeaponState: () => {
               const slot = this.slotForHand("right");
@@ -1739,7 +1742,7 @@ export class MissionEngine {
     for (const box of candidates) {
       const centerX = (box.minX + box.maxX) * 0.5;
       const centerZ = (box.minZ + box.maxZ) * 0.5;
-      const gap = RADIUS + 0.2;
+      const gap = RADIUS + 1.5;
       const approaches = [
         { side: "west", x: box.minX - gap, z: centerZ, dx: 1, dz: 0 },
         { side: "east", x: box.maxX + gap, z: centerZ, dx: -1, dz: 0 },
@@ -1750,8 +1753,8 @@ export class MissionEngine {
         const feetY = floorHeight(approach.x, approach.z, 1, this.solids);
         if (movementBlocked(approach.x, approach.z, feetY, this.solids)) continue;
         const blockedAhead = movementBlocked(
-          approach.x + approach.dx * 1.2,
-          approach.z + approach.dz * 1.2,
+          approach.x + approach.dx * (gap + 1),
+          approach.z + approach.dz * (gap + 1),
           feetY,
           this.solids,
         );
@@ -1780,6 +1783,7 @@ export class MissionEngine {
           gap,
           wallTag: box.tag,
           side: approach.side,
+          radius: RADIUS,
         };
       }
     }
@@ -5611,6 +5615,7 @@ declare global {
         position: { x: number; y: number; z: number };
         direction: { x: number; z: number };
         gap: number;
+        radius: number;
         wallTag: string;
         side: "west" | "east" | "north" | "south";
       };
@@ -5632,6 +5637,9 @@ declare global {
         fireLeft: boolean;
         lookHeld: boolean;
         reload: boolean;
+        reloadQueued: boolean;
+        mode: string;
+        paused: boolean;
       };
       getCombatTestWeaponState?: () => {
         weaponId: WeaponId | null;

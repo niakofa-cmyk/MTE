@@ -11,15 +11,36 @@ describe("gold disc", () => {
     assert.equal(discSwipe(4, 4), null);
   });
 
-  it("holds for a beacon and does not also fire a swipe", () => {
+  it("holds for a beacon and releases cleanly without a swipe", () => {
     const disc = new GoldDiscController();
     disc.begin(0, 0, 0);
     assert.equal(disc.hold(200).length, 0);
     const held = disc.hold(300);
     assert.equal(held[0]?.type, "interact");
-    const end = disc.end(0, -40, 340);
+    const end = disc.end(0, 0, 340);
     assert.equal(end.some((command) => command.type === "interact" && command.down === false), true);
     assert.equal(end.some((command) => command.type === "pulse"), false);
+  });
+
+  it("does not turn a moving reload swipe into a long-press interaction", () => {
+    const disc = new GoldDiscController();
+    disc.begin(0, 0, 0);
+    disc.move(34, 0);
+    assert.equal(disc.hold(301).length, 0);
+    const end = disc.end(34, 0, 340);
+    assert.deepEqual(end, [{ type: "pulse", key: "reload" }]);
+  });
+
+  it("releases an already-started hold and still recognizes a delayed swipe", () => {
+    const disc = new GoldDiscController();
+    disc.begin(0, 0, 0);
+    assert.deepEqual(disc.hold(301), [{ type: "interact", down: true }]);
+    disc.move(34, 0);
+    const end = disc.end(34, 0, 340);
+    assert.deepEqual(end, [
+      { type: "interact", down: false },
+      { type: "pulse", key: "reload" },
+    ]);
   });
 
   it("turns a second tap into solar mass instead of two abilities", () => {

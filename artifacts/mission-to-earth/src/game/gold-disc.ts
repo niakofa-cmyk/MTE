@@ -46,6 +46,7 @@ export class GoldDiscController {
   hold(now: number): DiscCommand[] {
     const frame = this.frame;
     if (!frame || frame.held || now - frame.t < this.holdDelayMs) return [];
+    if (Math.hypot(frame.x - frame.x0, frame.y - frame.y0) >= this.swipeMinDistance) return [];
     frame.held = true;
     return [{ type: "interact", down: true }];
   }
@@ -58,8 +59,12 @@ export class GoldDiscController {
     const frame = this.frame;
     this.frame = null;
     if (!frame) return [];
-    if (frame.held) return [{ type: "interact", down: false }];
     const swipe = discSwipe(x - frame.x0, y - frame.y0, this.swipeMinDistance);
+    if (frame.held) {
+      const commands: DiscCommand[] = [{ type: "interact", down: false }];
+      if (swipe) commands.push({ type: "pulse", key: swipe });
+      return commands;
+    }
     if (swipe === "ult") return [{ type: "pulse", key: "ult" }];
     if (swipe === "reload") return [{ type: "pulse", key: "reload" }];
     if (swipe === "swap") return [{ type: "pulse", key: "swap" }];
