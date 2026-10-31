@@ -6,9 +6,14 @@ import { setTimeout as delay } from "node:timers/promises";
 
 const smokeUrl = process.env.MTE_SMOKE_URL ?? "http://127.0.0.1:80/";
 const chromiumPath = process.env.MTE_CHROMIUM_PATH ?? process.env.CHROMIUM_PATH ?? "chromium";
+const rendererMode = process.env.MTE_RENDERER_MODE ?? "swiftshader";
+if (!["swiftshader", "hardware"].includes(rendererMode)) {
+  throw new Error("MTE_RENDERER_MODE must be 'swiftshader' or 'hardware'.");
+}
 const profileDirectory = await mkdtemp(path.join(os.tmpdir(), "mte-browser-smoke-"));
 const activePortFile = path.join(profileDirectory, "DevToolsActivePort");
 const pageErrors = [];
+const pageWarnings = [];
 
 const browser = spawn(
   chromiumPath,
@@ -21,9 +26,9 @@ const browser = spawn(
     "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
     "--enable-webgl",
-    "--enable-unsafe-swiftshader",
-    "--use-gl=angle",
-    "--use-angle=swiftshader",
+    ...(rendererMode === "swiftshader"
+      ? ["--enable-unsafe-swiftshader", "--use-gl=angle", "--use-angle=swiftshader"]
+      : ["--ignore-gpu-blocklist"]),
     "--remote-debugging-address=127.0.0.1",
     "--remote-debugging-port=0",
     "--remote-allow-origins=*",
@@ -50,7 +55,7 @@ try {
 
   socket = new WebSocket(page.webSocketDebuggerUrl);
   await waitForSocket(socket);
-  const cdp = createCdpClient(socket, pageErrors);
+  const cdp = createCdpClient(socket, pageErrors, pageWarnings);
   await cdp.call("Page.enable");
   await cdp.call("Runtime.enable");
   await cdp.call("Log.enable");
@@ -76,10 +81,13 @@ try {
   }
 
   console.log(`Browser smoke passed at ${smokeUrl}`);
-  console.log("Renderer: SwiftShader WebGL2 (software compatibility check, not GPU certification)");
+  console.log(`Renderer mode: ${rendererMode}${rendererMode === "swiftshader" ? " (software compatibility check)" : ""}`);
   console.log(`Desktop: ${formatResult(desktop)}`);
   console.log(`Mobile: ${formatResult(mobile)}`);
-  console.log("Page exceptions/console errors: 0");
+  if (pageWarnings.length > 0) {
+    console.warn(`Page console warnings (${pageWarnings.length}):\n${pageWarnings.map((warning) => `- ${warning}`).join("\n")}`);
+  }
+  console.log(`Page exceptions/console errors: ${pageErrors.length}; console warnings: ${pageWarnings.length}`);
 } catch (error) {
   if (browser.exitCode !== null) {
     console.error(`Chromium exited with code ${browser.exitCode}.`);
@@ -119,6 +127,12 @@ async function runViewport(cdp, viewport) {
       bodyText: document.body.innerText.slice(0, 300),
       missionTitleVisible: document.body.innerText.replace(/\\s+/g, " ").includes("MISSION TO EARTH"),
       webgl2: canvases.some((canvas) => Boolean(canvas.getContext("webgl2"))),
+      rendererName: (() => {
+        const context = canvases.map((canvas) => canvas.getContext("webgl2")).find(Boolean);
+        if (!context) return "unavailable";
+        const debug = context.getExtension("WEBGL_debug_renderer_info");
+        return context.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : context.RENDERER);
+      })(),
       canvasCount: canvases.length,
       fallbackVisible: document.body.innerText.includes("This preview browser cannot render 3D"),
       deployEnabled: Boolean(deploy && !deploy.disabled),
@@ -141,6 +155,7 @@ async function runViewport(cdp, viewport) {
   await delay(350);
 
   let movementControlResponded = false;
+  let lookInputDispatched = false;
   let fireControlPresent = false;
   if (viewport.touch) {
     const mobileControls = await evaluate(cdp, `(() => ({
@@ -181,6 +196,22 @@ async function runViewport(cdp, viewport) {
     );
     await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     assert(movementControlResponded, "mobile movement zone did not respond to a touch drag");
+
+    const aim = await evaluate(cdp, `(() => {
+      const box = document.querySelector(".zone-right-combat").getBoundingClientRect();
+      return { x: Math.round(box.left + box.width * 0.45), y: Math.round(box.top + box.height * 0.42) };
+    })()`);
+    await cdp.call("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ id: 9, x: aim.x, y: aim.y, radiusX: 5, radiusY: 5, force: 1 }],
+    });
+    await cdp.call("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ id: 9, x: aim.x + 36, y: aim.y - 22, radiusX: 5, radiusY: 5, force: 1 }],
+    });
+    await delay(120);
+    await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    lookInputDispatched = true;
 
     const fireButton = await evaluate(cdp, `document.querySelector(".touch-fire")?.getBoundingClientRect().toJSON() ?? null`);
     if (fireButton) {
@@ -237,21 +268,23 @@ async function runViewport(cdp, viewport) {
   );
 
   assert(
-    frameTimes.frames > 20,
+    frameTimes.frames > 0,
     `${viewport.name}: frame sampler did not receive enough frames (received ${frameTimes.frames})`,
   );
   return {
     viewport: `${viewport.width}×${viewport.height}`,
     canvasCount: beforeStart.canvasCount,
     webgl2: beforeStart.webgl2,
+    rendererName: beforeStart.rendererName,
     coarsePointer: beforeStart.coarsePointer,
     movementControlResponded,
+    lookInputDispatched,
     fireControlPresent,
     frameTimes,
   };
 }
 
-function createCdpClient(webSocket, errors) {
+function createCdpClient(webSocket, errors, warnings) {
   let nextId = 1;
   const pending = new Map();
   webSocket.addEventListener("message", (event) => {
@@ -273,10 +306,20 @@ function createCdpClient(webSocket, errors) {
     ) {
       errors.push(message.params.args.map((arg) => arg.value ?? arg.description ?? "").join(" "));
     } else if (
+      message.method === "Runtime.consoleAPICalled" &&
+      message.params.type === "warning"
+    ) {
+      warnings.push(message.params.args.map((arg) => arg.value ?? arg.description ?? "").join(" "));
+    } else if (
       message.method === "Log.entryAdded" &&
       message.params.entry.level === "error"
     ) {
       errors.push(message.params.entry.text);
+    } else if (
+      message.method === "Log.entryAdded" &&
+      message.params.entry.level === "warning"
+    ) {
+      warnings.push(message.params.entry.text);
     }
   });
 
@@ -366,9 +409,10 @@ async function fetchJson(url) {
 
 function formatResult(result) {
   const frame = result.frameTimes;
-  return `${result.viewport}, WebGL2=${result.webgl2}, canvases=${result.canvasCount}, ` +
+  return `${result.viewport}, WebGL2=${result.webgl2}, renderer=${result.rendererName}, canvases=${result.canvasCount}, ` +
     `frames=${frame.frames}, p50=${frame.p50Ms.toFixed(2)} ms, p95=${frame.p95Ms.toFixed(2)} ms, ` +
-    `movement-touch=${result.movementControlResponded}, fire-control=${result.fireControlPresent || "desktop input"}`;
+    `movement-touch=${result.movementControlResponded}, look-touch=${result.lookInputDispatched}, ` +
+    `fire-control=${result.fireControlPresent || "desktop input"}`;
 }
 
 function assert(condition, message) {

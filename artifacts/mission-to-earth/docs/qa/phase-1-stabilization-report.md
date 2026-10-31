@@ -432,12 +432,12 @@ This verifies the live engine’s hit, hurt-reaction, and defeat path for one st
 
 ### Build and renderer warning cleanup — 2026-10-31
 
-**Reviewed revision:** `2200be0` plus the current uncommitted warning-cleanup changes.
+**Reviewed revision:** `cfc0f8d`.
 
 | Finding | Result | Evidence / qualification |
 |---|---|---|
 | Oversized Vite Three.js chunk | **PASS** | Split Three.js core and addons into separate chunks. Production output's largest chunk is 358.31 kB; no Vite chunk-size warning is emitted. |
-| Oversized API bundle warning | **PASS** | Externalized installed runtime dependencies while keeping workspace packages and Pino worker handling intact. The server bundle is 625.7 kB; the API build emits no large-bundle warning. |
+| Oversized API bundle warning | **PASS** | Externalized installed runtime dependencies while keeping workspace packages and Pino worker handling intact. The latest server bundle is 640.7 kB; the API build emits no large-bundle warning. |
 | API root 404s | **PASS** | Added a public root health response. After restart, `GET /` returned HTTP 200 with `{"service":"mission-to-earth-api","status":"ok"}`; `/api/auth/user` also returned 200. |
 | Unsupported WebGL capture browser | **PASS (graceful fallback)** | A WebGL2 capability probe now prevents constructing the renderer when the browser cannot provide WebGL2. The preview shows the existing explanatory fallback without page-console renderer errors. |
 | WebGL-capable software-rendered browser | **PASS (compatibility only)** | Workspace Chromium with SwiftShader produced two canvas elements, did not show the fallback notice, and logged no renderer errors. Chromium itself emitted container D-Bus/GCM diagnostics; these are not page errors. This is not physical-GPU performance certification. |
@@ -446,3 +446,16 @@ This verifies the live engine’s hit, hurt-reaction, and defeat path for one st
 | Physical-device WebGL behavior | **NOT TESTED** | No desktop GPU or mobile device was available for this verification. |
 
 **Result:** the reproducible Vite chunk advisory and API bundle-size warning are cleared, the API root returns a healthy response, and the unsupported preview browser now fails gracefully without renderer-console errors. Its visible no-WebGL notice remains accurate for that browser.
+
+### Bundle, browser-smoke, and performance follow-ups — 2026-10-31
+
+| Follow-up | Result | Evidence / qualification |
+|---|---|---|
+| Bundle-size regression guard | **PASS** | Root `pnpm run build` now runs `check:bundle-size`. Browser chunks are capped at 500 kB each; API JavaScript outputs at 1,000 kB each. Latest output passed: largest browser chunk 358.3 kB; API entry 640.7 kB. |
+| Desktop browser smoke | **PASS (automated)** | Chromium at 1280×900 loaded the menu and invoked solo deployment; WebGL2 was available, two canvases were present, a WASD key event was delivered, and no page exceptions, console errors, or console warnings were captured. |
+| Mobile browser smoke | **PASS (emulated input)** | Chromium at 390×844 activated the coarse-pointer layout. The movement zone displayed its virtual stick after a simulated touch drag; look-zone and fire-button touch events were dispatched. This does not certify physical touch or independently assert camera rotation, player displacement, or weapon damage. |
+| Software-rendered frame sample | **NOT A PERFORMANCE CERTIFICATION** | Latest forced SwiftShader sample: desktop 4 animation frames over 2.5 seconds (p50 516.7 ms, p95 600.0 ms); mobile 6 frames (p50 400.0 ms, p95 583.2 ms). These slow, software-only readings are not representative of GPU gameplay performance. |
+| Real-GPU Nod/Cinder Row performance | **NOT TESTED** | This workspace exposes no `/dev/dri` device or `nvidia-smi`; no physical GPU or mobile device was available. The browser harness supports `MTE_RENDERER_MODE=hardware` to avoid forcing SwiftShader, but hardware measurements must be run on an actual GPU. Cinder Row remains account-gated and was not accessed by bypassing authentication. |
+| Full interactive objective/extraction flow | **NOT TESTED** | The browser smoke covers rendering and input delivery only. It does not complete the rescue, extraction, or reward flow. |
+
+The reproducible commands are `pnpm run check:bundle-size` and `pnpm run qa:browser-smoke`; the browser smoke expects a running app at `MTE_SMOKE_URL` (default `http://127.0.0.1:80/`). Set `MTE_RENDERER_MODE=hardware` when collecting measurements on an actual GPU. The full workspace build passed with its required `PORT=4173` and `BASE_PATH=/mission-to-earth/` values; a bare `pnpm run build` stops in Vite config validation when these workspace variables are absent.
