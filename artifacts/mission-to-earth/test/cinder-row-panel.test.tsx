@@ -59,6 +59,23 @@ test("Cinder Row HUD shows the selected ranked team capacity", () => {
   assert.match(eightVsEightMenu, /Private matches are 4v4; ranked supports 4v4 or 8v8/);
 });
 
+test("Cinder Row touch HUD starts collapsed and exposes the round panel on demand", () => {
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    writable: true,
+    value: { matchMedia: () => ({ matches: true }) },
+  });
+  try {
+    const compactHud = renderToStaticMarkup(<CinderRowPanel {...baseProps} />);
+    assert.match(compactHud, /data-testid="cinder-row-hud-toggle"[^>]*aria-expanded="false"/);
+    assert.doesNotMatch(compactHud, /ROUND TIME/);
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+});
+
 test("explains private match creation and exposes a shareable ID after hosting", () => {
   const readyToHost = renderToStaticMarkup(
     <CinderRowPanel

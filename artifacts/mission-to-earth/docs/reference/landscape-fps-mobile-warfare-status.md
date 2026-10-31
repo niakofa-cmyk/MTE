@@ -6,13 +6,14 @@ This status note accompanies the full, verbatim product brief in `landscape-fps-
 
 - The existing Three.js Nod mission remains the playable client; no replacement scaffold or engine migration was introduced.
 - Touch-first play recommends landscape only after mission deployment. It offers browser fullscreen when available and always lets the player continue in portrait. The browser is not forced to rotate.
-- The combat HUD and touch controls respect safe areas and use a denser layout in landscape.
-- Touch users can select Beginner, Tactical, or Advanced control tuning and right- or left-handed stick placement. Choices persist locally. Existing desktop and gamepad mappings remain unchanged.
+- The combat HUD and touch controls respect safe areas and use a denser layout in landscape. Mobile combat now opens with the essential objective, health/ammo, movement/look, fire, focus, and utility controls; secondary telemetry, squad/feed, server loot cache, and competitive round details stay tucked away until requested.
+- Touch users can select Beginner, Tactical, or Advanced presets, choose left- or right-handed layout, and tune Movement, Aim, and Assist independently. Settings are validated, clamped, persisted locally, and resettable. The Cinder Row mobile round panel starts as a compact status chip. Existing desktop and gamepad mappings remain unchanged.
 - The current game already has independent touch movement/look pointers, weapon fire and reload controls, keyboard/mouse support, Gamepad API support, campaign mission UI, and Cinder Row private/ranked entry points. These are foundations, not evidence of mobile device or production multiplayer certification.
 
 ## Still required for the brief's full target
 
 - Test landscape and portrait behavior on real Android and iOS devices, including fullscreen/orientation differences, safe areas, touch cancellation, and long sessions.
+- Browser-emulated touch tests verify virtual-stick response and input delivery, but do not certify real player displacement, camera rotation, weapon damage, touch-coordinate fidelity, or extraction on a physical device.
 - Add and validate optional gyroscope aiming, haptic feedback, auto-fire options, complete draggable HUD placement, and controller settings only with platform-specific testing.
 - Build and measure Performance, Balanced, and High Fidelity rendering profiles; current renderer caps pixel ratio but does not dynamically certify the brief's frame-rate targets.
 - Improve authored character/weapon models, animation, positional audio, and environment assets; these require production assets and art review, not only CSS or TypeScript.

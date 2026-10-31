@@ -524,6 +524,10 @@
   left: max(1rem, env(safe-area-inset-left));
 }
 
+.cinder-row-hud-toggle {
+  display: none;
+}
+
 @media (pointer: coarse) and (orientation: landscape) {
   .mte-landscape-prompt {
     display: none;
@@ -681,6 +685,64 @@
 
   #mte-hud .mte-hud-loadout #mte-weapon {
     margin-bottom: 4px;
+    font-size: 10px;
+  }
+
+  .cinder-row-match-hud {
+    top: max(10px, env(safe-area-inset-top));
+    right: max(72px, calc(env(safe-area-inset-right) + 60px));
+    width: min(230px, calc(100% - 5.5rem));
+  }
+
+  .cinder-row-hud {
+    max-width: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  .cinder-row-hud-toggle {
+    display: flex;
+    width: 100%;
+    min-height: 42px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border: 1px solid rgb(122 217 197 / 45%);
+    background: rgb(8 11 13 / 88%);
+    padding: 7px 9px;
+    color: var(--color-fg);
+    font: 700 10px var(--font-display), sans-serif;
+    letter-spacing: 0.06em;
+    text-align: left;
+    backdrop-filter: blur(8px);
+  }
+
+  .cinder-row-hud-details {
+    max-height: min(66dvh, 520px);
+    margin-top: 8px;
+    overflow-y: auto;
+    border: 1px solid rgb(122 217 197 / 40%);
+    background: rgb(8 11 13 / 94%);
+    box-shadow: 0 12px 36px rgb(0 0 0 / 52%);
+    backdrop-filter: blur(10px);
+  }
+
+  .server-match-inventory {
+    display: none;
+  }
+
+  .server-match-inventory.is-field-open {
+    top: auto;
+    right: auto;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: max(12px, env(safe-area-inset-left));
+    display: block;
+    width: min(42vw, 16rem);
+    max-height: 24dvh;
+    padding: 8px;
     font-size: 10px;
   }
 }

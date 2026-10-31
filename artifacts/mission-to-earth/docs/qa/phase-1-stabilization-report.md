@@ -475,3 +475,19 @@ The reproducible commands are `pnpm run check:bundle-size` and `pnpm run qa:brow
 | Full rescue, extraction, and 4v4 multiplayer runs | **NOT TESTED IN THIS MILESTONE** | This work targets the landscape client foundation. The smoke test does not assert actual player displacement, camera rotation, weapon damage, extraction completion, reward persistence, or a full multiplayer match. |
 
 The standard preview screenshot browser still lacks WebGL2 and displays the existing fallback notice; the automated game smoke used separate workspace Chromium with SwiftShader. Neither browser emulation nor this report certifies physical-device gameplay or GPU frame-rate targets.
+
+### Mobile combat HUD and touch calibration — 2026-10-31
+
+| Requirement | Result | Evidence / qualification |
+|---|---|---|
+| Reduce mobile combat-screen clutter | **PASS (browser-emulated)** | At 390×844, the Field and Controls panels start closed. Secondary telemetry, squad/feed, and the server loot cache are hidden until Field is opened. Objective/loadout and direct combat actions remain available; interaction, weapon selection, and off-hand fire remain conditional on the current game state/loadout. |
+| Touch calibration and persistence | **PASS (automated + emulated)** | Movement, Aim, and Assist controls are grouped into separate tabs. Smoke selected Advanced, persisted a Look value of 2.6, restored defaults, selected left-handed layout, and closed the panel before resuming touch input. Unit tests cover malformed, out-of-range, and legacy calibration data. |
+| Movement and look input zones | **PARTIAL (browser-emulated)** | The mobile smoke observed the virtual movement stick respond on the left in right-handed mode and on the right in left-handed mode, and dispatched look-zone touch input. It does not prove actual player displacement or camera yaw/pitch changed in the live simulation. |
+| Conditional combat controls | **PASS (automated inspection)** | The contextual action appears only when the mission engine supplies an action; weapon selection and off-hand fire appear only when multiple weapons are available. Fire, focus, utility, and movement/look controls remain available as applicable. |
+| Cinder Row mobile round HUD | **PASS (component test)** | On coarse-pointer devices the round HUD starts collapsed to a status chip and exposes the detailed panel on demand; a UI test covers the collapsed initial state. The authenticated competitive match was not opened in the browser smoke. |
+| Typecheck, lint, tests, and build | **PASS** | Full workspace typecheck/build and bundle budget passed; workspace tests passed with 181 Mission game tests and 74 API tests; Mission UI tests passed 4/4; lint passed. |
+| Desktop/mobile smoke and browser diagnostics | **PASS (automated, SwiftShader)** | Desktop 1280×900 and mobile 390×844 smoke passed after the workflow restart. No page exceptions, console errors, or warnings. Mobile landscape layout was exercised at 844×390. |
+| Software-rendered frame sample | **NOT A PERFORMANCE CERTIFICATION** | Final SwiftShader run measured desktop p50 616.7 ms / p95 966.6 ms and mobile p50 366.6 ms / p95 816.7 ms. Software rendering is not representative of GPU performance. |
+| Physical-device input and gameplay | **NOT TESTED** | No Android/iOS device was used. Physical touch-coordinate reliability, real movement/camera response, firing damage, extraction, and long-session behavior remain unverified. |
+
+The mobile screen now separates combat actions from secondary information, but full device and interactive mission certification remains outstanding. Browser-emulated input delivery must not be treated as proof that the full rescue-to-extraction loop works on a phone.

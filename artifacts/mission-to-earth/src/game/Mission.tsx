@@ -877,7 +877,7 @@ export function Mission() {
         )
       ) : null}
       {serverClient?.mapId === "cinder-row-blackout" && screen === "play" ? (
-        <div className="fixed right-4 top-4 z-40 w-[min(27rem,calc(100%-2rem))]">
+        <div className="cinder-row-match-hud fixed right-4 top-4 z-40 w-[min(27rem,calc(100%-2rem))]">
           <CinderRowPanel
             screen="hud"
             serverStatus={serverStatus}
@@ -906,7 +906,8 @@ export function Mission() {
         <aside
           aria-live="polite"
           aria-label="Server match inventory"
-          className="fixed right-4 top-4 z-40 max-h-[38vh] w-64 overflow-y-auto border border-cyan/50 bg-bg/90 p-3 text-fg shadow-xl backdrop-blur"
+          className={`server-match-inventory fixed right-4 top-4 z-40 max-h-[38vh] w-64 overflow-y-auto border border-cyan/50 bg-bg/90 p-3 text-fg shadow-xl backdrop-blur ${mobileHudPanel === "field" ? "is-field-open" : ""}`}
+          data-testid="server-match-inventory"
         >
           <p className="font-display text-xs tracking-widest text-cyan">SERVER CACHE · {serverInventory.length}</p>
           {serverInventory.length ? (

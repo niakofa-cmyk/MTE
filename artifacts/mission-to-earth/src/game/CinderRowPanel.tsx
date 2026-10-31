@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { Radio, Users, Timer, Shield, Swords, Signal, ArrowUpRight, Copy } from "lucide-react";
 import type { ServerPlayerSnapshot } from "@/game/server-match-client";
 
@@ -90,6 +90,10 @@ export function CinderRowPanel({
   onRankedAction,
 }: CinderRowPanelProps) {
   const codeId = useId();
+  const [hudExpanded, setHudExpanded] = useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
+    return !window.matchMedia("(pointer: coarse)").matches;
+  });
   const isConnecting = serverStatus === "connecting";
   const actionsLocked =
     isConnecting ||
@@ -108,13 +112,42 @@ export function CinderRowPanel({
       ? `${TEAM_LABELS[round.controlledBy]} CONTROL`
       : "NO CONTROL";
 
+  useEffect(() => {
+    if (screen !== "hud" || typeof window.matchMedia !== "function") return;
+    const coarsePointer = window.matchMedia("(pointer: coarse)");
+    const updateForPointer = () => setHudExpanded(!coarsePointer.matches);
+    updateForPointer();
+    if (typeof coarsePointer.addEventListener === "function") {
+      coarsePointer.addEventListener("change", updateForPointer);
+      return () => coarsePointer.removeEventListener("change", updateForPointer);
+    }
+    coarsePointer.addListener(updateForPointer);
+    return () => coarsePointer.removeListener(updateForPointer);
+  }, [screen]);
+
   if (screen === "hud") {
     return (
       <section
         aria-label="Cinder Row round status"
         data-testid="cinder-row-hud"
-        className="w-full max-w-[27rem] border border-line/80 bg-background/90 p-3 text-fg shadow-xl backdrop-blur-md sm:p-4"
+        className="cinder-row-hud w-full max-w-[27rem] border border-line/80 bg-background/90 p-3 text-fg shadow-xl backdrop-blur-md sm:p-4"
+        data-expanded={hudExpanded}
       >
+        <button
+          type="button"
+          className="cinder-row-hud-toggle"
+          data-testid="cinder-row-hud-toggle"
+          aria-expanded={hudExpanded}
+          onClick={() => setHudExpanded((expanded) => !expanded)}
+        >
+          <span className="truncate">CINDER ROW · {phaseLabel}</span>
+          <span className="shrink-0 font-mono tabular-nums">
+            {round ? formatTime(round.remainingSeconds) : "STATUS"}
+          </span>
+          <span className="shrink-0"><TeamTag team={team} /></span>
+        </button>
+        {hudExpanded ? (
+        <div className="cinder-row-hud-details">
         <div className="flex items-start justify-between gap-3 border-b border-line/70 pb-2">
           <div className="min-w-0">
             <p className="flex items-center gap-2 font-display text-[10px] tracking-[.22em] text-cyan">
@@ -188,6 +221,8 @@ export function CinderRowPanel({
             </span>
           ))}
         </div>
+        </div>
+        ) : null}
       </section>
     );
   }

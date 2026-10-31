@@ -310,6 +310,10 @@ async function runViewport(cdp, viewport) {
     await delay(100);
     const handednessApplied = await evaluate(cdp, `document.querySelector(".touch-hud-overlay")?.classList.contains("is-left-handed") === true`);
     assert(handednessApplied, "left-handed touch layout did not activate");
+    await evaluate(cdp, `document.querySelector('[data-testid="touch-hud-toggle"]').click(); true`);
+    await delay(80);
+    const panelsClosed = await evaluate(cdp, `document.querySelector(".touch-hud-overlay")?.dataset.mobilePanel === "closed"`);
+    assert(panelsClosed, "HUD panel did not close before returning to combat");
     const rightHandMove = await evaluate(cdp, `(() => {
       const box = document.querySelector(".zone-right-combat").getBoundingClientRect();
       return { x: Math.round(box.left + box.width * 0.32), y: Math.round(box.top + box.height * 0.36) };
@@ -326,10 +330,6 @@ async function runViewport(cdp, viewport) {
     const leftHandedMovementResponded = await evaluate(cdp, `Boolean(document.querySelector(".dynamic-virtual-stick"))`);
     await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     assert(leftHandedMovementResponded, "right-side movement did not respond in left-handed mode");
-    await evaluate(cdp, `document.querySelector('[data-testid="touch-hud-toggle"]').click(); true`);
-    await delay(80);
-    const panelsClosed = await evaluate(cdp, `document.querySelector(".touch-hud-overlay")?.dataset.mobilePanel === "closed"`);
-    assert(panelsClosed, "HUD panel did not close before returning to combat");
 
     await cdp.call("Emulation.setDeviceMetricsOverride", {
       width: 844,
