@@ -168,6 +168,9 @@ async function runViewport(cdp, viewport) {
   let movementDistance = 0;
   let yawChange = 0;
   let pitchChange = 0;
+  let fireHitVerified = false;
+  let fireAmmoSpent = 0;
+  let fireTargetDamage = 0;
   let fireControlPresent = false;
   let landscapeHudReady = false;
   if (viewport.touch) {
@@ -270,16 +273,65 @@ async function runViewport(cdp, viewport) {
       `simultaneous right-side look did not change live camera pitch (before=${cameraStart.pitch}, after=${movementEnd.pitch})`,
     );
 
-    const fireButton = await evaluate(cdp, `document.querySelector(".touch-fire")?.getBoundingClientRect().toJSON() ?? null`);
-    if (fireButton) {
+    let fireBefore = null;
+    let fireAfter = null;
+    try {
+      const fixture = await evaluate(cdp, `(() => {
+        const controls = window.__controlsTest;
+        if (
+          !controls?.settleForCombatTest ||
+          !controls.prepareCombatTestTarget ||
+          !controls.getCombatTestTarget ||
+          !controls.getCombatTestWeaponState
+        ) return null;
+        const player = controls.settleForCombatTest();
+        const target = controls.prepareCombatTestTarget(1000);
+        return { player, target, weapon: controls.getCombatTestWeaponState() };
+      })()`);
+      assert(fixture, "live touch-fire combat fixture is unavailable");
+      assert(fixture.player.mode === "ground", "combat fixture did not place the live player on the ground");
+      assert(fixture.target.alive && fixture.target.distance <= 7, "combat fixture target is not in the firing lane");
+      assert(
+        fixture.weapon.magazine > 0,
+        `live right-hand weapon has no ammunition: ${JSON.stringify(fixture.weapon)}`,
+      );
+      fireBefore = fixture;
+
+      const fireButton = await evaluate(
+        cdp,
+        `document.querySelector(".touch-fire")?.getBoundingClientRect().toJSON() ?? null`,
+      );
+      assert(fireButton, "mobile fire button is missing");
       const x = Math.round(fireButton.x + fireButton.width / 2);
       const y = Math.round(fireButton.y + fireButton.height / 2);
       await cdp.call("Input.dispatchTouchEvent", {
         type: "touchStart",
         touchPoints: [{ id: 8, x, y, radiusX: 5, radiusY: 5, force: 1 }],
       });
-      await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await delay(1_200);
+      fireAfter = await evaluate(cdp, `({
+        target: window.__controlsTest.getCombatTestTarget(),
+        weapon: window.__controlsTest.getCombatTestWeaponState(),
+      })`);
+    } finally {
+      try {
+        await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      } finally {
+        await evaluate(cdp, `window.__controlsTest?.clearCombatTestTarget?.(); true`);
+      }
     }
+    assert(fireBefore && fireAfter, "touch-fire gameplay check did not produce before/after state");
+    fireAmmoSpent = fireBefore.weapon.magazine - fireAfter.weapon.magazine;
+    fireTargetDamage = fireBefore.target.hp - fireAfter.target.hp;
+    fireHitVerified = fireAmmoSpent > 0 && fireTargetDamage > 0;
+    assert(
+      fireAmmoSpent > 0,
+      `touch fire did not consume ammunition: before=${fireBefore.weapon.magazine}, after=${fireAfter.weapon.magazine}`,
+    );
+    assert(
+      fireTargetDamage > 0,
+      `touch fire did not damage the live target: before=${fireBefore.target.hp}, after=${fireAfter.target.hp}`,
+    );
 
     await evaluate(cdp, `document.querySelector('[data-testid="touch-hud-toggle"]').click(); true`);
     await delay(80);
@@ -447,6 +499,9 @@ async function runViewport(cdp, viewport) {
     movementDistance,
     yawChange,
     pitchChange,
+    fireHitVerified,
+    fireAmmoSpent,
+    fireTargetDamage,
     fireControlPresent,
     landscapeHudReady,
     frameTimes,
@@ -583,6 +638,7 @@ function formatResult(result) {
     `movement-touch=${result.movementControlResponded}, look-touch=${result.lookInputDispatched}, ` +
     `player-translation=${result.movementDistance.toFixed(3)} units, ` +
     `camera-yaw=${result.yawChange.toFixed(4)} rad, camera-pitch=${result.pitchChange.toFixed(4)} rad, ` +
+    `touch-fire-hit=${result.fireHitVerified}, ammo-used=${result.fireAmmoSpent}, target-damage=${result.fireTargetDamage}, ` +
     `fire-control=${result.fireControlPresent || "desktop input"}, landscape-HUD=${result.landscapeHudReady}`;
 }
 

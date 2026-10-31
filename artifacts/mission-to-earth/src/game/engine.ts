@@ -194,6 +194,22 @@ type CombatTestSnapshot = {
   slot: number;
   weaponCycles: Record<WeaponHand, WeaponCycle>;
 };
+type CombatTestPlayerSnapshot = {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  yaw: number;
+  pitch: number;
+  mode: "attract" | "drop" | "ground" | "dead" | "win";
+  grounded: boolean;
+  landed: boolean;
+  airTime: number;
+  landTime: number;
+  invuln: number;
+};
 type Line = { speaker: string; text: string; t: number };
 
 const POOL = 22;
@@ -490,6 +506,7 @@ export class MissionEngine {
   private pool: Actor[] = [];
   #combatTestTarget: Actor | null = null;
   #combatTestSnapshot: CombatTestSnapshot | null = null;
+  #combatTestPlayerSnapshot: CombatTestPlayerSnapshot | null = null;
   private loots: Loot[] = [];
   private terminals: { id: string; x: number; z: number; mesh: THREE.Group; open: boolean }[] = [];
   private vips: {
@@ -1144,6 +1161,15 @@ export class MissionEngine {
             prepareCombatTestTarget: (health?: number) =>
               this.#prepareCombatTestTarget(health),
             getCombatTestTarget: () => this.#getCombatTestTargetState(),
+            settleForCombatTest: () => this.#settleForCombatTest(),
+            getCombatTestWeaponState: () => {
+              const slot = this.slotForHand("right");
+              return {
+                weaponId: slot?.id ?? null,
+                magazine: slot?.mag ?? null,
+                reserve: slot?.reserve ?? null,
+              };
+            },
             fireCombatTestShot: () => this.#fireCombatTestShot(),
             clearCombatTestTarget: () => this.#clearCombatTestTarget(),
           }
@@ -1635,6 +1661,41 @@ export class MissionEngine {
     }
   }
 
+  #settleForCombatTest() {
+    if (this.mode !== "drop" && this.mode !== "ground") {
+      throw new Error("Start a mission before preparing the combat test.");
+    }
+    if (this.mode === "drop") {
+      this.#combatTestPlayerSnapshot ??= {
+        x: this.x,
+        y: this.y,
+        z: this.z,
+        vx: this.vx,
+        vy: this.vy,
+        vz: this.vz,
+        yaw: this.yaw,
+        pitch: this.pitch,
+        mode: this.mode,
+        grounded: this.grounded,
+        landed: this.landed,
+        airTime: this.airTime,
+        landTime: this.landTime,
+        invuln: this.invuln,
+      };
+      this.placeNear(this.x, this.z);
+      this.vx = 0;
+      this.vy = 0;
+      this.vz = 0;
+      this.grounded = true;
+      this.airTime = 0;
+      this.mode = "ground";
+      this.landed = true;
+      this.camera.position.set(this.x, this.y + this.eye, this.z);
+      this.camera.updateMatrixWorld(true);
+    }
+    return { mode: this.mode, position: { x: this.x, y: this.y, z: this.z } };
+  }
+
   #prepareCombatTestTarget(health = 100): CombatTestTargetState {
     if (this.mode !== "ground") {
       throw new Error("Land in a mission before preparing the combat test target.");
@@ -1800,6 +1861,11 @@ export class MissionEngine {
     const snapshot = this.#combatTestSnapshot;
     if (!snapshot) {
       this.#combatTestTarget = null;
+      this.#restoreCombatTestPlayer();
+      this.euler.set(this.pitch, this.yaw, 0, "YXZ");
+      this.camera.quaternion.setFromEuler(this.euler);
+      this.camera.position.set(this.x, this.y + this.eye, this.z);
+      this.camera.updateMatrixWorld(true);
       return;
     }
     Object.assign(snapshot.actor, snapshot.actorState);
@@ -1818,10 +1884,31 @@ export class MissionEngine {
     this.weaponCycles = { ...snapshot.weaponCycles };
     this.#combatTestTarget = null;
     this.#combatTestSnapshot = null;
+    this.#restoreCombatTestPlayer();
     this.euler.set(this.pitch, this.yaw, 0, "YXZ");
     this.camera.quaternion.setFromEuler(this.euler);
     this.camera.position.set(this.x, this.y + this.eye, this.z);
     this.camera.updateMatrixWorld(true);
+  }
+
+  #restoreCombatTestPlayer() {
+    const snapshot = this.#combatTestPlayerSnapshot;
+    if (!snapshot) return;
+    this.x = snapshot.x;
+    this.y = snapshot.y;
+    this.z = snapshot.z;
+    this.vx = snapshot.vx;
+    this.vy = snapshot.vy;
+    this.vz = snapshot.vz;
+    this.yaw = snapshot.yaw;
+    this.pitch = snapshot.pitch;
+    this.mode = snapshot.mode;
+    this.grounded = snapshot.grounded;
+    this.landed = snapshot.landed;
+    this.airTime = snapshot.airTime;
+    this.landTime = snapshot.landTime;
+    this.invuln = snapshot.invuln;
+    this.#combatTestPlayerSnapshot = null;
   }
 
   private resetInputState() {
@@ -5398,6 +5485,15 @@ declare global {
       }>;
       prepareCombatTestTarget?: (health?: number) => CombatTestTargetState;
       getCombatTestTarget?: () => CombatTestTargetState | null;
+      settleForCombatTest?: () => {
+        mode: string;
+        position: { x: number; y: number; z: number };
+      };
+      getCombatTestWeaponState?: () => {
+        weaponId: WeaponId | null;
+        magazine: number | null;
+        reserve: number | null;
+      };
       fireCombatTestShot?: () => {
         fired: boolean;
         ammoBefore: number | null;
