@@ -176,8 +176,12 @@ async function runViewport(cdp, viewport) {
       movementZone: Boolean(document.querySelector(".zone-left-movement")),
       aimZone: Boolean(document.querySelector(".zone-right-combat")),
       fireButton: Boolean(document.querySelector(".touch-fire")),
-      touchPreset: document.querySelector('[aria-label="Touch control preset"]')?.options.length ?? 0,
-      handednessControl: Boolean(document.querySelector('[aria-label="Aiming hand"]')),
+      hudToggle: Boolean(document.querySelector('[data-testid="touch-hud-toggle"]')),
+      panelClosed: document.querySelector(".touch-hud-overlay")?.dataset.mobilePanel === "closed",
+      fieldInfoHidden: (() => {
+        const panel = document.querySelector("#mte-touch-field-panel");
+        return Boolean(panel && getComputedStyle(panel).display === "none");
+      })(),
       landscapePromptVisible: (() => {
         const prompt = document.querySelector(".mte-landscape-prompt");
         return Boolean(prompt && getComputedStyle(prompt).display !== "none");
@@ -188,8 +192,9 @@ async function runViewport(cdp, viewport) {
     assert(mobileControls.overlayVisible, "mobile touch overlay is hidden after deployment");
     assert(mobileControls.movementZone && mobileControls.aimZone, "mobile movement or aim zone is missing");
     assert(mobileControls.fireButton, "mobile fire control is missing");
-    assert(mobileControls.touchPreset === 3, "mobile touch preset selector is missing an option");
-    assert(mobileControls.handednessControl, "mobile handedness selector is missing");
+    assert(mobileControls.hudToggle, "mobile HUD and calibration toggle is missing");
+    assert(mobileControls.panelClosed, "mobile calibration panel should start closed");
+    assert(mobileControls.fieldInfoHidden, "secondary field telemetry should start hidden");
     assert(mobileControls.landscapePromptVisible, "portrait gameplay did not show the landscape recommendation");
     fireControlPresent = mobileControls.fireButton;
 
@@ -243,6 +248,59 @@ async function runViewport(cdp, viewport) {
       await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     }
 
+    await evaluate(cdp, `document.querySelector('[data-testid="touch-hud-toggle"]').click(); true`);
+    await delay(80);
+    const fieldPanelVisible = await evaluate(
+      cdp,
+      `getComputedStyle(document.querySelector("#mte-touch-field-panel")).display !== "none"`,
+    );
+    assert(fieldPanelVisible, "Field tab did not reveal map and status information");
+    await evaluate(cdp, `document.querySelector('[data-testid="touch-tab-controls"]').click(); true`);
+    await delay(80);
+    const controlsPanel = await evaluate(cdp, `(() => ({
+      presetCount: document.querySelector('[aria-label="Touch control preset"]')?.options.length ?? 0,
+      handSelector: Boolean(document.querySelector('[aria-label="Aiming hand"]')),
+      tabs: document.querySelectorAll(".touch-calibration-tabs [role='tab']").length === 3,
+      statusHidden: getComputedStyle(document.querySelector("#mte-touch-field-panel")).display === "none",
+    }))()`);
+    assert(controlsPanel.presetCount === 3, "mobile control presets are missing from the Controls tab");
+    assert(controlsPanel.handSelector, "mobile handedness selector is missing from the Controls tab");
+    assert(controlsPanel.tabs, "mobile calibration categories are missing");
+    assert(controlsPanel.statusHidden, "field telemetry remained visible behind the Controls tab");
+    await evaluate(cdp, `document.querySelector('[data-testid="touch-calibration-tab-aim"]').click(); true`);
+    await delay(60);
+    const aimCalibration = await evaluate(cdp, `(() => ({
+      look: Boolean(document.querySelector('.touch-calibration input[aria-label="Look"]')),
+      movementHidden: !document.querySelector('.touch-calibration input[aria-label="Flick"]'),
+    }))()`);
+    assert(aimCalibration.look && aimCalibration.movementHidden, "Aim tab did not isolate aim calibration");
+    await evaluate(cdp, `(() => {
+      const preset = document.querySelector('[aria-label="Touch control preset"]');
+      preset.value = "advanced";
+      preset.dispatchEvent(new Event("change", { bubbles: true }));
+      const look = document.querySelector('.touch-calibration input[aria-label="Look"]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(look, "2.6");
+      look.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    })()`);
+    await delay(100);
+    const calibrationState = await evaluate(cdp, `(() => ({
+      saved: JSON.parse(localStorage.getItem("mte-touch-tune-v1") || "{}"),
+      layout: JSON.parse(localStorage.getItem("mte-touch-layout-v1") || "{}"),
+      inputValue: document.querySelector('.touch-calibration input[aria-label="Look"]')?.value ?? null,
+    }))()`);
+    assert(
+      calibrationState.saved.look === 2.6 && calibrationState.layout.profile === "advanced",
+      "adjusted touch calibration did not persist: " + JSON.stringify(calibrationState),
+    );
+    await evaluate(cdp, `document.querySelector('[data-testid="touch-calibration-reset"]').click(); true`);
+    await delay(80);
+    const resetCalibration = await evaluate(cdp, `(() => {
+      const saved = JSON.parse(localStorage.getItem("mte-touch-tune-v1") || "{}");
+      const layout = JSON.parse(localStorage.getItem("mte-touch-layout-v1") || "{}");
+      return saved.look === 1.7 && layout.profile === "tactical" && layout.handedness === "right";
+    })()`);
+    assert(resetCalibration, "reset calibration did not restore saved defaults");
     await evaluate(cdp, `(() => {
       const selector = document.querySelector('[aria-label="Aiming hand"]');
       selector.value = "left";
@@ -268,6 +326,10 @@ async function runViewport(cdp, viewport) {
     const leftHandedMovementResponded = await evaluate(cdp, `Boolean(document.querySelector(".dynamic-virtual-stick"))`);
     await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     assert(leftHandedMovementResponded, "right-side movement did not respond in left-handed mode");
+    await evaluate(cdp, `document.querySelector('[data-testid="touch-hud-toggle"]').click(); true`);
+    await delay(80);
+    const panelsClosed = await evaluate(cdp, `document.querySelector(".touch-hud-overlay")?.dataset.mobilePanel === "closed"`);
+    assert(panelsClosed, "HUD panel did not close before returning to combat");
 
     await cdp.call("Emulation.setDeviceMetricsOverride", {
       width: 844,

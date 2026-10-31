@@ -6,6 +6,7 @@
   width: 100%;
   height: 100%;
   height: 100dvh;
+  z-index: 25;
   overflow: hidden;
   pointer-events: none;
   user-select: none;
@@ -25,7 +26,6 @@
   top: 0;
   width: 50%;
   height: 100%;
-  border-right: 1px dashed color-mix(in srgb, var(--color-gold) 12%, transparent);
 }
 
 .zone-right-combat {
@@ -111,11 +111,11 @@
 
 .touch-fire-left {
   position: absolute;
-  left: 16px;
-  bottom: 268px;
+  right: 112px;
+  bottom: 176px;
   z-index: 22;
-  width: 72px;
-  height: 72px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
   pointer-events: auto;
   touch-action: none;
@@ -136,19 +136,19 @@
 
 .touch-focus {
   position: absolute;
-  right: 16px;
-  top: 16px;
+  right: max(16px, env(safe-area-inset-right));
+  top: max(58px, calc(env(safe-area-inset-top) + 50px));
   z-index: 22;
-  min-width: 88px;
-  min-height: 40px;
+  width: 44px;
+  height: 44px;
   pointer-events: auto;
   touch-action: none;
+  border-radius: 50%;
   border: 1px solid var(--color-gold);
   background: color-mix(in srgb, var(--color-bg) 82%, transparent);
   color: var(--color-gold);
   font-family: var(--font-display), sans-serif;
-  letter-spacing: 0.1em;
-  font-size: 11px;
+  font-size: 19px;
 }
 
 .touch-focus.is-live {
@@ -158,20 +158,22 @@
 
 .touch-action {
   position: absolute;
-  left: 16px;
-  right: 116px;
-  bottom: 176px;
+  left: 50%;
+  right: auto;
+  bottom: max(176px, calc(env(safe-area-inset-bottom) + 160px));
   z-index: 22;
-  min-height: 64px;
+  width: min(42vw, 280px);
+  min-height: 48px;
   pointer-events: auto;
   touch-action: none;
   border: 1px solid var(--color-gold);
   background: color-mix(in srgb, var(--color-bg) 82%, transparent);
   color: var(--color-gold);
   font-family: var(--font-display), sans-serif;
-  letter-spacing: 0.12em;
-  font-size: 16px;
+  letter-spacing: 0.08em;
+  font-size: 13px;
   padding: 8px 12px;
+  transform: translateX(-50%);
 }
 
 .touch-weapons {
@@ -203,62 +205,133 @@
   color: var(--color-fg);
 }
 
-.touch-tune {
+.touch-panel-anchor {
   position: absolute;
-  left: 50%;
-  top: 8px;
-  bottom: auto;
-  z-index: 30;
-  width: min(92vw, 280px);
-  transform: translateX(-50%);
+  top: max(10px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 35;
+  pointer-events: none;
+}
+
+.touch-hud-toggle {
+  min-width: 48px;
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, var(--color-cyan) 55%, transparent);
+  background: color-mix(in srgb, var(--color-bg) 86%, transparent);
+  color: var(--color-cyan);
+  font: 700 11px var(--font-display), sans-serif;
+  letter-spacing: 0.12em;
   pointer-events: auto;
-  border: 1px solid var(--color-line);
-  background: color-mix(in srgb, var(--color-bg) 88%, transparent);
-  padding: 6px 8px;
+  touch-action: manipulation;
+  backdrop-filter: blur(8px);
 }
 
-.touch-tune summary {
-  cursor: pointer;
-  color: var(--color-gold);
-  font-family: var(--font-display), sans-serif;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  list-style: none;
+.touch-panel {
+  width: min(88vw, 360px);
+  max-height: min(66dvh, 520px);
+  margin-top: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid color-mix(in srgb, var(--color-cyan) 45%, transparent);
+  background: color-mix(in srgb, var(--color-bg) 94%, transparent);
+  color: var(--color-fg);
+  padding: 10px;
+  pointer-events: auto;
+  touch-action: pan-y;
+  box-shadow: 0 12px 36px rgb(0 0 0 / 52%);
+  backdrop-filter: blur(12px);
 }
 
-.touch-tune label {
+.touch-panel-tabs,
+.touch-calibration-tabs {
   display: grid;
-  grid-template-columns: 72px 1fr 28px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
-  align-items: center;
+  margin-bottom: 10px;
+}
+
+.touch-calibration-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 6px;
+}
+
+.touch-panel-tabs button,
+.touch-calibration-tabs button,
+.touch-reset {
+  min-height: 40px;
+  border: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
   color: var(--color-muted);
-  font-family: var(--font-display), sans-serif;
-  font-size: 10px;
-  letter-spacing: 0.08em;
+  font: 700 11px var(--font-display), sans-serif;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  touch-action: manipulation;
 }
 
-.touch-tune input {
-  width: 100%;
-  accent-color: var(--color-gold);
+.touch-panel-tabs button[aria-selected="true"],
+.touch-calibration-tabs button[aria-selected="true"] {
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+  background: color-mix(in srgb, var(--color-gold) 10%, var(--color-bg));
 }
 
-.configurator-panel-container select {
+.touch-calibration {
+  display: grid;
+  gap: 8px;
+}
+
+.touch-setting {
+  display: grid;
+  gap: 5px;
+  color: var(--color-muted);
+  font: 600 11px var(--font-display), sans-serif;
+  letter-spacing: 0.06em;
+}
+
+.touch-setting select {
   width: 100%;
-  min-height: 36px;
+  min-height: 40px;
   border: 1px solid var(--color-line);
   background: var(--color-surface);
   color: var(--color-fg);
-  padding: 6px 8px;
+  padding: 8px;
   font: 600 12px var(--font-display), sans-serif;
-  letter-spacing: 0.06em;
+}
+
+.touch-setting--slider > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.touch-setting output {
+  color: var(--color-gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.touch-setting input[type="range"] {
+  width: 100%;
+  min-height: 24px;
+  accent-color: var(--color-gold);
+}
+
+.touch-reset {
+  border-color: color-mix(in srgb, var(--color-danger) 60%, transparent);
+  color: var(--color-fg);
+}
+
+.touch-hud-toggle:focus-visible,
+.touch-panel button:focus-visible,
+.touch-panel select:focus-visible,
+.touch-panel input:focus-visible {
+  outline: 2px solid var(--color-fg);
+  outline-offset: 2px;
 }
 
 .touch-hud-overlay.is-left-handed .zone-left-movement {
   right: 0;
   left: auto;
   border-right: 0;
-  border-left: 1px dashed color-mix(in srgb, var(--color-gold) 12%, transparent);
 }
 
 .touch-hud-overlay.is-left-handed .zone-right-combat {
@@ -287,9 +360,9 @@
   left: max(16px, env(safe-area-inset-left));
 }
 
-.touch-hud-overlay.is-left-handed .touch-action {
-  right: max(116px, env(safe-area-inset-right));
-  left: max(16px, env(safe-area-inset-left));
+.touch-hud-overlay.is-left-handed .touch-panel-anchor {
+  right: auto;
+  left: max(12px, env(safe-area-inset-left));
 }
 
 .touch-fire:focus-visible,
@@ -310,22 +383,23 @@
   }
 
   .touch-fire-left {
-    left: max(16px, env(safe-area-inset-left));
+    right: max(96px, calc(env(safe-area-inset-right) + 84px));
     bottom: max(12px, env(safe-area-inset-bottom));
     width: 64px;
     height: 64px;
   }
 
   .touch-focus {
-    top: max(12px, env(safe-area-inset-top));
+    top: max(58px, calc(env(safe-area-inset-top) + 48px));
     right: max(16px, env(safe-area-inset-right));
   }
 
   .touch-action {
-    right: max(108px, calc(env(safe-area-inset-right) + 88px));
-    bottom: max(18px, env(safe-area-inset-bottom));
-    left: max(16px, env(safe-area-inset-left));
+    right: auto;
+    bottom: max(80px, calc(env(safe-area-inset-bottom) + 68px));
+    left: 50%;
     min-height: 48px;
+    width: min(36vw, 260px);
     max-width: 36vw;
     font-size: 13px;
   }
@@ -341,15 +415,13 @@
     left: max(16px, env(safe-area-inset-left));
   }
 
-  .touch-hud-overlay.is-left-handed .touch-action {
-    right: max(16px, env(safe-area-inset-right));
-    left: max(108px, calc(env(safe-area-inset-left) + 88px));
+  .touch-panel-anchor {
+    top: max(10px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
   }
 
-  .configurator-panel-container {
-    bottom: max(8px, env(safe-area-inset-bottom));
-    max-height: 72dvh;
-    overflow-y: auto;
-    padding: 10px 12px;
+  .touch-hud-overlay.is-left-handed .touch-panel-anchor {
+    right: auto;
+    left: max(12px, env(safe-area-inset-left));
   }
 }

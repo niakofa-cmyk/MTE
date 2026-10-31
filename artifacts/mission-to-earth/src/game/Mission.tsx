@@ -33,20 +33,22 @@ import { persistExtractionWin, recoverPendingExtraction } from "@/game/mission-p
 import { type RecordBook } from "@/game/progress-record";
 import {
   applyTouchCommand,
-  LEGACY_SPRINT_SHOVE_PX,
-  SPRINT_SHOVE_PX,
   TouchControllerLayer,
   type TouchCommand,
   type TouchZone,
 } from "@/game/touch-controller";
 import {
+  DEFAULT_TOUCH_TUNING,
   DEFAULT_TOUCH_LAYOUT,
+  parseTouchTuning,
   parseTouchLayout,
   TOUCH_CONTROL_PRESETS,
   TOUCH_LAYOUT_STORAGE_KEY,
+  TOUCH_TUNING_STORAGE_KEY,
   touchZoneForScreenSide,
   type TouchControlProfile,
   type TouchLayoutSettings,
+  type TouchTuning,
 } from "@/game/touch-layout";
 import {
   ServerMatchClient,
@@ -62,6 +64,26 @@ import {
 
 type Screen = "menu" | "dossier" | "armory" | "settings" | "inventory" | "play" | "pause" | "dead" | "win";
 type RankedProfileId = "cinder-row-relay-4v4" | "cinder-row-relay-8v8";
+type MobileHudPanel = "closed" | "field" | "controls";
+type TouchCalibrationTab = "movement" | "aim" | "assist";
+const TOUCH_CALIBRATION_FIELDS: Record<
+  TouchCalibrationTab,
+  { label: string; key: keyof TouchTuning; min: number; max: number; step: number }[]
+> = {
+  movement: [
+    { label: "Flick", key: "flick", min: 8, max: 80, step: 1 },
+    { label: "Sprint", key: "shove", min: 40, max: 120, step: 1 },
+    { label: "Utility size", key: "disc", min: 0.7, max: 1.4, step: 0.1 },
+    { label: "Utility X", key: "discRight", min: 8, max: 120, step: 1 },
+    { label: "Utility Y", key: "discTop", min: 20, max: 80, step: 1 },
+  ],
+  aim: [{ label: "Look", key: "look", min: 0.6, max: 2.8, step: 0.1 }],
+  assist: [
+    { label: "Aim cone", key: "cone", min: 3, max: 14, step: 1 },
+    { label: "Magnet", key: "magnet", min: 0, max: 0.6, step: 0.05 },
+    { label: "Drag", key: "drag", min: 0.3, max: 1, step: 0.05 },
+  ],
+};
 
 function isTouchPortraitViewport() {
   return (
@@ -199,6 +221,7 @@ export function Mission() {
   const [arenaTeam, setArenaTeam] = useState<"accord" | "eon-dusk" | null>(null);
   const [arenaRound, setArenaRound] = useState<ServerArenaRoundSnapshot | null>(null);
   const [touchPortrait, setTouchPortrait] = useState(isTouchPortraitViewport);
+  const [mobileHudPanel, setMobileHudPanel] = useState<MobileHudPanel>("closed");
   const [landscapePromptDismissed, setLandscapePromptDismissed] = useState(false);
   const [fullscreenMessage, setFullscreenMessage] = useState("");
   const settlementInFlight = useRef(false);
@@ -211,6 +234,10 @@ export function Mission() {
     }
   });
   const chosen = OPERATOR_BY_ID[op];
+
+  useEffect(() => {
+    if (screen !== "play") setMobileHudPanel("closed");
+  }, [screen]);
 
   useEffect(() => {
     const updateOrientationHint = () => {
@@ -706,6 +733,7 @@ export function Mission() {
       ) : null}
       <Hud
         live={playing}
+        mobilePanel={mobileHudPanel}
         onEngage={() => engineRef.current?.capture()}
       />
       {saveWarning ? (
@@ -963,7 +991,13 @@ export function Mission() {
           </button>
         </Overlay>
       ) : null}
-      {screen === "play" ? <Touch engineRef={engineRef} /> : null}
+      {screen === "play" ? (
+        <Touch
+          engineRef={engineRef}
+          mobilePanel={mobileHudPanel}
+          onMobilePanelChange={setMobileHudPanel}
+        />
+      ) : null}
       {screen === "play" && touchPortrait && !landscapePromptDismissed ? (
         <aside className="mte-landscape-prompt" role="status" aria-live="polite">
           <div>
@@ -1453,9 +1487,21 @@ function Overlay({
   );
 }
 
-function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
+function Hud({
+  live,
+  mobilePanel,
+  onEngage,
+}: {
+  live: boolean;
+  mobilePanel: MobileHudPanel;
+  onEngage: () => void;
+}) {
   return (
-    <div id="mte-hud" className={live ? "pointer-events-none absolute inset-0" : "hidden"}>
+    <div
+      id="mte-hud"
+      data-touch-panel={mobilePanel}
+      className={live ? "pointer-events-none absolute inset-0" : "hidden"}
+    >
       <div id="mte-vig" className="absolute inset-0 opacity-0" />
       <div className="mte-hud-objective absolute top-4 left-4 max-w-xs">
         <p id="mte-act" className="font-display text-xs tracking-widest text-gold" />
@@ -1474,7 +1520,12 @@ function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
           <p id="mte-sub" className="text-sm leading-snug text-fg" />
         </div>
       </div>
-      <div className="mte-hud-status absolute top-4 right-4 text-right">
+      <div
+        id="mte-touch-field-panel"
+        className="mte-hud-status absolute top-4 right-4 text-right"
+        role="tabpanel"
+        aria-labelledby="touch-tab-field"
+      >
         <p id="mte-compass" className="font-display text-lg tracking-widest text-fg" />
         <p id="mte-kills" className="font-display text-sm tracking-widest text-muted" />
         <p id="mte-zone" className="mt-1 font-display text-sm tracking-widest text-danger" />
@@ -1485,6 +1536,10 @@ function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
           <div id="mte-noise" className="h-full bg-cyan" style={{ width: "0%" }} />
         </div>
         <p id="mte-noise-label" className="font-display text-xs tracking-widest text-muted">Noise</p>
+        <div className="mte-hud-squad mt-3 border-t border-line/70 pt-2 text-left">
+          <p className="font-display text-xs tracking-widest text-muted">Squad</p>
+          <pre id="mte-squad" className="mt-1 font-display text-xs tracking-widest whitespace-pre text-fg" />
+        </div>
       </div>
       <pre id="mte-feed" className="absolute top-48 right-4 text-right font-display text-xs tracking-widest whitespace-pre text-danger" />
       <div id="mte-marks" className="absolute inset-0" />
@@ -1567,10 +1622,6 @@ function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
         >
           <div id="mte-channel" className="h-full bg-gold" style={{ width: "0%" }} />
         </div>
-      </div>
-      <div className="mte-hud-squad absolute bottom-4 left-4">
-        <p className="font-display text-xs tracking-widest text-muted">Squad</p>
-        <pre id="mte-squad" className="mt-1 font-display text-sm tracking-widest whitespace-pre text-fg" />
       </div>
       <div className="mte-hud-loadout absolute right-4 bottom-4 left-4 md:left-auto md:w-80">
         <div className="mb-2">
@@ -1661,7 +1712,15 @@ function Hud({ live, onEngage }: { live: boolean; onEngage: () => void }) {
   );
 }
 
-function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
+function Touch({
+  engineRef,
+  mobilePanel,
+  onMobilePanelChange,
+}: {
+  engineRef: RefObject<MissionEngine | null>;
+  mobilePanel: MobileHudPanel;
+  onMobilePanelChange: (panel: MobileHudPanel) => void;
+}) {
   const layer = useRef(new TouchControllerLayer());
   const timers = useRef(new Map<number, number[]>());
   const pendingPulseTimers = useRef(new Set<number>());
@@ -1669,8 +1728,8 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
   const [stick, setStick] = useState<{ x: number; y: number; nx: number; ny: number } | null>(null);
   const [wheel, setWheel] = useState<string | null>(null);
   const [controlLayout, setControlLayout] = useState<TouchLayoutSettings>(loadTouchLayoutSettings);
-  const [tune, setTune] = useState({ flick: 15, shove: SPRINT_SHOVE_PX, look: 1.7, disc: 1, discRight: 24, discTop: 55, cone: 8, magnet: 0.25, drag: 0.6 });
-  const [layoutOpen, setLayoutOpen] = useState(false);
+  const [tune, setTune] = useState<TouchTuning>(DEFAULT_TOUCH_TUNING);
+  const [calibrationTab, setCalibrationTab] = useState<TouchCalibrationTab>("movement");
   const [readout, setReadout] = useState<{
     prompt: string;
     action: "interact" | "ability" | null;
@@ -1685,20 +1744,7 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("mte-touch-tune-v1");
-      if (!raw) return;
-      const saved = JSON.parse(raw) as Partial<typeof tune>;
-      setTune((prev) => ({
-        flick: saved.flick ?? prev.flick,
-        shove: saved.shove === LEGACY_SPRINT_SHOVE_PX ? SPRINT_SHOVE_PX : saved.shove ?? prev.shove,
-        look: saved.look ?? prev.look,
-        disc: saved.disc ?? prev.disc,
-        discRight: saved.discRight ?? prev.discRight,
-        discTop: saved.discTop ?? prev.discTop,
-        cone: saved.cone ?? prev.cone,
-        magnet: saved.magnet ?? prev.magnet,
-        drag: saved.drag ?? prev.drag,
-      }));
+      setTune(parseTouchTuning(localStorage.getItem(TOUCH_TUNING_STORAGE_KEY)));
     } catch {
       /* keep the defaults */
     }
@@ -1716,7 +1762,7 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
       mission.aimAssist.friction = tune.drag;
     }
     try {
-      localStorage.setItem("mte-touch-tune-v1", JSON.stringify(tune));
+      localStorage.setItem(TOUCH_TUNING_STORAGE_KEY, JSON.stringify(tune));
     } catch {
       // Keep the current layout tuning for this session when storage is unavailable.
     }
@@ -1863,12 +1909,20 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
     setControlLayout((previous) => ({ ...previous, profile }));
     setTune((previous) => ({ ...previous, ...TOUCH_CONTROL_PRESETS[profile] }));
   };
+  const layoutOpen = mobilePanel === "controls";
+  const togglePanel = () => {
+    onMobilePanelChange(mobilePanel === "closed" ? "field" : "closed");
+  };
   const leftScreenZone = touchZoneForScreenSide("left", controlLayout.handedness);
   const rightScreenZone = touchZoneForScreenSide("right", controlLayout.handedness);
   const actionLabel = readout.prompt.replace(/^HOLD E\s+/, "").replace(/^[EQ]\s+/, "");
 
   return (
-    <div className={`touch-only touch-hud-overlay ${controlLayout.handedness === "left" ? "is-left-handed" : ""}`}>
+    <div
+      className={`touch-only touch-hud-overlay ${controlLayout.handedness === "left" ? "is-left-handed" : ""}`}
+      data-mobile-panel={mobilePanel}
+      data-testid="touch-overlay"
+    >
       <div className="touch-zone-interactive zone-left-movement" onPointerDown={start(leftScreenZone)} onPointerMove={drag} onPointerUp={finish(leftScreenZone)} onPointerCancel={finish(leftScreenZone)} onLostPointerCapture={finish(leftScreenZone)} />
       <div className="touch-zone-interactive zone-right-combat" onPointerDown={start(rightScreenZone)} onPointerMove={drag} onPointerUp={finish(rightScreenZone)} onPointerCancel={finish(rightScreenZone)} onLostPointerCapture={finish(rightScreenZone)} />
       <div className="gold-disc-slot" style={{ right: tune.discRight, top: `${tune.discTop}%`, transform: `translateY(-50%) scale(${tune.disc})` }}>
@@ -1878,8 +1932,8 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
           <span className="pointer-events-none absolute inset-0 grid place-items-center font-display text-xs tracking-widest text-bg">{wheel ?? "Q"}</span>
         </div>
       </div>
-      <button type="button" className="touch-fire" onPointerDown={start("FIRE")} onPointerUp={finish("FIRE")} onPointerCancel={finish("FIRE")} onLostPointerCapture={finish("FIRE")}>
-        RIGHT
+      <button type="button" className="touch-fire" aria-label="Fire right-hand weapon" onPointerDown={start("FIRE")} onPointerUp={finish("FIRE")} onPointerCancel={finish("FIRE")} onLostPointerCapture={finish("FIRE")}>
+        FIRE
       </button>
       {readout.weapons.length > 1 ? (
         <button
@@ -1902,11 +1956,12 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
         onPointerCancel={finish("FOCUS")}
         onLostPointerCapture={finish("FOCUS")}
         aria-pressed={readout.focused}
+        aria-label={readout.focused ? "Disable focus aiming" : "Enable focus aiming"}
       >
-        {readout.focused ? "FOCUS ON" : "FOCUS"}
+        ◎
       </button>
-      {readout.weapons.length > 0 ? (
-        <div className="touch-weapons">
+      {readout.weapons.length > 1 ? (
+        <div className="touch-weapons" data-testid="touch-weapon-selector">
           {readout.weapons.map((weapon, index) => (
             <button
               key={`${weapon.name}-${index}`}
@@ -1944,67 +1999,132 @@ function Touch({ engineRef }: { engineRef: RefObject<MissionEngine | null> }) {
           <div className="dynamic-virtual-thumb" style={{ marginLeft: stick.nx * 22, marginTop: -stick.ny * 22 }} />
         </div>
       ) : null}
-      <details className="configurator-panel-container" onToggle={(event) => setLayoutOpen(event.currentTarget.open)} onPointerDown={(event) => event.stopPropagation()}>
-        <summary className="configurator-title">
-          Touch layout
-          <span>{layoutOpen ? "Close" : "Edit"}</span>
-        </summary>
-        <label className="configurator-row">
-          <span className="configurator-label-group"><span>Control preset</span></span>
-          <select
-            aria-label="Touch control preset"
-            value={controlLayout.profile}
-            onChange={(event) => setProfile(event.target.value as TouchControlProfile)}
+      <div className="touch-panel-anchor">
+        <button
+          type="button"
+          className="touch-hud-toggle"
+          data-testid="touch-hud-toggle"
+          aria-expanded={mobilePanel !== "closed"}
+          aria-controls="mte-touch-panel"
+          onClick={togglePanel}
+        >
+          {mobilePanel === "closed" ? "HUD" : "CLOSE"}
+        </button>
+        {mobilePanel !== "closed" ? (
+          <section
+            id="mte-touch-panel"
+            className="touch-panel"
+            role="region"
+            aria-label="Mobile field and control settings"
+            onPointerDown={(event) => event.stopPropagation()}
           >
-            <option value="beginner">Beginner · assisted</option>
-            <option value="tactical">Tactical · balanced</option>
-            <option value="advanced">Advanced · direct</option>
-          </select>
-        </label>
-        <label className="configurator-row">
-          <span className="configurator-label-group"><span>Aiming hand</span></span>
-          <select
-            aria-label="Aiming hand"
-            value={controlLayout.handedness}
-            onChange={(event) => setControlLayout((previous) => ({
-              ...previous,
-              handedness: event.target.value === "left" ? "left" : "right",
-            }))}
-          >
-            <option value="right">Right-handed · move left</option>
-            <option value="left">Left-handed · move right</option>
-          </select>
-        </label>
-        {(
-          [
-            ["Flick", "flick", 8, 80, 1],
-            ["Sprint", "shove", 40, 120, 1],
-            ["Look", "look", 0.6, 2.8, 0.1],
-            ["Disc", "disc", 0.7, 1.4, 0.1],
-            ["Disc X", "discRight", 8, 120, 1],
-            ["Disc Y", "discTop", 20, 80, 1],
-            ["Cone", "cone", 3, 14, 1],
-            ["Magnet", "magnet", 0, 0.6, 0.05],
-            ["Drag", "drag", 0.3, 1, 0.05],
-          ] as const
-        ).map(([label, key, min, max, step]) => (
-          <label key={key} className="configurator-row">
-            <span className="configurator-label-group">
-              <span>{label}</span>
-              <span>{typeof tune[key] === "number" && !Number.isInteger(tune[key]) ? tune[key].toFixed(2) : tune[key]}</span>
-            </span>
-            <input
-              className="configurator-slider"
-              type="range"
-              min={min}
-              max={max}
-              step={step}
-              value={tune[key]}
-              onChange={(event) => setField(key, Number(event.target.value))}
-            />
-          </label>
-        ))}
-      </details>
+            <div className="touch-panel-tabs" role="tablist" aria-label="Mobile panel">
+              <button
+                id="touch-tab-field"
+                type="button"
+                role="tab"
+                aria-selected={mobilePanel === "field"}
+                aria-controls="mte-touch-field-panel"
+                data-testid="touch-tab-field"
+                onClick={() => onMobilePanelChange("field")}
+              >
+                Field
+              </button>
+              <button
+                id="touch-tab-controls"
+                type="button"
+                role="tab"
+                aria-selected={mobilePanel === "controls"}
+                aria-controls="mte-touch-control-panel"
+                data-testid="touch-tab-controls"
+                onClick={() => onMobilePanelChange("controls")}
+              >
+                Controls
+              </button>
+            </div>
+            {mobilePanel === "controls" ? (
+              <div
+                id="mte-touch-control-panel"
+                className="touch-calibration"
+                role="tabpanel"
+                aria-labelledby="touch-tab-controls"
+              >
+                <label className="touch-setting">
+                  <span>Control preset</span>
+                  <select
+                    aria-label="Touch control preset"
+                    value={controlLayout.profile}
+                    onChange={(event) => setProfile(event.target.value as TouchControlProfile)}
+                  >
+                    <option value="beginner">Beginner · assisted</option>
+                    <option value="tactical">Tactical · balanced</option>
+                    <option value="advanced">Advanced · direct</option>
+                  </select>
+                </label>
+                <label className="touch-setting">
+                  <span>Aiming hand</span>
+                  <select
+                    aria-label="Aiming hand"
+                    value={controlLayout.handedness}
+                    onChange={(event) => setControlLayout((previous) => ({
+                      ...previous,
+                      handedness: event.target.value === "left" ? "left" : "right",
+                    }))}
+                  >
+                    <option value="right">Right-handed · move left</option>
+                    <option value="left">Left-handed · move right</option>
+                  </select>
+                </label>
+                <div className="touch-calibration-tabs" role="tablist" aria-label="Calibration category">
+                  {(["movement", "aim", "assist"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      role="tab"
+                      aria-selected={calibrationTab === tab}
+                      data-testid={`touch-calibration-tab-${tab}`}
+                      onClick={() => setCalibrationTab(tab)}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+                <div role="tabpanel" aria-label={`${calibrationTab} calibration`}>
+                  {TOUCH_CALIBRATION_FIELDS[calibrationTab].map(({ label, key, min, max, step }) => (
+                    <label key={key} className="touch-setting touch-setting--slider">
+                      <span>
+                        {label}
+                        <output>{Number.isInteger(tune[key]) ? tune[key] : tune[key].toFixed(2)}</output>
+                      </span>
+                      <input
+                        type="range"
+                        aria-label={label}
+                        min={min}
+                        max={max}
+                        step={step}
+                        value={tune[key]}
+                        onChange={(event) => setField(key, Number(event.target.value))}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="touch-reset"
+                  data-testid="touch-calibration-reset"
+                  onClick={() => {
+                    setControlLayout({ ...DEFAULT_TOUCH_LAYOUT });
+                    setTune({ ...DEFAULT_TOUCH_TUNING });
+                    setCalibrationTab("movement");
+                  }}
+                >
+                  Reset calibration
+                </button>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+      </div>
     </div>
   );
 }
