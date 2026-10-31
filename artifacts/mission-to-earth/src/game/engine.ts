@@ -592,6 +592,7 @@ export class MissionEngine {
   };
   private reloadTapAt = -Infinity;
   private reloadSequence: "left" | null = null;
+  private pendingTouchReload = false;
   private handRecoil: Record<WeaponHand, number> = { right: 0, left: 0 };
   private hp = 100;
   private armor = 0;
@@ -1161,13 +1162,27 @@ export class MissionEngine {
             prepareCombatTestTarget: (health?: number) =>
               this.#prepareCombatTestTarget(health),
             getCombatTestTarget: () => this.#getCombatTestTargetState(),
+            prepareMovementCollisionTest: () => this.#prepareMovementCollisionTest(),
             settleForCombatTest: () => this.#settleForCombatTest(),
+            setCombatTestAmmo: (magazine: number, reserve: number) =>
+              this.#setCombatTestAmmo(magazine, reserve),
+            getTouchInputState: () => ({
+              ax: this.virtual.ax,
+              ay: this.virtual.ay,
+              fire: this.virtual.fire,
+              fireLeft: this.virtual.fireLeft,
+              lookHeld: this.virtual.lookHeld,
+              reload: this.virtual.reload,
+            }),
             getCombatTestWeaponState: () => {
               const slot = this.slotForHand("right");
+              const cycle = this.weaponCycles.right;
               return {
                 weaponId: slot?.id ?? null,
                 magazine: slot?.mag ?? null,
                 reserve: slot?.reserve ?? null,
+                isReloading: cycle.isReloading,
+                reloadProgress: cycle.reloadProgress,
               };
             },
             fireCombatTestShot: () => this.#fireCombatTestShot(),
@@ -1183,6 +1198,10 @@ export class MissionEngine {
     this.hud = root.querySelector("#mte-hud");
     const map = root.querySelector("#mte-map") as HTMLCanvasElement | null;
     if (map) this.mapCtx = map.getContext("2d");
+  }
+
+  requestTouchReload() {
+    this.pendingTouchReload = true;
   }
 
   destroy() {
@@ -1665,23 +1684,8 @@ export class MissionEngine {
     if (this.mode !== "drop" && this.mode !== "ground") {
       throw new Error("Start a mission before preparing the combat test.");
     }
+    this.#captureCombatTestPlayer();
     if (this.mode === "drop") {
-      this.#combatTestPlayerSnapshot ??= {
-        x: this.x,
-        y: this.y,
-        z: this.z,
-        vx: this.vx,
-        vy: this.vy,
-        vz: this.vz,
-        yaw: this.yaw,
-        pitch: this.pitch,
-        mode: this.mode,
-        grounded: this.grounded,
-        landed: this.landed,
-        airTime: this.airTime,
-        landTime: this.landTime,
-        invuln: this.invuln,
-      };
       this.placeNear(this.x, this.z);
       this.vx = 0;
       this.vy = 0;
@@ -1694,6 +1698,94 @@ export class MissionEngine {
       this.camera.updateMatrixWorld(true);
     }
     return { mode: this.mode, position: { x: this.x, y: this.y, z: this.z } };
+  }
+
+  #captureCombatTestPlayer() {
+    this.#combatTestPlayerSnapshot ??= {
+      x: this.x,
+      y: this.y,
+      z: this.z,
+      vx: this.vx,
+      vy: this.vy,
+      vz: this.vz,
+      yaw: this.yaw,
+      pitch: this.pitch,
+      mode: this.mode,
+      grounded: this.grounded,
+      landed: this.landed,
+      airTime: this.airTime,
+      landTime: this.landTime,
+      invuln: this.invuln,
+    };
+  }
+
+  #prepareMovementCollisionTest() {
+    if (this.mode !== "drop" && this.mode !== "ground") {
+      throw new Error("Start a mission before preparing the movement collision test.");
+    }
+    this.#settleForCombatTest();
+    this.vx = 0;
+    this.vz = 0;
+    this.virtual.ax = 0;
+    this.virtual.ay = 0;
+
+    const candidates = this.solids.filter(
+      (box) =>
+        box.alive &&
+        box.h > 1.3 &&
+        box.maxX - box.minX > 1.2 &&
+        box.maxZ - box.minZ > 1.2,
+    );
+    for (const box of candidates) {
+      const centerX = (box.minX + box.maxX) * 0.5;
+      const centerZ = (box.minZ + box.maxZ) * 0.5;
+      const gap = RADIUS + 0.2;
+      const approaches = [
+        { side: "west", x: box.minX - gap, z: centerZ, dx: 1, dz: 0 },
+        { side: "east", x: box.maxX + gap, z: centerZ, dx: -1, dz: 0 },
+        { side: "north", x: centerX, z: box.minZ - gap, dx: 0, dz: 1 },
+        { side: "south", x: centerX, z: box.maxZ + gap, dx: 0, dz: -1 },
+      ] as const;
+      for (const approach of approaches) {
+        const feetY = floorHeight(approach.x, approach.z, 1, this.solids);
+        if (movementBlocked(approach.x, approach.z, feetY, this.solids)) continue;
+        const blockedAhead = movementBlocked(
+          approach.x + approach.dx * 1.2,
+          approach.z + approach.dz * 1.2,
+          feetY,
+          this.solids,
+        );
+        if (blockedAhead !== box) continue;
+        const recoveryX = approach.x - approach.dx * 0.8;
+        const recoveryZ = approach.z - approach.dz * 0.8;
+        if (movementBlocked(recoveryX, recoveryZ, feetY, this.solids)) continue;
+
+        this.x = approach.x;
+        this.y = feetY;
+        this.z = approach.z;
+        this.vy = 0;
+        this.grounded = true;
+        this.airTime = 0;
+        this.mode = "ground";
+        this.landed = true;
+        this.yaw = Math.atan2(-approach.dx, -approach.dz);
+        this.pitch = 0;
+        this.euler.set(this.pitch, this.yaw, 0, "YXZ");
+        this.camera.quaternion.setFromEuler(this.euler);
+        this.camera.position.set(this.x, this.y + this.eye, this.z);
+        this.camera.updateMatrixWorld(true);
+        return {
+          position: { x: this.x, y: this.y, z: this.z },
+          direction: { x: approach.dx, z: approach.dz },
+          gap,
+          wallTag: box.tag,
+          side: approach.side,
+        };
+      }
+    }
+
+    this.#clearCombatTestTarget();
+    throw new Error("No clear live-world wall face is available for the movement collision test.");
   }
 
   #prepareCombatTestTarget(health = 100): CombatTestTargetState {
@@ -1826,6 +1918,27 @@ export class MissionEngine {
     };
   }
 
+  #setCombatTestAmmo(magazine: number, reserve: number) {
+    const slot = this.slotForHand("right");
+    if (!this.#combatTestSnapshot || !this.#combatTestTarget || !slot) {
+      throw new Error("Prepare the combat test target before changing test ammunition.");
+    }
+    if (!Number.isFinite(magazine) || !Number.isFinite(reserve) || magazine < 0 || reserve < 0) {
+      throw new RangeError("Combat test ammunition must be finite and non-negative.");
+    }
+    const capacity = this.statsForHand("right").mag;
+    slot.mag = clamp(Math.floor(magazine), 0, capacity);
+    slot.reserve = clamp(Math.floor(reserve), 0, 10_000);
+    this.weaponCycles.right.cancelReload();
+    return {
+      weaponId: slot.id,
+      magazine: slot.mag,
+      reserve: slot.reserve,
+      isReloading: this.weaponCycles.right.isReloading,
+      reloadProgress: this.weaponCycles.right.reloadProgress,
+    };
+  }
+
   #fireCombatTestShot() {
     const target = this.#combatTestTarget;
     const slot = this.slotForHand("right");
@@ -1912,6 +2025,7 @@ export class MissionEngine {
   }
 
   private resetInputState() {
+    this.pendingTouchReload = false;
     this.keys.clear();
     this.keyOverride = null;
     Object.assign(this.virtual, {
@@ -2538,7 +2652,15 @@ export class MissionEngine {
       }
     }
 
-    if (this.reloadWant()) this.handleReloadInput();
+    const reloadPressed = this.reloadWant();
+    const queuedTouchReload =
+      this.pendingTouchReload &&
+      !this.paused &&
+      (this.mode === "ground" || this.mode === "drop");
+    if (reloadPressed || queuedTouchReload) {
+      this.pendingTouchReload = false;
+      this.handleReloadInput();
+    }
   }
 
   private slidePrev = false;
@@ -5485,14 +5607,38 @@ declare global {
       }>;
       prepareCombatTestTarget?: (health?: number) => CombatTestTargetState;
       getCombatTestTarget?: () => CombatTestTargetState | null;
+      prepareMovementCollisionTest?: () => {
+        position: { x: number; y: number; z: number };
+        direction: { x: number; z: number };
+        gap: number;
+        wallTag: string;
+        side: "west" | "east" | "north" | "south";
+      };
       settleForCombatTest?: () => {
         mode: string;
         position: { x: number; y: number; z: number };
+      };
+      setCombatTestAmmo?: (magazine: number, reserve: number) => {
+        weaponId: WeaponId;
+        magazine: number;
+        reserve: number;
+        isReloading: boolean;
+        reloadProgress: number;
+      };
+      getTouchInputState?: () => {
+        ax: number;
+        ay: number;
+        fire: boolean;
+        fireLeft: boolean;
+        lookHeld: boolean;
+        reload: boolean;
       };
       getCombatTestWeaponState?: () => {
         weaponId: WeaponId | null;
         magazine: number | null;
         reserve: number | null;
+        isReloading: boolean;
+        reloadProgress: number;
       };
       fireCombatTestShot?: () => {
         fired: boolean;

@@ -1813,6 +1813,10 @@ function Touch({
       pendingPulseTimers.current.add(timer);
     };
     for (const command of commands) {
+      if (command.type === "pulse" && command.key === "reload") {
+        live.requestTouchReload();
+        continue;
+      }
       if (command.type === "await-tap") {
         later(layer.current.discDoubleTapMs(), () => apply(layer.current.flushDisc(performance.now())));
         continue;

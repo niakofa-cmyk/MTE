@@ -168,9 +168,17 @@ async function runViewport(cdp, viewport) {
   let movementDistance = 0;
   let yawChange = 0;
   let pitchChange = 0;
+  let touchCancelClearedInputs = false;
+  let collisionBlocked = false;
+  let collisionRecoveryDistance = 0;
   let fireHitVerified = false;
   let fireAmmoSpent = 0;
   let fireTargetDamage = 0;
+  let fireCancelStopped = false;
+  let reloadVerified = false;
+  let reloadBlockedFire = false;
+  let reloadFireResumed = false;
+  let reloadRoundsRestored = 0;
   let fireControlPresent = false;
   let landscapeHudReady = false;
   if (viewport.touch) {
@@ -257,7 +265,18 @@ async function runViewport(cdp, viewport) {
     );
     yawChange = Math.abs(movementEnd.yaw - cameraStart.yaw);
     pitchChange = Math.abs(movementEnd.pitch - cameraStart.pitch);
-    await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await cdp.call("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    const cancelledInputState = await evaluate(
+      cdp,
+      `window.__controlsTest.getTouchInputState?.() ?? null`,
+    );
+    touchCancelClearedInputs = Boolean(
+      cancelledInputState &&
+      Math.abs(cancelledInputState.ax) < 0.001 &&
+      Math.abs(cancelledInputState.ay) < 0.001 &&
+      !cancelledInputState.lookHeld,
+    );
+    assert(touchCancelClearedInputs, `touch cancel left movement/look active: ${JSON.stringify(cancelledInputState)}`);
     assert(movementControlResponded, "mobile movement zone did not respond to a touch drag");
     assert(
       movementDistance > 0.005,
@@ -273,8 +292,75 @@ async function runViewport(cdp, viewport) {
       `simultaneous right-side look did not change live camera pitch (before=${cameraStart.pitch}, after=${movementEnd.pitch})`,
     );
 
+    const collisionFixture = await evaluate(
+      cdp,
+      `window.__controlsTest.prepareMovementCollisionTest?.() ?? null`,
+    );
+    assert(collisionFixture, "live-world movement collision fixture is unavailable");
+    let collisionEnd = null;
+    let recoveryEnd = null;
+    try {
+      await cdp.call("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [{ id: 10, x: movement.x, y: movement.y, radiusX: 5, radiusY: 5, force: 1 }],
+      });
+      await cdp.call("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ id: 10, x: movement.x, y: movement.y - 56, radiusX: 5, radiusY: 5, force: 1 }],
+      });
+      await delay(1_800);
+      const heldState = await evaluate(cdp, `({
+        position: window.__controlsTest.getPos(),
+        input: window.__controlsTest.getTouchInputState(),
+      })`);
+      await cdp.call("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+      const cancelState = await evaluate(cdp, `window.__controlsTest.getTouchInputState()`);
+      const approachDistance =
+        (heldState.position.x - collisionFixture.position.x) * collisionFixture.direction.x +
+        (heldState.position.z - collisionFixture.position.z) * collisionFixture.direction.z;
+      collisionBlocked =
+        heldState.input.ay > 0.5 &&
+        approachDistance > 0.03 &&
+        approachDistance <= collisionFixture.gap + 0.2;
+      assert(
+        collisionBlocked,
+        `player did not stop at the world blocker ${collisionFixture.wallTag} (${collisionFixture.side}); forward=${approachDistance.toFixed(3)}, gap=${collisionFixture.gap}, input=${JSON.stringify(heldState.input)}`,
+      );
+      assert(
+        Math.abs(cancelState.ax) < 0.001 && Math.abs(cancelState.ay) < 0.001,
+        `movement input remained active after cancel at the wall: ${JSON.stringify(cancelState)}`,
+      );
+      await cdp.call("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [{ id: 11, x: movement.x, y: movement.y, radiusX: 5, radiusY: 5, force: 1 }],
+      });
+      await cdp.call("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ id: 11, x: movement.x, y: movement.y + 52, radiusX: 5, radiusY: 5, force: 1 }],
+      });
+      await delay(1_500);
+      recoveryEnd = await evaluate(cdp, `window.__controlsTest.getPos()`);
+      collisionEnd = heldState.position;
+      await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      collisionRecoveryDistance = -(
+        (recoveryEnd.x - collisionEnd.x) * collisionFixture.direction.x +
+        (recoveryEnd.z - collisionEnd.z) * collisionFixture.direction.z
+      );
+      assert(
+        collisionRecoveryDistance > 0.03,
+        `movement did not recover away from the wall after cancel: ${collisionRecoveryDistance.toFixed(3)} units`,
+      );
+    } finally {
+      try {
+        await cdp.call("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+      } finally {
+        await evaluate(cdp, `window.__controlsTest?.clearCombatTestTarget?.(); true`);
+      }
+    }
+
     let fireBefore = null;
     let fireAfter = null;
+    let fireStable = null;
     try {
       const fixture = await evaluate(cdp, `(() => {
         const controls = window.__controlsTest;
@@ -309,13 +395,21 @@ async function runViewport(cdp, viewport) {
         touchPoints: [{ id: 8, x, y, radiusX: 5, radiusY: 5, force: 1 }],
       });
       await delay(1_200);
+      await cdp.call("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
       fireAfter = await evaluate(cdp, `({
         target: window.__controlsTest.getCombatTestTarget(),
         weapon: window.__controlsTest.getCombatTestWeaponState(),
+        input: window.__controlsTest.getTouchInputState(),
+      })`);
+      await delay(800);
+      fireStable = await evaluate(cdp, `({
+        target: window.__controlsTest.getCombatTestTarget(),
+        weapon: window.__controlsTest.getCombatTestWeaponState(),
+        input: window.__controlsTest.getTouchInputState(),
       })`);
     } finally {
       try {
-        await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+        await cdp.call("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
       } finally {
         await evaluate(cdp, `window.__controlsTest?.clearCombatTestTarget?.(); true`);
       }
@@ -332,6 +426,147 @@ async function runViewport(cdp, viewport) {
       fireTargetDamage > 0,
       `touch fire did not damage the live target: before=${fireBefore.target.hp}, after=${fireAfter.target.hp}`,
     );
+    fireCancelStopped = Boolean(
+      fireStable &&
+      fireStable.weapon.magazine === fireAfter.weapon.magazine &&
+      fireStable.target.hp === fireAfter.target.hp &&
+      !fireStable.input.fire,
+    );
+    assert(
+      fireCancelStopped,
+      `touch cancel did not stop firing: after=${JSON.stringify(fireAfter)}, stable=${JSON.stringify(fireStable)}`,
+    );
+
+    let reloadBefore = null;
+    let reloadDuring = null;
+    let reloadComplete = null;
+    let reloadFireAfter = null;
+    try {
+      const fixture = await evaluate(cdp, `(() => {
+        const controls = window.__controlsTest;
+        if (
+          !controls?.settleForCombatTest ||
+          !controls.prepareCombatTestTarget ||
+          !controls.setCombatTestAmmo ||
+          !controls.getCombatTestTarget ||
+          !controls.getCombatTestWeaponState
+        ) return null;
+        controls.settleForCombatTest();
+        const target = controls.prepareCombatTestTarget(1000);
+        const weapon = controls.setCombatTestAmmo(1, 30);
+        return { target, weapon };
+      })()`);
+      assert(fixture, "mobile reload combat fixture is unavailable");
+      assert(
+        fixture.weapon.magazine === 1 && fixture.weapon.reserve === 30,
+        `reload fixture did not start with the expected ammunition: ${JSON.stringify(fixture.weapon)}`,
+      );
+
+      const disc = await evaluate(cdp, `(() => {
+        const element = document.querySelector(".gold-disc-utility");
+        if (!element) return null;
+        const box = element.getBoundingClientRect();
+        return { x: box.x, y: box.y, width: box.width, height: box.height, viewportWidth: innerWidth };
+      })()`);
+      assert(disc, "mobile utility control is missing");
+      const startX = Math.round(disc.x + Math.min(8, disc.width * 0.2));
+      const dx = Math.min(34, Math.floor(disc.viewportWidth - startX - 1));
+      assert(dx >= 30, `utility disc has insufficient room for a reload swipe: ${JSON.stringify(disc)}`);
+      const y = Math.round(disc.y + disc.height / 2);
+      await cdp.call("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [{ id: 12, x: startX, y, radiusX: 5, radiusY: 5, force: 1 }],
+      });
+      await cdp.call("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ id: 12, x: startX + dx, y, radiusX: 5, radiusY: 5, force: 1 }],
+      });
+      await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+
+      for (let attempt = 0; attempt < 80; attempt++) {
+        await delay(200);
+        const state = await evaluate(cdp, `window.__controlsTest.getCombatTestWeaponState()`);
+        if (state.isReloading) {
+          reloadBefore = state;
+          break;
+        }
+      }
+      assert(
+        reloadBefore?.isReloading,
+        `mobile reload swipe did not start a reload: ${JSON.stringify(reloadBefore)}`,
+      );
+
+      const fireBounds = await evaluate(
+        cdp,
+        `document.querySelector(".touch-fire")?.getBoundingClientRect().toJSON() ?? null`,
+      );
+      assert(fireBounds, "mobile fire button disappeared during reload");
+      const fireX = Math.round(fireBounds.x + fireBounds.width / 2);
+      const fireY = Math.round(fireBounds.y + fireBounds.height / 2);
+      await cdp.call("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [{ id: 13, x: fireX, y: fireY, radiusX: 5, radiusY: 5, force: 1 }],
+      });
+      await delay(450);
+      await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      reloadDuring = await evaluate(cdp, `({
+        target: window.__controlsTest.getCombatTestTarget(),
+        weapon: window.__controlsTest.getCombatTestWeaponState(),
+      })`);
+      reloadBlockedFire =
+        reloadDuring.weapon.magazine === 1 &&
+        reloadDuring.target.hp === fixture.target.hp;
+      assert(
+        reloadBlockedFire,
+        `weapon fired while its hand was reloading: before=${JSON.stringify(fixture)}, during=${JSON.stringify(reloadDuring)}`,
+      );
+
+      for (let attempt = 0; attempt < 200; attempt++) {
+        await delay(200);
+        const state = await evaluate(cdp, `({
+          target: window.__controlsTest.getCombatTestTarget(),
+          weapon: window.__controlsTest.getCombatTestWeaponState(),
+        })`);
+        if (!state.weapon.isReloading && state.weapon.magazine > 1) {
+          reloadComplete = state;
+          break;
+        }
+      }
+      assert(
+        reloadComplete,
+        `reload did not transfer reserve ammunition before timeout; last=${JSON.stringify(reloadDuring)}`,
+      );
+      reloadRoundsRestored = reloadComplete.weapon.magazine - 1;
+      reloadVerified =
+        reloadRoundsRestored > 0 &&
+        reloadComplete.weapon.reserve < 30 &&
+        !reloadComplete.weapon.isReloading;
+
+      await cdp.call("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [{ id: 14, x: fireX, y: fireY, radiusX: 5, radiusY: 5, force: 1 }],
+      });
+      await delay(1_200);
+      await cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      reloadFireAfter = await evaluate(cdp, `({
+        target: window.__controlsTest.getCombatTestTarget(),
+        weapon: window.__controlsTest.getCombatTestWeaponState(),
+      })`);
+      reloadFireResumed =
+        reloadFireAfter.weapon.magazine < reloadComplete.weapon.magazine &&
+        reloadFireAfter.target.hp < reloadComplete.target.hp;
+      assert(reloadVerified, `mobile reload did not restore ammunition: ${JSON.stringify(reloadComplete)}`);
+      assert(
+        reloadFireResumed,
+        `mobile fire did not resume after reload: complete=${JSON.stringify(reloadComplete)}, after=${JSON.stringify(reloadFireAfter)}`,
+      );
+    } finally {
+      try {
+        await cdp.call("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+      } finally {
+        await evaluate(cdp, `window.__controlsTest?.clearCombatTestTarget?.(); true`);
+      }
+    }
 
     await evaluate(cdp, `document.querySelector('[data-testid="touch-hud-toggle"]').click(); true`);
     await delay(80);
@@ -499,9 +734,17 @@ async function runViewport(cdp, viewport) {
     movementDistance,
     yawChange,
     pitchChange,
+    touchCancelClearedInputs,
+    collisionBlocked,
+    collisionRecoveryDistance,
     fireHitVerified,
     fireAmmoSpent,
     fireTargetDamage,
+    fireCancelStopped,
+    reloadVerified,
+    reloadBlockedFire,
+    reloadFireResumed,
+    reloadRoundsRestored,
     fireControlPresent,
     landscapeHudReady,
     frameTimes,
@@ -638,7 +881,12 @@ function formatResult(result) {
     `movement-touch=${result.movementControlResponded}, look-touch=${result.lookInputDispatched}, ` +
     `player-translation=${result.movementDistance.toFixed(3)} units, ` +
     `camera-yaw=${result.yawChange.toFixed(4)} rad, camera-pitch=${result.pitchChange.toFixed(4)} rad, ` +
+    `touch-cancel-cleared=${result.touchCancelClearedInputs}, collision-blocked=${result.collisionBlocked}, ` +
+    `recovery=${result.collisionRecoveryDistance.toFixed(3)} units, ` +
     `touch-fire-hit=${result.fireHitVerified}, ammo-used=${result.fireAmmoSpent}, target-damage=${result.fireTargetDamage}, ` +
+    `fire-cancel-stopped=${result.fireCancelStopped}, reload=${result.reloadVerified}, ` +
+    `reload-blocked-fire=${result.reloadBlockedFire}, reload-restored=${result.reloadRoundsRestored}, ` +
+    `fire-resumed=${result.reloadFireResumed}, ` +
     `fire-control=${result.fireControlPresent || "desktop input"}, landscape-HUD=${result.landscapeHudReady}`;
 }
 
