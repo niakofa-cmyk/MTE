@@ -1,5 +1,43 @@
 # Mission To Earth — Phase 1 Stabilization QA Report
 
+## Mobile-control follow-up — 2026-10-31
+
+**Source commit:** `e2ac31f` (`Fix mobile touch reload gesture and QA`)<br>
+**Overall result:** **PASS (browser emulation)** for the three mobile-control follow-ups below. Physical-device behavior and full mission extraction were not retested in this pass.
+
+| Requirement | Result | Evidence / qualification |
+|---|---|---|
+| Simultaneous mobile movement and look | **PASS** | At 390×844 with coarse-pointer and touch emulation enabled, concurrent movement/look contacts changed player position by 1.766 units, yaw by 0.1316 rad, and pitch by 0.0804 rad. |
+| Movement against solid geometry | **PASS** | A live generated-world solid was selected as the collision fixture. A touch-type movement input advanced 1.334 units and stopped within the fixture’s player-radius tolerance. |
+| Input cancellation and recovery | **PASS (browser-emulated)** | Native emulated `touchCancel` cleared movement/look. A subsequent touch-type movement input moved the player again. The wall-approach pointer release also cleared movement axes. |
+| Mobile weapon firing and release | **PASS (browser-emulated)** | A touch-type fire input consumed one round and applied 13 damage to the intended live test target. Releasing it stopped further ammunition loss and damage. |
+| Mobile reload swipe | **PASS** | A native emulated touch swipe on the utility disc triggered reload. Firing during reload did not consume ammunition or damage the target; 30 reserve rounds transferred, and firing resumed afterward. |
+| Browser errors | **PASS** | Workspace Chromium reported 0 page exceptions, 0 console errors, and 0 console warnings. |
+| Desktop browser smoke | **PARTIAL** | The 1280×900 page loaded with WebGL2. This follow-up did not exercise desktop movement or combat controls. |
+| Performance sample | **PARTIAL** | Headless SwiftShader sample: desktop 5 frames, p50 500.0 ms / p95 566.7 ms; mobile 5 frames, p50 366.7 ms / p95 1099.9 ms. These are software-renderer smoke samples, not device-performance benchmarks. |
+| Physical mobile device | **NOT TESTED** | No iOS or Android phone/tablet was available for certification. |
+
+### Defect fixed
+
+The utility-disc long-press timer could start an interaction after 300 ms and the end handler then discarded a swipe, so a delayed reload swipe could become an interaction instead. A recognized swipe now releases an already-started interaction and still emits its action. The touch reload request is latched until the game loop can process it rather than relying on a short frame-sampled pulse.
+
+Regression coverage checks both a swipe that moves before the hold timer fires and a swipe that continues after the hold has already started. The browser smoke also verifies the live reload, firing lockout, ammunition transfer, and resumed fire.
+
+### Commands
+
+| Command | Result |
+|---|---|
+| `pnpm run typecheck` | **PASS** |
+| `pnpm run lint` | **PASS** |
+| `pnpm run test` | **PASS** — Mission To Earth 183 tests and API Server 74 tests; 0 failures |
+| `PORT=5173 BASE_PATH=/ pnpm --filter @workspace/mission-to-earth run build` | **PASS** |
+| `pnpm run check:bundle-size` | **PASS** — all reported chunks and server bundles are within budget |
+| `pnpm run qa:browser-smoke` | **PASS** — SwiftShader WebGL2 smoke; mobile controls above |
+| `git diff --check` | **PASS** |
+| `artifacts/mission-to-earth: web` workflow | **PASS** — restarted and serving |
+
+The Replit screenshot browser still shows its WebGL-unavailable fallback; the separate workspace Chromium smoke successfully created WebGL2. This follow-up does not certify physical-device performance or the rescue-to-extraction mission.
+
 **Review date:** 2026-10-24 (America/Chicago)<br>
 **Repository:** `niakofa-cmyk/MTE`<br>
 **Branch:** `main`<br>
@@ -130,7 +168,7 @@ The Replit screenshot browser displayed the application’s WebGL-unavailable fa
 - `artifacts/mission-to-earth/docs/architecture/references/README.md` — catalog the supplied gate-breach reference.
 - `artifacts/mission-to-earth/docs/qa/phase-1-stabilization-report.md` — current results and historical record.
 
-No commit or push was made during this QA pass.
+The statement above applies only to the 2026-10-24 extraction QA pass. The 2026-10-31 mobile-control source changes are recorded in commit `e2ac31f`; see the follow-up results at the top of this report.
 
 ## Previous verification record (2026-10-23; historical)
 
